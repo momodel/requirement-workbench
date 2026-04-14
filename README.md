@@ -54,3 +54,21 @@ vercel --prod
 - 财务侧：财务系统中与业务系统对应科目的金额
 - 对账粒度：逐笔对账
 - 核心矛盾：业务字段到财务科目映射口径不一致
+
+## 已合并的项目资产
+
+为了把之前 `projects/requirement-workbench/` 里的产物并进这个交互 demo 仓库，当前已经补齐这些目录：
+
+- `docs/`
+  - 历史 PRD、可视化 PRD、最新 PRD
+- `prototypes/`
+  - 早期单页工作台和五阶段 HTML 原型
+- `deliverables/`
+  - 已导出的 PDF 交付件
+- `archive/`
+  - 历史归档包
+
+当前仓库可以理解为两部分：
+
+- React/Vite 交互 demo：用于 mock 数据演示和交互流程展示
+- 项目资产目录：用于保存 PRD、静态原型、PDF 和历史归档

@@ -1,0 +1,942 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>客户需求转译台 PRD</title>
+  <style>
+    :root {
+      --bg: #f5efe6;
+      --paper: #fffdf8;
+      --panel: rgba(255, 252, 247, 0.92);
+      --line: rgba(92, 70, 48, 0.14);
+      --ink: #201c18;
+      --muted: #6d665c;
+      --accent: #bc5a30;
+      --forest: #214f45;
+      --warn: #b48a2f;
+      --danger: #9b3e32;
+      --shadow: 0 18px 40px rgba(72, 50, 31, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(188, 90, 48, 0.14), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(33, 79, 69, 0.12), transparent 24%),
+        linear-gradient(135deg, #efe4d4 0%, #f7f3eb 50%, #eee3d6 100%);
+    }
+
+    .page {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .hero {
+      background: linear-gradient(145deg, rgba(255, 253, 249, 0.98), rgba(255, 248, 239, 0.92));
+      border: 1px solid var(--line);
+      border-radius: 32px;
+      box-shadow: var(--shadow);
+      padding: 28px 30px;
+      margin-bottom: 22px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px rgba(188, 90, 48, 0.12);
+    }
+
+    h1, h2, h3, h4, p { margin: 0; }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: flex-start;
+      margin-top: 8px;
+    }
+
+    .hero h1 {
+      font-size: 40px;
+      line-height: 1.04;
+      margin-bottom: 10px;
+    }
+
+    .hero p {
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--muted);
+      max-width: 72ch;
+    }
+
+    .hero-pills,
+    .tag-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .pill,
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.76);
+      border: 1px solid var(--line);
+      font-size: 12px;
+      color: #5b4d3b;
+    }
+
+    .pill.strong,
+    .tag.strong {
+      background: var(--accent);
+      border-color: transparent;
+      color: white;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+      gap: 22px;
+      margin-bottom: 22px;
+    }
+
+    .block {
+      background: rgba(255, 252, 247, 0.9);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      padding: 24px;
+    }
+
+    .block h2 {
+      font-size: 24px;
+      margin: 8px 0 16px;
+    }
+
+    .block h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+
+    .subtle {
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 14px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .list-item,
+    .card {
+      padding: 14px 16px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.74);
+    }
+
+    .list-item strong,
+    .card strong {
+      display: block;
+      font-size: 14px;
+      margin-bottom: 6px;
+    }
+
+    .phase-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .phase-card {
+      padding: 18px;
+      border-radius: 20px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.76);
+    }
+
+    .phase-card h3 {
+      font-size: 18px;
+      margin-bottom: 8px;
+    }
+
+    .phase-meta {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .mini {
+      padding: 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .mini strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+    }
+
+    .mockups {
+      display: grid;
+      gap: 22px;
+    }
+
+    .mockup-card {
+      background: rgba(255, 252, 247, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      box-shadow: var(--shadow);
+      padding: 18px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .mockup-card h3 {
+      font-size: 22px;
+      margin: 8px 0 12px;
+    }
+
+    .mockup-frame {
+      transform-origin: top left;
+      overflow: hidden;
+      border-radius: 22px;
+      border: 1px solid rgba(92, 70, 48, 0.1);
+      background: linear-gradient(180deg, rgba(255, 251, 247, 0.98), rgba(255, 247, 239, 0.92));
+    }
+
+    .mockup-shell {
+      width: 1560px;
+      transform: scale(0.62);
+      transform-origin: top left;
+      margin-bottom: calc((1 - 0.62) * -780px);
+    }
+
+    .wb-shell {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 22px;
+    }
+
+    .wb-topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 18px;
+      margin-bottom: 18px;
+      background: rgba(255, 252, 247, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .wb-brand h4 {
+      font-size: 24px;
+      margin-top: 6px;
+    }
+
+    .wb-brand p {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+
+    .wb-pills {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .wb-pill {
+      padding: 9px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      font-size: 12px;
+      color: #5b4d3b;
+    }
+
+    .wb-pill.strong {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    .wb-frame {
+      display: grid;
+      grid-template-columns: clamp(260px, 20vw, 320px) minmax(0, 1.45fr) clamp(280px, 24vw, 360px);
+      gap: 18px;
+      min-height: 860px;
+    }
+
+    .wb-panel {
+      background: rgba(255, 252, 247, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .wb-panel-inner {
+      padding: 18px;
+    }
+
+    .wb-section + .wb-section {
+      margin-top: 16px;
+    }
+
+    .wb-section-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .wb-section-title h5 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .wb-badge {
+      min-width: 24px;
+      height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(188, 90, 48, 0.12);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .wb-card,
+    .wb-item {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.72);
+    }
+
+    .wb-item + .wb-item,
+    .wb-card + .wb-card {
+      margin-top: 10px;
+    }
+
+    .wb-subtle {
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .wb-source-top,
+    .wb-plan-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .wb-meta {
+      font-size: 11px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .wb-tag-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+
+    .wb-tag {
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: #fff9f1;
+      border: 1px solid rgba(128, 92, 55, 0.14);
+      font-size: 12px;
+      color: #5b4d3b;
+    }
+
+    .wb-tag.strong {
+      background: var(--forest);
+      color: white;
+      border-color: transparent;
+    }
+
+    .wb-chat {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      background: linear-gradient(180deg, rgba(255, 251, 247, 0.98), rgba(255, 247, 239, 0.92));
+    }
+
+    .wb-chat-head {
+      padding: 20px 20px 14px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(120deg, rgba(188, 90, 48, 0.1), rgba(180, 138, 47, 0.05) 52%, transparent 80%);
+    }
+
+    .wb-chat-head h4 {
+      font-size: 28px;
+      line-height: 1.06;
+      margin: 8px 0;
+    }
+
+    .wb-chat-head p {
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .wb-stages {
+      display: flex;
+      gap: 10px;
+      overflow: auto;
+      margin-top: 16px;
+    }
+
+    .wb-stage {
+      min-width: 126px;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.68);
+    }
+
+    .wb-stage small {
+      display: block;
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 5px;
+    }
+
+    .wb-stage strong {
+      font-size: 13px;
+    }
+
+    .wb-stage.active {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }
+
+    .wb-stage.active small {
+      color: rgba(255, 255, 255, 0.76);
+    }
+
+    .wb-messages {
+      min-width: 0;
+      padding: 18px 20px;
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .wb-bubble {
+      max-width: min(92%, 760px);
+      padding: 15px 16px;
+      border-radius: 20px;
+      border: 1px solid transparent;
+      font-size: 14px;
+      line-height: 1.65;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .wb-bubble.user {
+      margin-left: auto;
+      background: #fffaf4;
+      border-color: rgba(128, 92, 55, 0.16);
+      border-bottom-right-radius: 8px;
+    }
+
+    .wb-bubble.ai {
+      background: rgba(255, 255, 255, 0.86);
+      border-color: var(--line);
+      border-bottom-left-radius: 8px;
+    }
+
+    .wb-bubble.highlight {
+      background: rgba(188, 90, 48, 0.08);
+      border-color: rgba(188, 90, 48, 0.18);
+    }
+
+    .wb-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 9px;
+    }
+
+    .wb-composer {
+      padding: 16px 20px 20px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 251, 246, 0.94);
+    }
+
+    .wb-composer-box {
+      border: 1px solid rgba(92, 70, 48, 0.16);
+      background: white;
+      border-radius: 22px;
+      padding: 14px 16px;
+      min-height: 92px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .wb-composer-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .wb-buttons {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .wb-btn {
+      padding: 10px 14px;
+      border-radius: 999px;
+      font-size: 13px;
+      border: 1px solid rgba(89, 75, 57, 0.12);
+      background: #f8f1e6;
+      color: #594b39;
+    }
+
+    .wb-btn.primary {
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+      box-shadow: 0 10px 24px rgba(188, 90, 48, 0.22);
+    }
+
+    .ok { background: rgba(33, 79, 69, 0.08); }
+    .warn { background: rgba(188, 90, 48, 0.08); }
+
+    .todo.high::before,
+    .todo.medium::before,
+    .todo.low::before {
+      content: "";
+      display: block;
+      width: 42px;
+      height: 4px;
+      border-radius: 999px;
+      margin-bottom: 10px;
+    }
+
+    .todo.high::before { background: var(--danger); }
+    .todo.medium::before { background: var(--warn); }
+    .todo.low::before { background: var(--forest); }
+
+    .wb-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .wb-metric {
+      padding: 13px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.8);
+    }
+
+    .wb-metric strong {
+      display: block;
+      font-size: 22px;
+      margin-bottom: 4px;
+    }
+
+    .wb-metric span {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media print {
+      body {
+        background: white;
+      }
+
+      .page {
+        padding: 12px;
+      }
+
+      .hero,
+      .block,
+      .mockup-card {
+        box-shadow: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="eyebrow"><span class="dot"></span>requirement workbench prd</div>
+      <div class="hero-top">
+        <div>
+          <h1>客户需求转译台</h1>
+          <p>这是一个面向 AI 转型前期的需求分析与方案收敛工作台。它不是陪聊式咨询 bot，而是把客户原始表达、业务资料、流程说明和专业知识，逐步转成可执行需求、MVP 方案和设计交付物。</p>
+        </div>
+        <div class="hero-pills">
+          <span class="pill strong">5 个阶段</span>
+          <span class="pill">3 栏工作台</span>
+          <span class="pill">PRD + 原型</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout">
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span>product summary</div>
+        <h2>产品定位</h2>
+        <div class="list">
+          <div class="list-item">
+            <strong>一句话定义</strong>
+            <p class="subtle">把“客户说得很乱的需求”转成“产品、设计、研发、售前都能继续推进的执行稿”。</p>
+          </div>
+          <div class="list-item">
+            <strong>核心问题</strong>
+            <p class="subtle">客户表达的是想法，不是执行需求；资料分散、流程复杂、AI 边界不清，导致前期需求澄清成本高、方案反复改。</p>
+          </div>
+          <div class="list-item">
+            <strong>核心价值</strong>
+            <p class="subtle">降低前期咨询成本，形成结构化项目画像、真实需求、MVP 方案和设计交付物，让需求分析结果直接进入设计和研发阶段。</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span>target users</div>
+        <h2>目标用户</h2>
+        <div class="list">
+          <div class="card"><strong>直接用户</strong><p class="subtle">AI 转型咨询顾问、售前顾问、产品经理、解决方案架构师、企业内部数字化负责人。</p></div>
+          <div class="card"><strong>间接受益者</strong><p class="subtle">客户业务负责人、设计师、研发团队、项目经理。</p></div>
+          <div class="card"><strong>核心产物</strong><p class="subtle">项目卡片、项目画像、真实需求、待确认项、MVP 草案、信息架构、页面结构和低保真原型说明。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" style="margin-bottom:22px;">
+      <div class="eyebrow"><span class="dot"></span>phase model</div>
+      <h2>五阶段流程</h2>
+      <div class="phase-grid">
+        <div class="phase-card">
+          <h3>1. 需求接入</h3>
+          <p class="subtle">收客户原话、背景、初始资料，建立项目卡片和缺失资料清单。</p>
+          <div class="phase-meta">
+            <div class="mini"><strong>输入</strong><p class="subtle">原始需求、会议纪要、介绍文档、产品资料</p></div>
+            <div class="mini"><strong>系统动作</strong><p class="subtle">抽取需求要点、建立项目卡片、识别缺失资料</p></div>
+            <div class="mini"><strong>输出</strong><p class="subtle">项目卡片、资料清单、初步问题定义</p></div>
+          </div>
+        </div>
+        <div class="phase-card">
+          <h3>2. 业务理解</h3>
+          <p class="subtle">从资料里还原业务流程、角色、术语、系统和约束。</p>
+          <div class="phase-meta">
+            <div class="mini"><strong>输入</strong><p class="subtle">流程文档、角色说明、系统清单、访谈补充</p></div>
+            <div class="mini"><strong>系统动作</strong><p class="subtle">流程建模、角色抽取、术语整理、系统边界识别</p></div>
+            <div class="mini"><strong>输出</strong><p class="subtle">项目画像、角色清单、现状流程图、痛点约束</p></div>
+          </div>
+        </div>
+        <div class="phase-card">
+          <h3>3. 需求收敛</h3>
+          <p class="subtle">把想法、事实、假设、边界拆开，只围绕关键缺口追问。</p>
+          <div class="phase-meta">
+            <div class="mini"><strong>输入</strong><p class="subtle">项目画像、业务流程、冲突点、用户补充</p></div>
+            <div class="mini"><strong>系统动作</strong><p class="subtle">列待确认项、识别冲突、收敛真实需求、排序优先级</p></div>
+            <div class="mini"><strong>输出</strong><p class="subtle">已确认事实、范围边界、真实需求、待确认项</p></div>
+          </div>
+        </div>
+        <div class="phase-card">
+          <h3>4. 方案定义</h3>
+          <p class="subtle">判断 AI 适配度，定义 MVP、风险边界和实施前提。</p>
+          <div class="phase-meta">
+            <div class="mini"><strong>输入</strong><p class="subtle">已收敛需求、数据条件、系统条件、风险要求</p></div>
+            <div class="mini"><strong>系统动作</strong><p class="subtle">评估 AI 适配度、划定边界、生成 MVP、定义能力拆分</p></div>
+            <div class="mini"><strong>输出</strong><p class="subtle">MVP 草案、风险边界、实施前提、验收指标</p></div>
+          </div>
+        </div>
+        <div class="phase-card">
+          <h3>5. 设计交付</h3>
+          <p class="subtle">把方案转成页面结构、交互流和可交付原型。</p>
+          <div class="phase-meta">
+            <div class="mini"><strong>输入</strong><p class="subtle">MVP 方案、能力拆分、关键字段、业务流程</p></div>
+            <div class="mini"><strong>系统动作</strong><p class="subtle">建立页面清单、信息架构、交互流和低保真方向</p></div>
+            <div class="mini"><strong>输出</strong><p class="subtle">页面结构、页面地图、交互流、原型说明</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="layout" style="margin-bottom:22px;">
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span>information architecture</div>
+        <h2>信息结构</h2>
+        <div class="list">
+          <div class="list-item"><strong>顶部状态栏</strong><p class="subtle">显示项目名、当前阶段、资料数、待确认项、AI 适配度、页面数 / 原型版本等全局状态。</p></div>
+          <div class="list-item"><strong>左栏：资料与证据</strong><p class="subtle">沉淀输入信息与证据来源，如项目概况、资料列表、流程文档、术语表、页面地图。</p></div>
+          <div class="list-item"><strong>中栏：聊天与澄清</strong><p class="subtle">负责接住客户原话、做关键追问、输出当前理解和阶段推进建议。</p></div>
+          <div class="list-item"><strong>右栏：项目收敛结果</strong><p class="subtle">沉淀项目画像、已确认事实、范围边界、待确认项、MVP 草案、页面结构与指标卡片。</p></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="eyebrow"><span class="dot"></span>mvp scope</div>
+        <h2>MVP 范围</h2>
+        <div class="list">
+          <div class="card"><strong>必须有</strong><p class="subtle">资料上传、项目卡片、项目画像、待确认项、真实需求、MVP 草案、页面结构建议。</p></div>
+          <div class="card"><strong>先不做</strong><p class="subtle">高保真设计自动生成、代码自动产出、复杂行业专家系统、报价与合同自动输出。</p></div>
+          <div class="card"><strong>成功标准</strong><p class="subtle">单个项目需求收敛周期缩短 30%+，需求分析结果可直接进入设计或研发评估。</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mockups" id="mockups"></section>
+  </div>
+
+  <script>
+    const stages = [
+      {
+        title: '需求接入',
+        subtitle: '先把客户原话和资料接住，形成项目卡片。',
+        status: ['项目: 新建需求', '资料 4 份', '缺失资料 5 项', '阶段: 需求接入', 'AI 判断未开始'],
+        leftTitle: '初始资料',
+        leftSummary: '先收原始需求、客户背景和已有材料，不急着给方案。',
+        leftTags: ['原话已录入', '资料 4 份', '待补背景'],
+        sources: [['客户需求录音转写.md', '刚上传'], ['会议纪要-首次沟通.docx', '已解析'], ['官网介绍.pdf', '已读取'], ['产品手册.pptx', '待抽取']],
+        messages: [['user', '客户原话', '我们公司很多流程都很慢，老板一直说要上 AI，但其实我也说不太清从哪里开始。'], ['ai', '系统引导', '我先帮你把信息收齐，不直接给方案。先补 3 类信息：业务背景、最痛的环节、现有资料。'], ['ai highlight', '当前产物', '已生成项目卡片，下一步进入业务理解。']],
+        rightBlocks: [['项目卡片', '客户是制造业企业，目标是用 AI 提升内部流程效率。', 'ok'], ['初步问题定义', '目前只是想上 AI，还不是可执行需求。', 'warn']],
+        todos: [['缺失资料清单', '当前流程描述、岗位职责、系统清单、样例数据、成功标准', 'high'], ['优先访谈对象', '业务负责人、实际操作人员、IT 对接人', 'medium']],
+        plan: [['阶段输出', '项目卡片 / 资料清单 / 初步问题定义', '入口产物']],
+        metrics: [['4', '已接入资料'], ['5', '待补资料'], ['1', '初步问题定义']]
+      },
+      {
+        title: '业务理解',
+        subtitle: '从客户资料里还原业务流程、角色和约束。',
+        status: ['项目: 售后工单智能辅助', '资料 12 份', '流程 3 条', '阶段: 业务理解', '角色 6 个'],
+        leftTitle: '流程资料',
+        leftSummary: '开始围绕现有流程、岗位分工、系统和术语建模。',
+        leftTags: ['流程已抽取', '角色 6 个', '术语 24 个'],
+        sources: [['售后流程说明.pdf', '已抽流程'], ['岗位职责说明.xlsx', '已识别角色'], ['系统清单.docx', '已解析'], ['术语词表.md', '已归类']],
+        messages: [['user', '客户补充', '现在客服先收单，简单问题自己答，复杂问题转工程师，但大家判断标准不统一。'], ['ai', '系统澄清', '我先还原现状流程：收单、分类、知识查询、升级人工、结果记录。接下来重点确认每一步由谁做、怎么判断。'], ['ai highlight', '当前产物', '已生成现状流程和角色图谱，下一步进入需求收敛。']],
+        rightBlocks: [['项目画像', '已识别角色、流程节点、系统边界和主要痛点。', 'ok'], ['关键约束', '升级人工规则不统一，知识版本存在冲突。', 'warn']],
+        todos: [['流程冲突点', '客服和工程师对复杂问题的判定口径不同', 'high'], ['系统边界', 'CRM、工单系统、知识库之间的数据流待确认', 'medium']],
+        plan: [['阶段输出', '项目画像 / 角色清单 / 现状流程图', '理解产物']],
+        metrics: [['3', '已建模流程'], ['6', '角色节点'], ['2', '主要冲突']]
+      },
+      {
+        title: '需求收敛',
+        subtitle: '把想法、事实、假设拆开，只围绕关键缺口追问。',
+        status: ['项目: 售后工单智能辅助', '已确认 9 项', '待确认 3 项', '阶段: 需求收敛', '冲突 2 个'],
+        leftTitle: '证据资料',
+        leftSummary: '左侧开始变成证据池，给右侧结论提供来源。',
+        leftTags: ['已引用 7 条', '冲突 2 个', '高优先级 3 个'],
+        sources: [['工单样本.xlsx', '引用中'], ['客服访谈.docx', '引用中'], ['SOP V2.pdf', '有冲突'], ['SOP V3.pdf', '有冲突']],
+        messages: [['user', '客户补充', '第一阶段不要自动回复客户，先给客服做辅助就行，最怕答错。'], ['ai', '系统澄清', '收到，这意味着第一阶段目标不是客户自助，而是客服辅助判断和参考回复。我还需要确认升级人工规则和验收口径。'], ['ai highlight', '当前理解', '真实需求已收敛为：内部客服辅助台，不直接外发，重点解决工单分类、知识召回和参考回复。']],
+        rightBlocks: [['已确认事实', '第一阶段服务对象是内部客服，不直接对外自动答复。', 'ok'], ['范围边界', '高风险故障不自动建议处理，必须人工确认。', 'warn']],
+        todos: [['待确认项', '升级人工规则、知识源版本标准、验收指标', 'high'], ['优先级排序', '工单分类 > 知识召回 > 参考回复', 'low']],
+        plan: [['阶段输出', '真实需求 / 范围边界 / 待确认项', '收敛产物']],
+        metrics: [['9', '已确认事实'], ['3', '待确认项'], ['1', '真实需求定义']]
+      },
+      {
+        title: '方案定义',
+        subtitle: '判断 AI 适配度，给出 MVP、风险和实施边界。',
+        status: ['项目: 售后工单智能辅助', 'AI 适配 78%', 'MVP 可做', '阶段: 方案定义', '风险 中'],
+        leftTitle: '方案依据',
+        leftSummary: '左侧沉淀与方案有关的规则、数据条件和系统前提。',
+        leftTags: ['数据可用', '知识可检索', '人工兜底'],
+        sources: [['历史工单库', '可训练/检索'], ['FAQ 知识库', '可召回'], ['CRM 字段清单', '待对接'], ['权限规则.docx', '需校验']],
+        messages: [['ai', '系统建议', '基于现有资料，我建议第一阶段只做内部客服辅助，不做客户侧自动答复。MVP 应包含工单分类、知识召回、参考回复，并保留人工确认。'], ['user', '客户确认', '这个方向对，先做内部辅助比较稳。'], ['ai highlight', '方案草案', '已生成 MVP 方案、风险边界和验收指标，下一步可以进入设计交付。']],
+        rightBlocks: [['MVP 草案', '工单分类、知识召回、参考回复生成。', 'ok'], ['风险边界', '不能高风险自动外发；升级人工逻辑必须可配置。', 'warn']],
+        todos: [['方案待定点', '知识版本治理、权限校验、效果验收方式', 'medium'], ['实施前置', '准备样例数据和客服试点小组', 'low']],
+        plan: [['能力 1', '工单分类', '高优先级'], ['能力 2', '知识召回', '高优先级'], ['能力 3', '参考回复', '人工确认']],
+        metrics: [['78%', 'AI 适配度'], ['3', 'MVP 能力'], ['0', '高风险自动外发']]
+      },
+      {
+        title: '设计交付',
+        subtitle: '把方案转成页面结构、交互流和可交付原型。',
+        status: ['项目: 售后工单智能辅助', '页面 7 个', '交互流 3 条', '阶段: 设计交付', '原型 v0.2'],
+        leftTitle: '页面清单',
+        leftSummary: '这时左侧不再只是资料，而是开始组织页面、模块和参考案例。',
+        leftTags: ['页面 7 个', '流程 3 条', '原型进行中'],
+        sources: [['页面地图.fig', '已梳理'], ['交互流.md', '已生成'], ['字段字典.xlsx', '待补充'], ['参考案例截图.zip', '可参考']],
+        messages: [['ai', '系统输出', '我已经把方案转成信息架构：左侧是资料和来源，中间是聊天，右侧是项目收敛结果。下一步会补页面列表、交互流和低保真原型。'], ['user', '客户确认', '先把核心页和流程跑通，不用高保真。'], ['ai highlight', '交付结果', '已生成页面结构、关键交互和低保真方向，可交给产品或设计继续深化。']],
+        rightBlocks: [['交付物', '信息架构、页面清单、关键流程、低保真原型。', 'ok'], ['实现建议', '先验证核心流程，再做高保真和组件化。', 'ok']],
+        todos: [['待完善', '字段映射、按钮行为、异常状态、权限状态', 'medium'], ['下一步', '进入产品设计或研发评估', 'low']],
+        plan: [['页面 1', '项目工作台', '核心页'], ['页面 2', '资料查看 / 引用', '支持追溯'], ['页面 3', '需求草案与导出', '交付页']],
+        metrics: [['7', '页面清单'], ['3', '关键流程'], ['1', '低保真原型']]
+      }
+    ];
+
+    const mockups = document.getElementById('mockups');
+
+    function renderStage(stage, index) {
+      const stageTabs = stages.map((item, i) => `
+        <div class="wb-stage ${i === index ? 'active' : ''}">
+          <small>Stage 0${i + 1}</small>
+          <strong>${item.title}</strong>
+        </div>`).join('');
+
+      const status = stage.status.map((text, i) => `<span class="wb-pill ${i === 3 ? 'strong' : ''}">${text}</span>`).join('');
+      const tags = stage.leftTags.map((text, i) => `<span class="wb-tag ${i === 0 ? 'strong' : ''}">${text}</span>`).join('');
+      const sources = stage.sources.map(([name, meta]) => `
+        <div class="wb-item">
+          <div class="wb-source-top"><strong>${name}</strong><span class="wb-meta">${meta}</span></div>
+        </div>`).join('');
+      const messages = stage.messages.map(([cls, label, text]) => `
+        <div class="wb-bubble ${cls}">
+          <div class="wb-label">${label}</div>
+          ${text}
+        </div>`).join('');
+      const rightBlocks = stage.rightBlocks.map(([title, text, state]) => `
+        <div class="wb-item ${state}">
+          <strong>${title}</strong>
+          <p class="wb-subtle">${text}</p>
+        </div>`).join('');
+      const todos = stage.todos.map(([title, text, level]) => `
+        <div class="wb-item todo ${level}">
+          <strong>${title}</strong>
+          <p class="wb-subtle">${text}</p>
+        </div>`).join('');
+      const plan = stage.plan.map(([title, text, meta]) => `
+        <div class="wb-item">
+          <div class="wb-plan-top"><strong>${title}</strong><span class="wb-meta">${meta}</span></div>
+          <p class="wb-subtle">${text}</p>
+        </div>`).join('');
+      const metrics = stage.metrics.map(([num, text]) => `
+        <div class="wb-metric"><strong>${num}</strong><span>${text}</span></div>`).join('');
+
+      return `
+        <article class="mockup-card">
+          <div class="eyebrow"><span class="dot"></span>stage ${index + 1}</div>
+          <h3>${stage.title}</h3>
+          <p class="subtle" style="margin-bottom: 14px;">${stage.subtitle}</p>
+          <div class="mockup-frame">
+            <div class="mockup-shell">
+              <div class="wb-shell">
+                <header class="wb-topbar">
+                  <div class="wb-brand">
+                    <div class="eyebrow"><span class="dot"></span>requirement workbench</div>
+                    <h4>${stage.title}</h4>
+                    <p>${stage.subtitle}</p>
+                  </div>
+                  <div class="wb-pills">${status}</div>
+                </header>
+                <div class="wb-frame">
+                  <aside class="wb-panel">
+                    <div class="wb-panel-inner">
+                      <div class="eyebrow"><span class="dot"></span>sources</div>
+                      <div class="wb-section">
+                        <div class="wb-section-title"><h5>${stage.leftTitle}</h5></div>
+                        <div class="wb-card">
+                          <strong>阶段说明</strong>
+                          <p class="wb-subtle">${stage.leftSummary}</p>
+                          <div class="wb-tag-row">${tags}</div>
+                        </div>
+                      </div>
+                      <div class="wb-section">
+                        <div class="wb-section-title"><h5>资料 / 证据</h5><span class="wb-badge">${stage.sources.length}</span></div>
+                        ${sources}
+                      </div>
+                    </div>
+                  </aside>
+                  <main class="wb-panel wb-chat">
+                    <div class="wb-chat-head">
+                      <div class="eyebrow"><span class="dot"></span>conversation</div>
+                      <h4>${stage.title}</h4>
+                      <p>${stage.subtitle}</p>
+                      <div class="wb-stages">${stageTabs}</div>
+                    </div>
+                    <div class="wb-messages">${messages}</div>
+                    <div class="wb-composer">
+                      <div class="wb-composer-box">
+                        <div class="wb-subtle">这个阶段的核心目标：${stage.subtitle}</div>
+                        <div class="wb-composer-actions">
+                          <div class="wb-buttons">
+                            <span class="wb-btn">补充资料</span>
+                            <span class="wb-btn">生成当前理解</span>
+                            <span class="wb-btn">查看待确认项</span>
+                          </div>
+                          <span class="wb-btn primary">推进到下一阶段</span>
+                        </div>
+                      </div>
+                    </div>
+                  </main>
+                  <aside class="wb-panel">
+                    <div class="wb-panel-inner">
+                      <div class="eyebrow"><span class="dot"></span>project cockpit</div>
+                      <div class="wb-section">
+                        <div class="wb-section-title"><h5>阶段产物</h5><span class="wb-badge">${stage.rightBlocks.length}</span></div>
+                        ${rightBlocks}
+                      </div>
+                      <div class="wb-section">
+                        <div class="wb-section-title"><h5>待处理</h5><span class="wb-badge">${stage.todos.length}</span></div>
+                        ${todos}
+                      </div>
+                      <div class="wb-section">
+                        <div class="wb-section-title"><h5>输出</h5><span class="wb-badge">${stage.plan.length}</span></div>
+                        ${plan}
+                        <div class="wb-metrics">${metrics}</div>
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>`;
+    }
+
+    mockups.innerHTML = stages.map(renderStage).join('');
+  </script>
+</body>
+</html>
