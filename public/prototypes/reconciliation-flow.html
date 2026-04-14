@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>关键交互流原型</title>
+    <style>
+      :root {
+        color: #1e2d26;
+        background:
+          radial-gradient(circle at top left, rgba(34, 95, 68, 0.1), transparent 26%),
+          linear-gradient(180deg, #f3f7f2 0%, #edf2ee 100%);
+        font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 270px minmax(0, 1fr);
+        gap: 14px;
+        min-height: 100vh;
+        padding: 16px;
+      }
+
+      .panel,
+      .step-button,
+      .canvas,
+      .result-card,
+      .timeline-card {
+        border-radius: 24px;
+        border: 1px solid rgba(31, 47, 39, 0.08);
+        background: rgba(255, 255, 255, 0.9);
+      }
+
+      .side {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .hero,
+      .canvas {
+        padding: 18px;
+      }
+
+      .eyebrow {
+        color: #728078;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 8px;
+        font-size: 26px;
+      }
+
+      .hero p {
+        margin-top: 8px;
+        color: #536158;
+        line-height: 1.7;
+      }
+
+      .step-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .step-button {
+        padding: 14px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .step-button.is-active {
+        background: linear-gradient(180deg, rgba(222, 236, 228, 0.95), rgba(241, 247, 242, 0.92));
+        border-color: rgba(36, 86, 63, 0.18);
+      }
+
+      .step-index {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 70px;
+        height: 30px;
+        border-radius: 999px;
+        background: rgba(238, 242, 236, 0.95);
+        color: #425147;
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .step-button.is-active .step-index {
+        background: linear-gradient(135deg, #24563f 0%, #2e7354 100%);
+        color: #fff;
+      }
+
+      .step-title {
+        display: block;
+        margin-top: 10px;
+        font-size: 16px;
+      }
+
+      .step-subtitle {
+        display: block;
+        margin-top: 8px;
+        color: #5b685f;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .canvas {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        gap: 14px;
+      }
+
+      .top-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(31, 47, 39, 0.1);
+        background: rgba(243, 246, 241, 0.95);
+        color: #526056;
+        font-size: 12px;
+      }
+
+      .result-card,
+      .timeline-card {
+        padding: 16px;
+      }
+
+      .result-card p,
+      .timeline-card p {
+        color: #536158;
+        line-height: 1.68;
+      }
+
+      .mock-screen {
+        display: grid;
+        gap: 12px;
+      }
+
+      .mock-block {
+        padding: 16px;
+        border-radius: 18px;
+        background: rgba(243, 246, 241, 0.96);
+      }
+
+      .mock-block strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .mock-flow {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .flow-node {
+        padding: 14px;
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px dashed rgba(36, 86, 63, 0.16);
+      }
+
+      .flow-node span {
+        display: block;
+        margin-top: 6px;
+        color: #607067;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      @media (max-width: 920px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .mock-flow {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="side">
+        <section class="panel hero">
+          <div class="eyebrow">Embedded Interaction Prototype</div>
+          <h1>关键交互流</h1>
+          <p>
+            这份原型专门用来讲“用户怎么走”。左边点不同步骤，右边会切换当前场景的主要动作、界面状态和输出结果。
+          </p>
+        </section>
+
+        <div class="step-list" role="tablist" aria-label="交互步骤">
+          <button class="step-button is-active" data-step="01">
+            <span class="step-index">Step 01</span>
+            <strong class="step-title">查看今日差异与高风险异常</strong>
+            <span class="step-subtitle">从总览页先判断今天哪里最值得优先看。</span>
+          </button>
+          <button class="step-button" data-step="02">
+            <span class="step-index">Step 02</span>
+            <strong class="step-title">筛选差异原因与业务类型</strong>
+            <span class="step-subtitle">把同类问题聚拢起来，减少人工逐条翻看。</span>
+          </button>
+          <button class="step-button" data-step="03">
+            <span class="step-index">Step 03</span>
+            <strong class="step-title">确认归因或转交责任人</strong>
+            <span class="step-subtitle">对能确认的问题直接归类，对复杂问题转交处理。</span>
+          </button>
+          <button class="step-button" data-step="04">
+            <span class="step-index">Step 04</span>
+            <strong class="step-title">提交处理并导出报告</strong>
+            <span class="step-subtitle">把处理结果沉淀下来，产出后续评审或日报材料。</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="canvas">
+        <div class="top-strip">
+          <span class="chip" id="actor-chip">角色：财务专员</span>
+          <span class="chip" id="stage-chip">阶段：发现问题</span>
+          <span class="chip">案例：业财逐笔对账</span>
+        </div>
+
+        <section class="result-card">
+          <div class="eyebrow">Current Scene</div>
+          <h2 id="scene-title">查看今日差异与高风险异常</h2>
+          <p id="scene-summary">从总览页锁定最值得优先处理的异常批次和责任域。</p>
+        </section>
+
+        <section class="timeline-card">
+          <div class="eyebrow">Interactive Canvas</div>
+          <div class="mock-screen" id="canvas-content"></div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const stepConfig = {
+        "01": {
+          actor: "财务专员",
+          stage: "发现问题",
+          title: "查看今日差异与高风险异常",
+          summary: "从总览页锁定最值得优先处理的异常批次和责任域。",
+          blocks: [
+            {
+              title: "总览页顶部看板",
+              body: "展示今日差异总量、高风险异常数、处理中笔数，让用户先知道今天是否异常。"
+            },
+            {
+              title: "高风险异常列表",
+              body: "默认把金额大、退款冲销、规则未确认的异常置顶，点击即可进入差异明细。"
+            }
+          ],
+          flow: [
+            ["进入总览页", "查看差异总量和高风险数"],
+            ["打开异常条目", "带着筛选条件进入逐笔差异明细"],
+            ["形成结果", "进入明细页继续分析"]
+          ]
+        },
+        "02": {
+          actor: "财务专员",
+          stage: "聚类分析",
+          title: "筛选差异原因与业务类型",
+          summary: "按组织、业务类型、差异原因筛出同类问题，减少人工逐条翻看。",
+          blocks: [
+            {
+              title: "筛选器",
+              body: "按组织、业务类型、差异原因、处理状态过滤，先把异常范围收小。"
+            },
+            {
+              title: "逐笔差异列表",
+              body: "显示业务金额、财务金额、差异值、建议归因和当前状态。"
+            }
+          ],
+          flow: [
+            ["选择条件", "组织 + 差异原因 + 业务类型"],
+            ["系统聚合同类问题", "把可一并处理的异常放到一起"],
+            ["形成结果", "圈定待确认异常集"]
+          ]
+        },
+        "03": {
+          actor: "财务专员 / 业务运营",
+          stage: "归因确认",
+          title: "确认归因或转交责任人",
+          summary: "对规则明确的问题直接归类，对口径冲突或疑似错挂的问题转交相关负责人。",
+          blocks: [
+            {
+              title: "归因建议区",
+              body: "展示当前建议归因、证据文件和风险提示，帮助用户快速判断。"
+            },
+            {
+              title: "处理动作区",
+              body: "支持确认归因、补充备注、转交责任人，并保留每次处理轨迹。"
+            }
+          ],
+          flow: [
+            ["查看归因建议", "结合规则与样本确认是否可信"],
+            ["确认或转交", "能确认则入处理结论，不能确认则转业务或财务负责人"],
+            ["形成结果", "形成处理意见与责任归属"]
+          ]
+        },
+        "04": {
+          actor: "财务专员",
+          stage: "闭环输出",
+          title: "提交处理并导出报告",
+          summary: "沉淀处理结果、保留审计痕迹，并导出给财务负责人或项目组评审。",
+          blocks: [
+            {
+              title: "处理结果汇总",
+              body: "统计已确认、已转交、待复核的异常，支持按责任人汇总。"
+            },
+            {
+              title: "导出区",
+              body: "一键生成日报、周报或项目评审材料，避免再手工拼表。"
+            }
+          ],
+          flow: [
+            ["提交处理结论", "沉淀异常处理轨迹"],
+            ["导出报告", "选择日报或评审格式"],
+            ["形成结果", "输出日报 / 周报或项目评审材料"]
+          ]
+        }
+      };
+
+      const actorChip = document.getElementById("actor-chip");
+      const stageChip = document.getElementById("stage-chip");
+      const sceneTitle = document.getElementById("scene-title");
+      const sceneSummary = document.getElementById("scene-summary");
+      const canvasContent = document.getElementById("canvas-content");
+      const stepButtons = document.querySelectorAll(".step-button");
+
+      function renderStep(stepId) {
+        const config = stepConfig[stepId];
+        actorChip.textContent = "角色：" + config.actor;
+        stageChip.textContent = "阶段：" + config.stage;
+        sceneTitle.textContent = config.title;
+        sceneSummary.textContent = config.summary;
+
+        const blocks = config.blocks
+          .map(
+            (block) =>
+              '<div class="mock-block"><strong>' + block.title + '</strong><p>' + block.body + "</p></div>"
+          )
+          .join("");
+
+        const flow = config.flow
+          .map(
+            ([title, body]) =>
+              '<div class="flow-node"><strong>' + title + '</strong><span>' + body + "</span></div>"
+          )
+          .join("");
+
+        canvasContent.innerHTML =
+          blocks + '<div class="mock-flow">' + flow + "</div>";
+      }
+
+      stepButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          stepButtons.forEach((item) => item.classList.remove("is-active"));
+          button.classList.add("is-active");
+          renderStep(button.dataset.step);
+        });
+      });
+
+      renderStep("01");
+    </script>
+  </body>
+</html>

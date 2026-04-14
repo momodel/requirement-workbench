@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>业财对账系统页面方案原型</title>
+    <style>
+      :root {
+        color: #1f2e27;
+        background:
+          radial-gradient(circle at top left, rgba(33, 93, 66, 0.12), transparent 28%),
+          linear-gradient(180deg, #f4f7f2 0%, #eef3ee 100%);
+        font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: #1f2e27;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr);
+        min-height: 100vh;
+        padding: 16px;
+        gap: 12px;
+      }
+
+      .panel,
+      .page-frame,
+      .metric-card,
+      .table-card,
+      .info-card,
+      .rule-card,
+      .detail-card {
+        border: 1px solid rgba(31, 47, 39, 0.08);
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 24px;
+      }
+
+      .hero {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 20px;
+      }
+
+      .eyebrow {
+        color: #728078;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        margin-top: 8px;
+        font-size: 28px;
+      }
+
+      .hero p {
+        margin-top: 8px;
+        max-width: 760px;
+        color: #536158;
+        line-height: 1.7;
+      }
+
+      .meta-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-content: flex-start;
+      }
+
+      .chip,
+      .tab-button,
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(31, 47, 39, 0.1);
+        background: rgba(246, 248, 244, 0.92);
+        color: #4c5b52;
+        font-size: 12px;
+      }
+
+      .tab-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 4px;
+      }
+
+      .tab-button {
+        cursor: pointer;
+      }
+
+      .tab-button.is-active {
+        background: linear-gradient(135deg, #24563f 0%, #2f7656 100%);
+        color: #fff;
+        border-color: transparent;
+      }
+
+      .page-frame {
+        padding: 16px;
+        min-height: 0;
+      }
+
+      .page-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .page-grid.overview {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .metric-card {
+        padding: 16px;
+        min-height: 110px;
+      }
+
+      .metric-card strong {
+        display: block;
+        margin-top: 10px;
+        font-size: 28px;
+      }
+
+      .metric-card span {
+        display: block;
+        margin-top: 6px;
+        color: #627066;
+        font-size: 13px;
+      }
+
+      .page-grid.details {
+        grid-template-columns: 1.2fr 0.8fr;
+      }
+
+      .table-card,
+      .info-card,
+      .rule-card,
+      .detail-card {
+        padding: 16px;
+      }
+
+      .table {
+        margin-top: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .table-row {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr 0.7fr 0.9fr;
+        gap: 8px;
+        padding: 10px 12px;
+        border-radius: 16px;
+        background: rgba(244, 247, 242, 0.96);
+        cursor: pointer;
+      }
+
+      .table-row.is-active {
+        background: rgba(223, 236, 228, 0.95);
+      }
+
+      .table-row span {
+        color: #445248;
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .section-title {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .section-title p {
+        color: #66746b;
+        font-size: 13px;
+      }
+
+      .detail-list {
+        margin-top: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .detail-item {
+        padding: 12px;
+        border-radius: 16px;
+        background: rgba(244, 247, 242, 0.96);
+      }
+
+      .detail-item strong {
+        display: block;
+        margin-bottom: 6px;
+      }
+
+      .detail-item p {
+        color: #556258;
+        line-height: 1.6;
+      }
+
+      .rule-stack {
+        margin-top: 12px;
+        display: grid;
+        gap: 10px;
+      }
+
+      .rule-card {
+        background: rgba(244, 247, 242, 0.96);
+      }
+
+      .rule-card strong,
+      .info-card strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+
+      .muted {
+        color: #66746b;
+        line-height: 1.6;
+      }
+
+      .hidden {
+        display: none;
+      }
+
+      @media (max-width: 920px) {
+        .page-grid.overview,
+        .page-grid.details,
+        .two-col {
+          grid-template-columns: 1fr;
+        }
+
+        .table-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <section class="panel hero">
+        <div>
+          <div class="eyebrow">Embedded Page Prototype</div>
+          <h1>业财对账系统页面方案</h1>
+          <p>
+            这不是说明文字，而是一份可切换的页面结构原型。点击上方页面标签，可以看总览页、逐笔差异明细页、映射规则配置页和异常处理页的主要信息块。
+          </p>
+        </div>
+        <div class="meta-strip">
+          <span class="chip">阶段：设计交付</span>
+          <span class="chip">版本：v0.8</span>
+          <span class="chip">状态：可讲解原型</span>
+        </div>
+      </section>
+
+      <div class="tab-row" role="tablist" aria-label="页面原型切换">
+        <button class="tab-button is-active" data-target="overview">对账总览页</button>
+        <button class="tab-button" data-target="details">逐笔差异明细页</button>
+        <button class="tab-button" data-target="rules">映射规则配置页</button>
+        <button class="tab-button" data-target="exceptions">异常处理页</button>
+      </div>
+
+      <section class="page-frame">
+        <div class="page-grid overview" data-page="overview">
+          <article class="metric-card">
+            <div class="eyebrow">Today</div>
+            <strong>214</strong>
+            <span>今日待处理差异笔数</span>
+          </article>
+          <article class="metric-card">
+            <div class="eyebrow">High Risk</div>
+            <strong>18</strong>
+            <span>高金额或口径未确认异常</span>
+          </article>
+          <article class="metric-card">
+            <div class="eyebrow">Progress</div>
+            <strong>67%</strong>
+            <span>今日异常已完成处理比例</span>
+          </article>
+          <article class="table-card">
+            <div class="section-title">
+              <h2>高风险异常</h2>
+              <span class="badge">优先处理</span>
+            </div>
+            <div class="table">
+              <div class="table-row">
+                <span>结算单 JS-20260413-018</span>
+                <span>退款冲销口径冲突</span>
+                <span>差异 82,400</span>
+                <span>待财务负责人确认</span>
+              </div>
+              <div class="table-row">
+                <span>订单 OD-20260413-244</span>
+                <span>收入科目疑似错挂</span>
+                <span>差异 31,200</span>
+                <span>待业务运营说明</span>
+              </div>
+            </div>
+          </article>
+          <article class="info-card">
+            <strong>差异原因分布</strong>
+            <p class="muted">科目映射不一致 43%，退款冲销口径差异 28%，未入账 19%，税额拆分差异 10%。</p>
+          </article>
+          <article class="info-card">
+            <strong>处理进度概览</strong>
+            <p class="muted">已确认 94 笔，处理中 76 笔，待指派 44 笔。点击高风险异常可直接进入明细页。</p>
+          </article>
+        </div>
+
+        <div class="page-grid details hidden" data-page="details">
+          <article class="table-card">
+            <div class="section-title">
+              <h2>逐笔差异明细</h2>
+              <p>点击任一差异行，右侧会切换归因建议和处理动作。</p>
+            </div>
+            <div class="table">
+              <button class="table-row is-active" type="button" data-detail="a">
+                <span>OD-20260413-244 / 华东组织</span>
+                <span>业务金额 128,000 / 财务金额 96,800</span>
+                <span>收入科目错挂</span>
+                <span>处理中</span>
+              </button>
+              <button class="table-row" type="button" data-detail="b">
+                <span>JS-20260413-018 / 华北组织</span>
+                <span>结算金额 82,400 / 财务金额 0</span>
+                <span>退款冲销冲突</span>
+                <span>待确认</span>
+              </button>
+              <button class="table-row" type="button" data-detail="c">
+                <span>OD-20260413-301 / 华南组织</span>
+                <span>业务金额 56,600 / 财务金额 54,900</span>
+                <span>税额拆分差异</span>
+                <span>待复核</span>
+              </button>
+            </div>
+          </article>
+          <article class="detail-card">
+            <div class="section-title">
+              <h2>归因建议</h2>
+              <span class="badge" id="detail-badge">收入科目错挂</span>
+            </div>
+            <div class="detail-list" id="detail-panel"></div>
+          </article>
+        </div>
+
+        <div class="page-grid rules hidden" data-page="rules">
+          <article class="table-card">
+            <div class="section-title">
+              <h2>规则检索区</h2>
+              <span class="badge">业务类型 / 组织 / 有效期</span>
+            </div>
+            <div class="two-col" style="margin-top: 12px">
+              <div class="info-card">
+                <strong>当前检索</strong>
+                <p class="muted">业务类型：退款单</p>
+                <p class="muted">组织：华北组织</p>
+                <p class="muted">税额口径：含税</p>
+              </div>
+              <div class="info-card">
+                <strong>风险提示</strong>
+                <p class="muted">该规则在 2025Q4 与 2026Q1 存在挂科差异，不能默认自动归因。</p>
+              </div>
+            </div>
+          </article>
+          <article class="table-card">
+            <div class="section-title">
+              <h2>规则列表</h2>
+              <p>用来展示不同组织、税额口径下的规则差异。</p>
+            </div>
+            <div class="rule-stack">
+              <div class="rule-card">
+                <strong>退款单 / 华北组织 / 含税</strong>
+                <p class="muted">收入冲减科目：6051.01，税额冲减科目：2221.03，生效时间：2026-01-01。</p>
+              </div>
+              <div class="rule-card">
+                <strong>退款单 / 华北组织 / 不含税</strong>
+                <p class="muted">收入冲减科目：6051.02，税额单独拆分，需人工复核税额挂接。</p>
+              </div>
+            </div>
+          </article>
+        </div>
+
+        <div class="page-grid exceptions hidden" data-page="exceptions">
+          <article class="table-card">
+            <div class="section-title">
+              <h2>待处理异常池</h2>
+              <span class="badge">人工闭环</span>
+            </div>
+            <div class="table">
+              <div class="table-row">
+                <span>OD-20260413-244</span>
+                <span>待业务运营补充原始单据</span>
+                <span>责任人：周悦</span>
+                <span>预计今天完成</span>
+              </div>
+              <div class="table-row">
+                <span>JS-20260413-018</span>
+                <span>待财务负责人确认退款口径</span>
+                <span>责任人：陈楠</span>
+                <span>高风险</span>
+              </div>
+            </div>
+          </article>
+          <article class="two-col">
+            <div class="info-card">
+              <strong>处理意见面板</strong>
+              <p class="muted">支持确认归因、转交责任人、补充备注、保留审计留痕。</p>
+            </div>
+            <div class="info-card">
+              <strong>处理轨迹记录</strong>
+              <p class="muted">展示何时识别、何时确认、谁处理、是否已回写日报或评审材料。</p>
+            </div>
+          </article>
+        </div>
+      </section>
+    </div>
+
+    <script>
+      const detailMap = {
+        a: {
+          badge: "收入科目错挂",
+          items: [
+            ["当前判断", "订单业务类型被挂到历史旧科目，财务金额少了收入主科目部分。"],
+            ["证据来源", "业务类型-财务科目映射.xlsx、历史差异清单.xlsx"],
+            ["建议动作", "先由财务专员确认规则版本，再转业务运营核对组织口径。"]
+          ]
+        },
+        b: {
+          badge: "退款冲销冲突",
+          items: [
+            ["当前判断", "退款单在业务系统已生成，但财务侧按旧冲销路径处理，暂未入账。"],
+            ["证据来源", "结算单样例-0325.csv、财务科目口径说明.docx"],
+            ["建议动作", "必须由财务负责人拍板退款口径，当前系统只标记高风险。"]
+          ]
+        },
+        c: {
+          badge: "税额拆分差异",
+          items: [
+            ["当前判断", "业务侧按含税口径输出，财务侧按不含税口径拆分税额。"],
+            ["证据来源", "订单字段说明.xlsx、财务科目口径说明.docx"],
+            ["建议动作", "先确认税额拆分规则，再决定是否加入自动归类规则。"]
+          ]
+        }
+      };
+
+      const detailPanel = document.getElementById("detail-panel");
+      const detailBadge = document.getElementById("detail-badge");
+      const detailButtons = document.querySelectorAll("[data-detail]");
+
+      function renderDetail(key) {
+        const config = detailMap[key];
+        detailBadge.textContent = config.badge;
+        detailPanel.innerHTML = config.items
+          .map(
+            ([title, body]) =>
+              '<div class="detail-item"><strong>' + title + '</strong><p>' + body + "</p></div>"
+          )
+          .join("");
+      }
+
+      detailButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          detailButtons.forEach((item) => item.classList.remove("is-active"));
+          button.classList.add("is-active");
+          renderDetail(button.dataset.detail);
+        });
+      });
+
+      renderDetail("a");
+
+      const tabs = document.querySelectorAll(".tab-button");
+      const pages = document.querySelectorAll("[data-page]");
+
+      tabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tabs.forEach((item) => item.classList.remove("is-active"));
+          tab.classList.add("is-active");
+          pages.forEach((page) => {
+            page.classList.toggle("hidden", page.dataset.page !== tab.dataset.target);
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

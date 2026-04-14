@@ -1,0 +1,6 @@
+.vercel
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+requirement-workbench-archive-20260413.zip
