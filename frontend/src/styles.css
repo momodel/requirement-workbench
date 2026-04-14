@@ -1,0 +1,138 @@
+:root {
+  color: #16212f;
+  background: linear-gradient(180deg, #f3f6fb 0%, #eef2f8 100%);
+  font-family: "SF Pro Text", "PingFang SC", "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.page-shell,
+.workbench-shell {
+  padding: 32px;
+}
+
+.hero-card,
+.workspace-panel,
+.project-card,
+.panel-card {
+  border: 1px solid rgba(22, 33, 47, 0.08);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 24px 60px rgba(22, 33, 47, 0.08);
+}
+
+.hero-card {
+  max-width: 860px;
+  padding: 28px;
+}
+
+.eyebrow {
+  margin: 0 0 8px;
+  color: #59708a;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+.hero-copy,
+.panel-card p,
+.project-card p,
+.empty-copy {
+  color: #4a5f76;
+}
+
+.project-list {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.project-card {
+  padding: 20px;
+}
+
+.project-card-head,
+.meta-row,
+.panel-header,
+.workbench-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #e8eef8;
+  color: #294766;
+  font-size: 13px;
+}
+
+.primary-link {
+  display: inline-flex;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #16324f;
+  color: #fff;
+  text-decoration: none;
+}
+
+.workbench-grid {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.workspace-panel {
+  min-height: 560px;
+  padding: 18px;
+}
+
+.stack-list {
+  display: grid;
+  gap: 12px;
+}
+
+.compact-card,
+.chat-placeholder {
+  padding: 14px;
+}
+
+.state-block + .state-block {
+  margin-top: 16px;
+}
+
+.state-block h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #36516f;
+}
+
+@media (max-width: 1100px) {
+  .workbench-grid {
+    grid-template-columns: 1fr;
+  }
+}
