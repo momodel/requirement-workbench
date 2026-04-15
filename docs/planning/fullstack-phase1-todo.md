@@ -7,6 +7,7 @@
 - 范围：`全栈一期`
 - 目标：在当前仓库上补齐真实前后端闭环
 - 原则：旧 demo 归档为参考资产，新主工程围绕 `frontend/`、`backend/`、`data/`、`docs/` 继续推进
+- 附加原则：方法论和 NotebookLM 工作流先固化为项目级 skill，再继续扩运行时代码
 
 配套规格说明见：[客户需求转译台 全栈一期 Spec](../product/fullstack-phase1-spec.md)
 
@@ -30,113 +31,123 @@
 
 ### Phase 1: 工程基线与目录重组
 
-- [ ] 把旧 demo 前端、原型、PDF、zip 和历史文档统一归档到 `archive/legacy-demo/`
-- [ ] 新建 `frontend/`, `backend/app/`, `data/sqlite/`, `data/projects/` 目录
-- [ ] 在根目录补充新的仓库说明和前后端分开启动说明
-- [ ] 明确前端默认端口与后端默认端口
-- [ ] 新前端从 `frontend/` 目录启动
-- [ ] 旧 demo 只保留为参考资产，不再占据主路径
+- [x] 把旧 demo 前端、原型、PDF、zip 和历史文档统一归档到 `archive/legacy-demo/`
+- [x] 新建 `frontend/`, `backend/app/`, `data/sqlite/`, `data/projects/` 目录
+- [x] 新建 `.claude/skills/` 和 `AGENTS.md`
+- [x] 在根目录补充新的仓库说明和前后端分开启动说明
+- [x] 明确前端默认端口与后端默认端口
+- [x] 新前端从 `frontend/` 目录启动
+- [x] 旧 demo 只保留为参考资产，不再占据主路径
+
+### Phase 1.5: 项目级 Skills
+
+- [x] 创建 `requirement-analysis-methodology` 主 skill
+- [x] 将 `BABOK / JTBD / Event Storming / 状态分类 / artifact 触发规则` 放入该 skill 与 references
+- [x] 创建 `notebooklm-evidence-workflow` 主 skill
+- [x] 明确 NotebookLM source type 边界、标准化要求、查询与降级规则
+- [x] 在 skill 中标注外部 `PleasePrompto/notebooklm-skill` 仅作参考，不作为正式 runtime
+- [x] 更新 `AGENTS.md`，让项目自动发现上述 skills
 
 ### Phase 2: SQLite 与状态模型
 
-- [ ] 设计并实现首版 SQLite schema
-- [ ] 写数据库初始化逻辑，应用启动时自动建表
-- [ ] 建立 `Project / Source / Message / Understanding / Conflict / MVP / Version / NotebookBinding / DemoArtifact` 的存取层
-- [ ] 定义内部状态聚合函数，能把多表结果聚合成 `GET /state` 的前端消费对象
-- [ ] 预置 `业财逐笔对账` seed project 及其 seed sources / seed state
+- [x] 设计并实现首版 SQLite schema
+- [x] 写数据库初始化逻辑，应用启动时自动建表
+- [x] 建立 `Project / Source / Message / Understanding / Conflict / MVP / Version / NotebookBinding / DemoArtifact` 的存取层
+- [x] 定义内部状态聚合函数，能把多表结果聚合成 `GET /state` 的前端消费对象
+- [x] 预置 `业财逐笔对账` seed project 及其 seed sources / seed state
 
 ### Phase 3: 项目与 Source API
 
-- [ ] 实现项目创建接口
-- [ ] 实现项目列表接口
-- [ ] 实现项目详情接口
-- [ ] 实现 source 上传接口，支持文本、文件、URL 三类入口
+- [x] 实现项目创建接口
+- [x] 实现项目列表接口
+- [x] 实现项目详情接口
+- [x] 实现 source 上传接口，支持文本、文件、URL 三类入口
 - [ ] source 上传成功后先写本地文件，再写 SQLite 记录，再异步触发标准化与 NotebookLM 同步
-- [ ] source 列表接口返回解析状态、同步状态、摘要、错误信息
-- [ ] 前端左栏切换到真实 source API
-- [ ] 保留现有卡片风格与悬浮摘要交互
+- [x] source 列表接口返回解析状态、同步状态、摘要、错误信息
+- [x] 前端左栏切换到真实 source API
+- [x] 保留现有卡片风格与悬浮摘要交互
 
 ### Phase 4: Source Ingestion 管线
 
-- [ ] 文本粘贴：直接生成 text source 和 summary
-- [ ] PDF / DOCX / Markdown / Text：提取纯文本并生成摘要文件
-- [ ] 图片：生成视觉描述文本并生成 notebook-friendly 文本源
-- [ ] 音频：转写为文本后生成 notebook-friendly 文本源
-- [ ] XLSX：提取 sheet、表头、样例行、统计摘要，并生成 Markdown / 文本版标准化文件
-- [ ] 飞书纪要：只支持粘贴文本或导出文件上传，不做账号连接
-- [ ] 每类 source 都统一输出 `normalized_path + parse_summary + parse_status`
+- [x] 文本粘贴：直接生成 text source 和 summary
+- [x] PDF / DOCX / Markdown / Text：提取纯文本并生成摘要文件
+- [x] 图片：生成视觉描述文本并生成 notebook-friendly 文本源
+- [x] 音频：转写为文本后生成 notebook-friendly 文本源
+- [x] XLSX：提取 sheet、表头、样例行、统计摘要，并生成 Markdown / 文本版标准化文件
+- [x] 飞书纪要：只支持粘贴文本或导出文件上传，不做账号连接
+- [x] 每类 source 都统一输出 `normalized_path + parse_summary + parse_status`
 
 ### Phase 5: NotebookLM 证据服务
 
-- [ ] 实现 `NotebookLMService` 接口与首版 provider
-- [ ] 每个项目首次需要 NotebookLM 时自动创建 notebook binding
+- [x] 实现 `NotebookLMService` 接口与首版 provider
+- [x] 每个项目首次需要 NotebookLM 时自动创建 notebook binding
 - [ ] source 标准化完成后自动导入对应 notebook
-- [ ] 实现“按项目 + source 上下文查询 grounding summary / citations”能力
-- [ ] 失败时回写 `sync_status`
-- [ ] 确保同步失败不阻塞主项目状态
-- [ ] 明确 notebook 内 source 与本地 source 的映射关系
+- [x] 实现“按项目 + source 上下文查询 grounding summary / citations”能力
+- [x] 失败时回写 `sync_status`
+- [x] 确保同步失败不阻塞主项目状态
+- [x] 明确 notebook 内 source 与本地 source 的映射关系
 
 ### Phase 6: Claude Agent Runtime
 
-- [ ] 实现 `AgentRuntime` 接口与 `ClaudeAgentRuntime`
-- [ ] 输入给 runtime 的上下文锁定为：项目摘要、最近消息、聚合状态、相关 source 摘要、NotebookLM grounding
-- [ ] runtime 输出锁定为：assistant 文本、citations、状态 patch、是否触发 artifact 生成、是否触发版本快照
-- [ ] 主 runtime 不直接写库；只返回结构化结果给后端 service
+- [x] 实现 `AgentRuntime` 接口与 `ClaudeAgentRuntime`
+- [x] 输入给 runtime 的上下文锁定为：项目摘要、最近消息、聚合状态、相关 source 摘要、NotebookLM grounding
+- [x] runtime 输出锁定为：assistant 文本、citations、状态 patch、是否触发 artifact 生成、是否触发版本快照
+- [x] 主 runtime 不直接写库；只返回结构化结果给后端 service
 - [ ] 明确 prompt 结构：角色设定、方法论步骤、输出格式、artifact 生成规则、禁止事项
 
 ### Phase 7: SSE 聊天与状态 Patch
 
-- [ ] 实现 `POST /api/projects/{project_id}/chat/stream`
-- [ ] 聊天开始后先写 user message，再调用 NotebookLM，再调用 Claude runtime
-- [ ] assistant 文本按 chunk 流出
-- [ ] citations 与 patch 作为独立 SSE 事件并行发送
-- [ ] patch 入库成功后再发对应 SSE 事件
-- [ ] 避免前端显示与数据库状态不一致
-- [ ] 关键阶段自动创建版本快照，并通过 `version_patch` 发给前端
+- [x] 实现 `POST /api/projects/{project_id}/chat/stream`
+- [x] 聊天开始后先写 user message，再调用 NotebookLM，再调用 Claude runtime
+- [x] assistant 文本按 chunk 流出
+- [x] citations 与 patch 作为独立 SSE 事件并行发送
+- [x] patch 入库成功后再发对应 SSE 事件
+- [x] 避免前端显示与数据库状态不一致
+- [x] 关键阶段自动创建版本快照，并通过 `version_patch` 发给前端
 
 ### Phase 8: 前端状态改造
 
-- [ ] 前端增加 API client 和 SSE client
-- [ ] 聊天区从 `demoData.ts` 进度驱动改为真实消息与 SSE 驱动
-- [ ] 右栏沉淀总集从静态数组改为接收 patch 后更新 store
-- [ ] 首页改成项目列表页
-- [ ] 默认自动展示 seed project
-- [ ] 维持已确认交互：文件摘要浮窗顶置、大预览层展示 HTML 交付物、文档稿留在抽屉
-- [ ] 若后端不可达，允许切回本地 mock seed，仅作为开发 fallback，不作为主验收路径
+- [x] 前端增加 API client 和 SSE client
+- [x] 聊天区从 `demoData.ts` 进度驱动改为真实消息与 SSE 驱动
+- [x] 右栏沉淀总集从静态数组改为接收 patch 后更新 store
+- [x] 首页改成项目列表页
+- [x] 默认自动展示 seed project
+- [x] 维持已确认交互：文件摘要浮窗顶置、大预览层展示 HTML 交付物、文档稿留在抽屉
+- [x] 若后端不可达，允许切回本地 mock seed，仅作为开发 fallback，不作为主验收路径
 
 ### Phase 9: 自动版本快照
 
-- [ ] 后端实现关键轮次自动生成版本快照
-- [ ] 前端右栏展示当前版本与历史版本列表
-- [ ] 快照详情至少展示：触发原因、时间、摘要
-- [ ] 不做版本 diff、回滚和冲突合并
+- [x] 后端实现关键轮次自动生成版本快照
+- [x] 前端右栏展示当前版本与历史版本列表
+- [x] 快照详情至少展示：触发原因、时间、摘要
+- [x] 不做版本 diff、回滚和冲突合并
 
 ### Phase 10: Artifact 自由生成
 
-- [ ] 文档稿生成：主模型输出结构化 sections，落盘 JSON
-- [ ] 页面方案生成：主模型输出页面说明 + HTML 原型
-- [ ] 交互稿生成：主模型输出流程说明 + HTML 原型
-- [ ] 为 HTML 输出增加最小校验器：标题、页面区块、主要导航、无外链脚本
-- [ ] 保存 artifact 元数据与落盘路径
-- [ ] 前端从 `GET /artifacts` 读取并展示
-- [ ] HTML artifact 继续用大预览层展示，保证演示体验
+- [x] 文档稿生成：主模型输出结构化 sections，落盘 JSON
+- [x] 页面方案生成：主模型输出页面说明 + HTML 原型
+- [x] 交互稿生成：主模型输出流程说明 + HTML 原型
+- [x] 为 HTML 输出增加最小校验器：标题、页面区块、主要导航、无外链脚本
+- [x] 保存 artifact 元数据与落盘路径
+- [x] 前端从 `GET /artifacts` 读取并展示
+- [x] HTML artifact 继续用大预览层展示，保证演示体验
 
 ### Phase 11: 演示加固
 
-- [ ] 固化 seed project、seed messages、seed sources
-- [ ] 为 Claude / NotebookLM / artifact generation 各自加失败降级提示
-- [ ] 前端补 loading、empty、error 状态
-- [ ] 明确“无网 / NotebookLM 失败 / 主模型失败”三类 fallback 演示路径
-- [ ] 补一份演示脚本，说明从新建项目到生成 artifact 的标准路径
+- [x] 固化 seed project、seed messages、seed sources
+- [x] 为 Claude / NotebookLM / artifact generation 各自加失败降级提示
+- [x] 前端补 loading、empty、error 状态
+- [x] 明确“无网 / NotebookLM 失败 / 主模型失败”三类 fallback 演示路径
+- [x] 补一份演示脚本，说明从新建项目到生成 artifact 的标准路径
 
 ## 4. 验收与测试清单
 
 ### 4.1 后端单元测试
 
-- [ ] source 标准化输出符合预期
-- [ ] SQLite 聚合状态能正确生成 `current / pending / confirmed / conflict / mvp / version / artifact`
-- [ ] 关键轮次会自动生成版本快照
-- [ ] artifact 校验器能拒绝空 HTML、缺标题 HTML、含外链脚本 HTML
+- [x] source 标准化输出符合预期
+- [x] SQLite 聚合状态能正确生成 `current / pending / confirmed / conflict / mvp / version / artifact`
+- [x] 关键轮次会自动生成版本快照
+- [x] artifact 校验器能拒绝空 HTML、缺标题 HTML、含外链脚本 HTML
 
 ### 4.2 后端集成测试
 
@@ -148,14 +159,14 @@
 
 ### 4.3 前端测试
 
-- [ ] 首屏可加载项目列表与默认 seed project
-- [ ] source 上传、source 状态刷新、source 摘要浮窗正常
-- [ ] 聊天区能消费 SSE 并滚动到最新消息
+- [x] 首屏可加载项目列表与默认 seed project
+- [x] source 上传、source 状态刷新、source 摘要浮窗正常
+- [x] 聊天区能消费 SSE 并滚动到最新消息
 - [ ] 右栏能根据 patch 更新
-- [ ] 文档稿走抽屉
-- [ ] 页面方案和交互稿走大预览层
-- [ ] 文件摘要浮窗每次打开滚到顶部
-- [ ] 版本列表在关键轮次自动新增
+- [x] 文档稿走抽屉
+- [x] 页面方案和交互稿走大预览层
+- [x] 文件摘要浮窗每次打开滚到顶部
+- [x] 版本列表在关键轮次自动新增
 
 ### 4.4 端到端验收
 

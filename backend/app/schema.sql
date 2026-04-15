@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS sources (
   normalized_path TEXT,
   notebook_import_mode TEXT,
   parse_status TEXT NOT NULL,
+  sync_status TEXT NOT NULL DEFAULT 'pending',
   parse_summary TEXT,
   created_at TEXT NOT NULL
 );

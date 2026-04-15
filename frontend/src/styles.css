@@ -20,22 +20,30 @@ a {
   color: inherit;
 }
 
+button,
+input,
+textarea {
+  font: inherit;
+}
+
 #root {
   min-height: 100vh;
 }
 
 .page-shell,
 .workbench-shell {
-  padding: 32px;
+  padding: 24px;
 }
 
 .hero-card,
 .workspace-panel,
 .project-card,
-.panel-card {
+.panel-card,
+.floating-preview-card,
+.artifact-overlay-card {
   border: 1px solid rgba(22, 33, 47, 0.08);
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 24px 60px rgba(22, 33, 47, 0.08);
 }
 
@@ -55,7 +63,8 @@ a {
 .hero-copy,
 .panel-card p,
 .project-card p,
-.empty-copy {
+.empty-copy,
+.summary-copy {
   color: #4a5f76;
 }
 
@@ -72,7 +81,8 @@ a {
 .project-card-head,
 .meta-row,
 .panel-header,
-.workbench-header {
+.workbench-header,
+.source-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -89,8 +99,16 @@ a {
   font-size: 13px;
 }
 
-.primary-link {
+.primary-link,
+.ghost-button {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+}
+
+.primary-link {
   margin-top: 12px;
   padding: 10px 14px;
   border-radius: 12px;
@@ -99,16 +117,64 @@ a {
   text-decoration: none;
 }
 
+.ghost-button {
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #edf3fb;
+  color: #284866;
+}
+
+.action-button {
+  margin-top: 0;
+}
+
+.secondary-action {
+  background: #2f567d;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.field-label {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label input,
+.field-label textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(22, 33, 47, 0.12);
+  border-radius: 12px;
+  background: #f8fbff;
+}
+
 .workbench-grid {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr) 320px;
+  grid-template-columns: 320px minmax(0, 1fr) 360px;
   gap: 16px;
   margin-top: 20px;
+  align-items: start;
 }
 
 .workspace-panel {
-  min-height: 560px;
+  min-height: 620px;
   padding: 18px;
+}
+
+.sources-panel,
+.state-panel {
+  max-height: calc(100vh - 140px);
+  overflow: auto;
+}
+
+.chat-column {
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
 }
 
 .stack-list {
@@ -116,9 +182,57 @@ a {
   gap: 12px;
 }
 
-.compact-card,
-.chat-placeholder {
+.compact-card {
   padding: 14px;
+}
+
+.input-card {
+  gap: 12px;
+}
+
+.source-list {
+  margin-top: 12px;
+}
+
+.source-card .summary-copy {
+  margin-bottom: 0;
+}
+
+.chat-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.chat-events {
+  flex: 1;
+  min-height: 320px;
+  overflow: auto;
+  display: grid;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.chat-bubble {
+  padding: 14px 16px;
+  border-radius: 18px;
+}
+
+.assistant-bubble {
+  background: #eef5ff;
+}
+
+.system-bubble {
+  background: #f6f8fb;
+  border: 1px solid rgba(22, 33, 47, 0.08);
+}
+
+.chat-composer {
+  display: grid;
+  gap: 12px;
 }
 
 .state-block + .state-block {
@@ -131,8 +245,80 @@ a {
   color: #36516f;
 }
 
+.artifact-card button,
+.source-card button {
+  margin-top: 0;
+}
+
+.floating-preview {
+  position: fixed;
+  top: 92px;
+  left: 36px;
+  width: 320px;
+  z-index: 30;
+}
+
+.floating-preview-card {
+  padding: 16px;
+}
+
+.artifact-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 37, 0.2);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.artifact-overlay-card {
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 48px);
+  padding: 18px;
+  overflow: auto;
+}
+
+.artifact-html {
+  min-height: 80vh;
+}
+
+.artifact-frame {
+  width: 100%;
+  min-height: 70vh;
+  border: 1px solid rgba(22, 33, 47, 0.1);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.artifact-document {
+  margin: 0;
+  padding: 16px;
+  border-radius: 16px;
+  background: #f7faff;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.error-copy {
+  color: #b42318;
+}
+
 @media (max-width: 1100px) {
   .workbench-grid {
     grid-template-columns: 1fr;
+  }
+
+  .sources-panel,
+  .state-panel,
+  .chat-column {
+    max-height: none;
+  }
+
+  .floating-preview {
+    position: static;
+    width: auto;
+    margin-top: 16px;
   }
 }

@@ -17,6 +17,18 @@
 - 交付物生成：允许模型自由生成，但必须经过后端结构化约束、校验和落盘
 - 版本管理：关键轮次自动生成快照
 - 输入边界：以 NotebookLM 官方支持的 source types 为正式能力边界；超出其原生能力的输入，必须先做服务端标准化
+- agent 工作手册：需求分析方法论与 NotebookLM 工作流都以项目级 skill 固化
+
+## 1.1 当前实现快照
+
+当前仓库已经有一条本地可运行的闭环，作为一期基线：
+
+- `frontend/` 已切到项目列表 + 三栏工作台
+- `backend/` 已具备 `projects / sources / state / chat / versions / artifacts` 路由
+- `SQLite + data/projects/*` 已承接项目、资料、消息、状态项、版本快照和交付物落盘
+- `AgentRuntime` 与 `EvidenceRuntime` 已通过本地 provider 先落地，方便后续替换为真实 Claude Agent SDK 与 NotebookLM provider
+- 聊天接口已经返回 `message_chunk / citations / *_patch / version_patch / done`
+- 交付物已经支持 `document / page_solution / interaction_flow`
 
 关于 NotebookLM source types，一期按用户已确认的信息约束设计：官方帮助当前列出的 source types 包括粘贴文本、音频、图片、Word / Text / Markdown / PDF、Web URL、YouTube URL，以及 Google Docs / Slides / Sheets。基于这个边界，`XLSX` 和 `飞书纪要` 不能按“NotebookLM 本地原生直传”设计，必须通过服务端转换或导入桥接后再进入 notebook。参考：[Add or discover new sources for your notebook](https://support.google.com/notebooklm/answer/16215270?co=GENIE.Platform%3DDesktop&hl=en)
 
@@ -89,6 +101,41 @@
 
 目的是保留后续替换 Claude 或 NotebookLM 的空间。
 
+### 3.7 项目级 Skill 策略
+
+一期明确引入项目级 skills，但只做两个主 skill，不把方法论拆得过碎。
+
+- `requirement-analysis-methodology`
+  - 负责 intake、结构化分析、真实需求判断、关键追问、状态沉淀、版本快照和 artifact 触发规则
+  - `BABOK / JTBD / Event Storming` 等方法论细节放进该 skill 的 `references/`
+- `notebooklm-evidence-workflow`
+  - 负责 source 标准化边界、NotebookLM 查询时机、grounded summary / citations 获取方式、失败降级和回写原则
+
+不建议把 `BABOK`、`JTBD`、`Event Storming` 各自拆成独立 skill。第一版应保持：
+
+- 一个方法论主 skill
+- 一个 NotebookLM workflow skill
+- 细节知识通过 `references/` 渐进加载
+
+### 3.8 外部 NotebookLM Skill 的采用边界
+
+可以参考外部项目 [`PleasePrompto/notebooklm-skill`](https://github.com/PleasePrompto/notebooklm-skill)，但它在本项目中的定位只能是：
+
+- 参考其 prompt 结构、交互设计和工作流约束
+- 作为研发阶段的辅助资料
+
+不能把它当作本项目一期的唯一正式底座，原因是：
+
+- 它偏本地 Claude Code skill，而不是项目自己的产品运行时
+- 本项目正式能力仍然必须落在 `NotebookLMService` 与 `EvidenceRuntime`
+- 项目运行时需要可替换、可测试、可回写状态，不能完全依赖外部 skill
+
+因此，一期采用策略锁定为：
+
+- 项目内自建 `notebooklm-evidence-workflow` skill
+- 可借鉴 `PleasePrompto/notebooklm-skill`
+- 正式运行时由 `backend/app/services/notebooklm_service.py` 承接
+
 ## 4. 目录与代码结构
 
 ### 4.1 主目录结构
@@ -97,6 +144,7 @@
 - `backend/`
 - `data/`
 - `docs/`
+- `.claude/skills/`
 - `archive/legacy-demo/`
 
 ### 4.2 后端新增目录
@@ -124,7 +172,13 @@
 - `data/projects/<project-id>/sources/`
 - `data/projects/<project-id>/artifacts/`
 
-### 4.4 前端建议拆分
+### 4.4 项目级 Skill 目录
+
+- `.claude/skills/requirement-analysis-methodology/`
+- `.claude/skills/notebooklm-evidence-workflow/`
+- `AGENTS.md`
+
+### 4.5 前端建议拆分
 
 - `frontend/src/App.tsx`：只保留路由入口职责
 - `frontend/src/features/workbench/`：三栏工作台与 SSE 状态订阅

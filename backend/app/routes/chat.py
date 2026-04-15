@@ -3,11 +3,10 @@ import json
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from ..services.agent_runtime import MockClaudeAgentRuntime
+from ..services.chat_service import run_chat_round
 
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
-runtime = MockClaudeAgentRuntime()
 
 
 def sse_event(event: str, data: dict) -> str:
@@ -15,15 +14,21 @@ def sse_event(event: str, data: dict) -> str:
 
 
 @router.post("/stream")
-def stream_chat(project_id: str, message: str = "") -> StreamingResponse:
-    response = runtime.respond(message or "空输入")
+def stream_chat(project_id: str, payload: dict | None = None) -> StreamingResponse:
+    request = payload or {}
+    message = request.get("message", "空输入")
+    selected_source_ids = request.get("selected_source_ids")
+    request_artifact_types = request.get("request_artifact_types")
+    client_context = request.get("client_context")
 
     def event_stream():
-        for chunk in response.message.split("。"):
-            if not chunk:
-                continue
-            yield sse_event("message_chunk", {"project_id": project_id, "text": f"{chunk}。"})
-
-        yield sse_event("done", {"project_id": project_id})
+        for event in run_chat_round(
+            project_id=project_id,
+            message=message,
+            selected_source_ids=selected_source_ids,
+            request_artifact_types=request_artifact_types,
+            client_context=client_context,
+        ):
+            yield sse_event(event["event"], event["data"])
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

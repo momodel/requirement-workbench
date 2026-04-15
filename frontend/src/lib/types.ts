@@ -11,7 +11,11 @@ export type SourceRecord = {
   id: string;
   name: string;
   sourceKind: string;
+  uploadKind?: string;
+  storagePath?: string;
+  normalizedPath?: string;
   parseStatus: string;
+  parseSummary?: string;
   syncStatus: string;
 };
 
@@ -19,6 +23,21 @@ export type StateItem = {
   id: string;
   title: string;
   body: string;
+};
+
+export type ArtifactRecord = {
+  id: string;
+  artifactType: string;
+  title: string;
+  summary: string;
+  status: string;
+  contentFormat: string;
+  storagePath?: string;
+};
+
+export type ChatEvent = {
+  event: string;
+  data: Record<string, unknown>;
 };
 
 export type ProjectState = {

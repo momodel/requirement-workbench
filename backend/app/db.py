@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 
 from .config import SQLITE_DIR, SQLITE_PATH
+from .services.seed_projects import seed_database
 
 
 def init_db() -> None:
@@ -11,6 +12,7 @@ def init_db() -> None:
     try:
         schema_path = Path(__file__).with_name("schema.sql")
         connection.executescript(schema_path.read_text(encoding="utf-8"))
+        seed_database(connection)
         connection.commit()
     finally:
         connection.close()

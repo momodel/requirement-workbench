@@ -1,3 +1,6 @@
+import json
+import sqlite3
+
 from ..models import ProjectState, ProjectSummary, SourceRecord, StateItem
 
 
@@ -50,7 +53,13 @@ SEED_STATE = ProjectState(
             body="当前后端先保留接口和占位实现，后续再换成 Claude 与 NotebookLM。"
         )
     ],
-    confirmed_items=[],
+    confirmed_items=[
+        StateItem(
+            id="confirmed-1",
+            title="旧 demo 已转入参考资产区",
+            body="当前仓库主路径只保留一期主工程和当前有效文档。"
+        )
+    ],
     conflict_items=[],
     mvp_items=[],
     versions=[
@@ -62,3 +71,146 @@ SEED_STATE = ProjectState(
     ],
     artifacts=[]
 )
+
+SEED_MESSAGES = [
+    {
+        "id": "msg-seed-user",
+        "role": "user",
+        "content": "我们需要核对业务系统和财务系统对应科目的逐笔金额。",
+        "source_refs_json": "[]",
+    },
+    {
+        "id": "msg-seed-assistant",
+        "role": "assistant",
+        "content": "我会先把问题收敛成字段映射、科目口径和人工复核边界三部分。",
+        "source_refs_json": "[]",
+    },
+]
+
+
+def _upsert_project(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO projects (
+          id, name, scenario_type, summary, status, created_at, updated_at, seed_key
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            SEED_PROJECT.id,
+            SEED_PROJECT.name,
+            SEED_PROJECT.scenario_type,
+            SEED_PROJECT.summary,
+            SEED_PROJECT.status,
+            SEED_PROJECT.created_at,
+            SEED_PROJECT.updated_at,
+            SEED_PROJECT.seed_key,
+        ),
+    )
+
+
+def _upsert_sources(connection: sqlite3.Connection) -> None:
+    for source in SEED_SOURCES:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO sources (
+              id, project_id, name, source_kind, upload_kind, storage_path,
+              normalized_path, notebook_import_mode, parse_status, parse_summary, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                source.id,
+                source.project_id,
+                source.name,
+                source.source_kind,
+                source.upload_kind,
+                None,
+                None,
+                "normalized-text",
+                source.parse_status,
+                source.parse_summary,
+                SEED_PROJECT.created_at,
+            ),
+        )
+
+
+def _upsert_state_items(connection: sqlite3.Connection) -> None:
+    state_map = {
+        "current_understanding": SEED_STATE.current_understanding,
+        "pending_items": SEED_STATE.pending_items,
+        "confirmed_items": SEED_STATE.confirmed_items,
+        "conflict_items": SEED_STATE.conflict_items,
+        "mvp_items": SEED_STATE.mvp_items,
+    }
+
+    for category, items in state_map.items():
+        for item in items:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO state_items (
+                  id, project_id, category, title, body, status, source_ids_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item.id,
+                    SEED_PROJECT.id,
+                    category,
+                    item.title,
+                    item.body,
+                    "active",
+                    json.dumps([]),
+                    SEED_PROJECT.updated_at,
+                ),
+            )
+
+
+def _upsert_versions(connection: sqlite3.Connection) -> None:
+    for item in SEED_STATE.versions:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO version_snapshots (
+              id, project_id, trigger_kind, summary, state_json, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.id,
+                SEED_PROJECT.id,
+                "seed",
+                item.body,
+                json.dumps(
+                    {
+                        "current_understanding": [entry.model_dump() for entry in SEED_STATE.current_understanding],
+                        "pending_items": [entry.model_dump() for entry in SEED_STATE.pending_items],
+                    },
+                    ensure_ascii=False,
+                ),
+                SEED_PROJECT.updated_at,
+            ),
+        )
+
+
+def _upsert_messages(connection: sqlite3.Connection) -> None:
+    for message in SEED_MESSAGES:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO messages (
+              id, project_id, role, content, source_refs_json, created_at, stream_group_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                message["id"],
+                SEED_PROJECT.id,
+                message["role"],
+                message["content"],
+                message["source_refs_json"],
+                SEED_PROJECT.created_at,
+                "seed-stream",
+            ),
+        )
+
+
+def seed_database(connection: sqlite3.Connection) -> None:
+    _upsert_project(connection)
+    _upsert_sources(connection)
+    _upsert_state_items(connection)
+    _upsert_versions(connection)
+    _upsert_messages(connection)
