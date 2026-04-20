@@ -51,6 +51,7 @@ type WorkbenchPageProps = {
   messages: MessageRecord[];
   state: ProjectState;
   artifacts: ArtifactRecord[];
+  recentInsightIds: string[];
   notebookLibrary: NotebookLibraryItem[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
   sending: boolean;
@@ -134,6 +135,41 @@ function syncStatusLabel(status: string) {
   return status;
 }
 
+function sanitizeStateBody(title: string, body: string) {
+  if (!body) return '';
+
+  const fragments = body
+    .split(/[；;]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part) => !/^(content|impact|source|reason|notes|evidence|confidence|resolution|answer_needed)\s*:/i.test(part));
+
+  const deduped = Array.from(new Set(fragments)).map((part) => {
+    const normalizedTitle = title.trim();
+    const titlePrefix = `${normalizedTitle}：`;
+    const titlePrefixAlt = `${normalizedTitle}:`;
+    if (part.startsWith(titlePrefix)) {
+      return part.slice(titlePrefix.length).trim();
+    }
+    if (part.startsWith(titlePrefixAlt)) {
+      return part.slice(titlePrefixAlt.length).trim();
+    }
+    return part;
+  });
+
+  return deduped.join('；') || body;
+}
+
+function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
+  const latest = new Map<string, ArtifactRecord>();
+  for (const artifact of artifacts) {
+    if (!latest.has(artifact.artifact_type)) {
+      latest.set(artifact.artifact_type, artifact);
+    }
+  }
+  return Array.from(latest.values());
+}
+
 function SourcePreview({
   source,
   position,
@@ -179,9 +215,11 @@ function SourcePreview({
 function StateBlock({
   label,
   items,
+  recentInsightIds,
 }: {
   label: string;
   items: StateItem[];
+  recentInsightIds: string[];
 }) {
   return (
     <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
@@ -196,9 +234,23 @@ function StateBlock({
           </div>
         ) : (
           items.slice(0, 4).map((item) => (
-            <div key={item.id} className="rounded-[16px] border border-white bg-white p-3">
-              <div className="text-sm font-medium text-ink">{item.title}</div>
-              <p className="mt-1.5 text-sm leading-6 text-muted">{item.body}</p>
+            <div
+              key={item.id}
+              className={cn(
+                'rounded-[16px] border border-white bg-white p-3 transition-colors',
+                recentInsightIds.includes(item.id) && 'border-accent/30 bg-accentSoft/40'
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-ink">{item.title}</div>
+                {recentInsightIds.includes(item.id) ? <Badge variant="accent">本轮新增</Badge> : null}
+              </div>
+              <p className="mt-1.5 text-sm leading-6 text-muted">{sanitizeStateBody(item.title, item.body)}</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
+                {item.status ? <span>{`状态：${item.status}`}</span> : null}
+                {item.updated_at ? <span>{`更新于 ${relativeTime(item.updated_at)}`}</span> : null}
+                <span>{`来源 ${item.source_ids.length} 份资料`}</span>
+              </div>
             </div>
           ))
         )}
@@ -254,6 +306,7 @@ export function WorkbenchPage({
   messages,
   state,
   artifacts,
+  recentInsightIds,
   notebookLibrary,
   notices,
   sending,
@@ -296,8 +349,8 @@ export function WorkbenchPage({
     return 0;
   }, [state]);
 
-  const documentArtifacts = artifacts.filter((artifact) => artifact.content_format !== 'html');
-  const htmlArtifacts = artifacts.filter((artifact) => artifact.content_format === 'html');
+  const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
+  const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
   const referencedSourceCount = sources.filter(
     (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
   ).length;
@@ -658,13 +711,18 @@ export function WorkbenchPage({
             </CardHeader>
             <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3 px-3 pb-3 pt-0">
               {STATE_SECTIONS.map((section) => (
-                <StateBlock key={section.key} label={section.label} items={state[section.key]} />
+                <StateBlock
+                  key={section.key}
+                  label={section.label}
+                  items={state[section.key]}
+                  recentInsightIds={recentInsightIds}
+                />
               ))}
 
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-sm font-semibold text-ink">交付物</h3>
-                  <Badge>{artifacts.length}</Badge>
+                  <Badge>{latestArtifacts.length}</Badge>
                 </div>
                 <div className="mt-2.5 grid gap-2.5">
                   <div className="flex flex-wrap gap-2">
@@ -694,12 +752,12 @@ export function WorkbenchPage({
                       交互稿
                     </Button>
                   </div>
-                  {artifacts.length === 0 ? (
+                  {latestArtifacts.length === 0 ? (
                     <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
                       当前还没有交付物。
                     </div>
                   ) : (
-                    artifacts.map((artifact) => (
+                    latestArtifacts.map((artifact) => (
                       <button
                         key={artifact.id}
                         type="button"
@@ -725,6 +783,11 @@ export function WorkbenchPage({
                       </button>
                     ))
                   )}
+                  {artifactHistoryCount > 0 ? (
+                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs text-muted">
+                      {`当前已折叠 ${artifactHistoryCount} 个历史版本，侧栏默认只显示每类最新交付物。`}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

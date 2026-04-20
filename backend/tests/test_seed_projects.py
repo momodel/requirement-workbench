@@ -75,6 +75,8 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
         for content in message_contents
     )
     assert all("hello" not in content for content in message_contents)
+    assert all("语雀" not in content for content in message_contents)
+    assert any("为什么现在先确认" in content for content in message_contents)
 
     artifact_titles = [artifact.title for artifact in catalog.list_artifacts(SEED_PROJECT_ID)]
     assert set(artifact_titles) == {"交互稿", "页面方案", "需求分析与 MVP 文档稿"}

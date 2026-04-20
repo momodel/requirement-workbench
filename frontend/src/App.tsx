@@ -80,6 +80,10 @@ function upsertArtifacts(existing: ArtifactRecord[], incoming: ArtifactRecord[])
   return Array.from(map.values());
 }
 
+function collectItemIds(items: StateItem[] | undefined) {
+  return (items ?? []).map((item) => item.id);
+}
+
 function updateAssistantMessage(
   messages: MessageRecord[],
   assistantId: string,
@@ -165,7 +169,25 @@ function WorkbenchRoute() {
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoBindAttemptedProjectId = useRef<string | null>(null);
+  const recentInsightTimerRef = useRef<number | null>(null);
+
+  function markRecentInsights(items: StateItem[]) {
+    const nextIds = collectItemIds(items);
+    if (nextIds.length === 0) {
+      return;
+    }
+
+    setRecentInsightIds(nextIds);
+    if (recentInsightTimerRef.current) {
+      window.clearTimeout(recentInsightTimerRef.current);
+    }
+    recentInsightTimerRef.current = window.setTimeout(() => {
+      setRecentInsightIds([]);
+      recentInsightTimerRef.current = null;
+    }, 4000);
+  }
 
   async function loadWorkbench(options?: { silent?: boolean }) {
     if (!options?.silent) {
@@ -251,8 +273,17 @@ function WorkbenchRoute() {
 
   useEffect(() => {
     autoBindAttemptedProjectId.current = null;
+    setRecentInsightIds([]);
     void loadWorkbench();
   }, [projectId]);
+
+  useEffect(() => {
+    return () => {
+      if (recentInsightTimerRef.current) {
+        window.clearTimeout(recentInsightTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!data.project || bindingNotebook || readiness?.notebooklm.status !== 'binding_required') {
@@ -367,6 +398,7 @@ function WorkbenchRoute() {
           }
 
           if (event === 'current_understanding_patch' && payload.items) {
+            markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
               state: {
@@ -378,6 +410,7 @@ function WorkbenchRoute() {
           }
 
           if (event === 'pending_items_patch' && payload.items) {
+            markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
               state: {
@@ -389,6 +422,7 @@ function WorkbenchRoute() {
           }
 
           if (event === 'confirmed_items_patch' && payload.items) {
+            markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
               state: {
@@ -400,6 +434,7 @@ function WorkbenchRoute() {
           }
 
           if (event === 'conflict_items_patch' && payload.items) {
+            markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
               state: {
@@ -411,6 +446,7 @@ function WorkbenchRoute() {
           }
 
           if (event === 'mvp_items_patch' && payload.items) {
+            markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
               state: {
@@ -673,6 +709,7 @@ function WorkbenchRoute() {
       messages={data.messages}
       state={data.state}
       artifacts={data.artifacts}
+      recentInsightIds={recentInsightIds}
       notebookLibrary={data.notebookLibrary}
       notices={cleanedNotices}
       sending={sending}

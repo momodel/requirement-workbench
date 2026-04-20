@@ -329,6 +329,61 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
     assert "目标、干系人、范围、约束、风险" in prompt
 
 
+def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -> None:
+    methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
+    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    methodology_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
+    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+            claude_model="glm-5",
+        )
+    )
+
+    prompt = runtime._build_streaming_prompt(
+        AgentTurnInput(
+            project=ProjectSummary(
+                id="project-1",
+                name="集团业财逐笔对账需求分析",
+                scenario_type="reconciliation",
+                summary="分析业财逐笔对账需求。",
+                status="active",
+                created_at="2026-04-16T10:00:00+08:00",
+                updated_at="2026-04-16T10:00:00+08:00",
+                seed_key="reconciliation",
+            ),
+            state=ProjectState(
+                current_understanding=[],
+                pending_items=[],
+                confirmed_items=[],
+                conflict_items=[],
+                mvp_items=[],
+                versions=[],
+                artifacts=[],
+            ),
+            user_message="请继续分析逐笔对账场景。",
+            selected_source_ids=[],
+            source_summaries=["订单字段说明", "财务科目口径说明"],
+            evidence_summary="NotebookLM 摘要",
+            evidence_citations=[],
+            request_artifact_types=[],
+        )
+    )
+
+    assert "先说清楚为什么现在要问这个或判断这个" in prompt
+    assert "让用户看得见你是在推进分析，不是在直接吐结论" in prompt
+    assert "如果本轮已经足够形成沉淀，要顺手说明你准备写入什么" in prompt
+
+
 def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
     evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"

@@ -1350,7 +1350,19 @@ describe('App', () => {
             ]
           : [],
         '/api/projects/seed-reconciliation/state': {
-          current_understanding: [],
+          current_understanding: chatCompleted
+            ? [
+                {
+                  id: 'new-understanding-1',
+                  title: '当前需求定义',
+                  body: '先确认逐笔对账范围，再推进 MVP。',
+                  status: 'active',
+                  category: 'current_understanding',
+                  updated_at: '2026-04-16T10:00:00+08:00',
+                  source_ids: ['src-1'],
+                },
+              ]
+            : [],
           pending_items: [],
           confirmed_items: [],
           conflict_items: [],
@@ -1670,5 +1682,279 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: '运行状态' }));
     expect(await screen.findByText('当前项目已绑定专属 NotebookLM notebook。')).toBeInTheDocument();
+  });
+
+  it('sanitizes dirty state text and only shows the latest artifact per type in the sidebar', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock({
+      '/api/projects/seed-reconciliation': {
+        id: 'seed-reconciliation',
+        name: '集团业财逐笔对账需求分析',
+        scenario_type: 'reconciliation',
+        summary: '默认 seed 项目。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: 'seed-reconciliation',
+      },
+      '/api/projects/seed-reconciliation/sources': [],
+      '/api/projects/seed-reconciliation/messages': [],
+      '/api/projects/seed-reconciliation/state': {
+        current_understanding: [
+          {
+            id: 'understanding-1',
+            title: '项目核心问题',
+            body: '项目核心问题：业务字段与财务科目映射口径不一致；content: 项目核心问题：业务字段与财务科目映射口径不一致',
+            status: 'active',
+            category: 'current_understanding',
+            updated_at: '2026-04-16T10:00:00+08:00',
+            source_ids: ['src-1'],
+          },
+        ],
+        pending_items: [
+          {
+            id: 'pending-1',
+            title: '一期输出物边界',
+            body: '结构化需求摘要还是方案雏形？；content: 一期输出物边界：结构化需求摘要还是方案雏形？；impact: 影响验收标准',
+            status: 'active',
+            category: 'pending_items',
+            updated_at: '2026-04-16T10:05:00+08:00',
+            source_ids: [],
+          },
+        ],
+        confirmed_items: [],
+        conflict_items: [],
+        mvp_items: [],
+        versions: [],
+        artifacts: [],
+      },
+      '/api/projects/seed-reconciliation/readiness': {
+        project_id: 'seed-reconciliation',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        notebooklm: {
+          provider: 'NOTEBOOKLM_PY',
+          status: 'ready',
+          summary: '当前项目已绑定专属 NotebookLM notebook。',
+          detail: 'Notebook ID: nb-ready-001',
+          action_label: null,
+        },
+        notebook_binding: {
+          project_id: 'seed-reconciliation',
+          notebook_id: 'nb-ready-001',
+          provider: 'NOTEBOOKLM_PY',
+          sync_status: 'bound',
+          last_synced_at: null,
+          source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
+        },
+      },
+      '/api/projects/seed-reconciliation/notebook-library': [],
+      '/api/projects/seed-reconciliation/artifacts': [
+        {
+          id: 'artifact-page-new',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'page_solution',
+          title: '页面方案 v2',
+          summary: '最新页面方案',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/page-v2.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-page-new/preview',
+          body: null,
+          updated_at: '2026-04-16T10:10:00+08:00',
+        },
+        {
+          id: 'artifact-page-old',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'page_solution',
+          title: '页面方案 v1',
+          summary: '旧页面方案',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/page-v1.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-page-old/preview',
+          body: null,
+          updated_at: '2026-04-16T09:00:00+08:00',
+        },
+        {
+          id: 'artifact-flow-new',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'interaction_flow',
+          title: '交互稿 v2',
+          summary: '最新交互稿',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/flow-v2.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-flow-new/preview',
+          body: null,
+          updated_at: '2026-04-16T10:11:00+08:00',
+        },
+        {
+          id: 'artifact-document-new',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'document',
+          title: '文档稿 v2',
+          summary: '最新文档稿',
+          status: 'generated',
+          content_format: 'markdown',
+          storage_path: null,
+          preview_url: null,
+          body: '# 文档稿',
+          updated_at: '2026-04-16T10:12:00+08:00',
+        },
+      ],
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' })).toBeInTheDocument();
+    expect(screen.getByText('业务字段与财务科目映射口径不一致')).toBeInTheDocument();
+    expect(screen.queryByText(/content:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/impact:/)).not.toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: /页面方案 v2/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /交互稿 v2/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /文档稿 v2/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /页面方案 v1/ })).not.toBeInTheDocument();
+  });
+
+  it('marks freshly patched insights as new in the sidebar', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const encoder = new TextEncoder();
+    let chatCompleted = false;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        chatCompleted = true;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'event: current_understanding_patch',
+                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T10:00:00+08:00","items":[{"id":"new-understanding-1","title":"当前需求定义","body":"先确认逐笔对账范围，再推进 MVP。","status":"active","category":"current_understanding","updated_at":"2026-04-16T10:00:00+08:00","source_ids":["src-1"]}]}',
+                    '',
+                    'event: done',
+                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T10:00:01+08:00","stream_group_id":"stream-1"}',
+                    '',
+                  ].join('\n')
+                )
+              );
+              controller.close();
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': chatCompleted
+          ? [
+              {
+                id: 'msg-user-1',
+                role: 'user',
+                content: '请继续分析',
+                source_refs: [],
+                created_at: '2026-04-16T10:00:00+08:00',
+                stream_group_id: 'stream-1',
+              },
+            ]
+          : [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: chatCompleted
+            ? [
+                {
+                  id: 'new-understanding-1',
+                  title: '当前需求定义',
+                  body: '先确认逐笔对账范围，再推进 MVP。',
+                  status: 'active',
+                  category: 'current_understanding',
+                  updated_at: '2026-04-16T10:00:00+08:00',
+                  source_ids: ['src-1'],
+                },
+              ]
+            : [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          notebooklm: {
+            provider: 'NOTEBOOKLM_PY',
+            status: 'ready',
+            summary: '当前项目已绑定专属 NotebookLM notebook。',
+            detail: 'Notebook ID: nb-ready-001',
+            action_label: null,
+          },
+          notebook_binding: {
+            project_id: 'seed-reconciliation',
+            notebook_id: 'nb-ready-001',
+            provider: 'NOTEBOOKLM_PY',
+            sync_status: 'bound',
+            last_synced_at: null,
+            source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/notebook-library': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    await user.type(composer, '请继续分析');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('当前需求定义')).toBeInTheDocument();
+    expect(await screen.findByText('本轮新增')).toBeInTheDocument();
   });
 });
