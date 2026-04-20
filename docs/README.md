@@ -10,8 +10,14 @@
 
 ## 项目级 Skills
 
-- `../.claude/skills/requirement-analysis-methodology/SKILL.md`
-- `../.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+- `../backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
+- `../backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+
+## 当前工作基线
+
+- 产品和交互参考基线：`../archive/legacy-demo/`
+- 当前 `frontend/`、`backend/` 内的探索代码不是自动生效的一期基线
+- 如果文档、skill 和现有代码冲突，以当前文档和 skill 为准
 
 ## 归档文档
 

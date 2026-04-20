@@ -1,3 +1,5 @@
+PRAGMA foreign_keys = ON;
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -11,7 +13,7 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE TABLE IF NOT EXISTS sources (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   source_kind TEXT NOT NULL,
   upload_kind TEXT NOT NULL,
@@ -19,14 +21,15 @@ CREATE TABLE IF NOT EXISTS sources (
   normalized_path TEXT,
   notebook_import_mode TEXT,
   parse_status TEXT NOT NULL,
-  sync_status TEXT NOT NULL DEFAULT 'pending',
   parse_summary TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'pending',
+  sync_error TEXT,
   created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS messages (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   content TEXT NOT NULL,
   source_refs_json TEXT,
@@ -36,7 +39,7 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE TABLE IF NOT EXISTS state_items (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
   title TEXT NOT NULL,
   body TEXT NOT NULL,
@@ -47,7 +50,7 @@ CREATE TABLE IF NOT EXISTS state_items (
 
 CREATE TABLE IF NOT EXISTS version_snapshots (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   trigger_kind TEXT NOT NULL,
   summary TEXT NOT NULL,
   state_json TEXT NOT NULL,
@@ -55,16 +58,17 @@ CREATE TABLE IF NOT EXISTS version_snapshots (
 );
 
 CREATE TABLE IF NOT EXISTS notebook_bindings (
-  project_id TEXT PRIMARY KEY,
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
   notebook_id TEXT NOT NULL,
   provider TEXT NOT NULL,
   sync_status TEXT NOT NULL,
-  last_synced_at TEXT
+  last_synced_at TEXT,
+  source_url TEXT
 );
 
 CREATE TABLE IF NOT EXISTS demo_artifacts (
   id TEXT PRIMARY KEY,
-  project_id TEXT NOT NULL,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   artifact_type TEXT NOT NULL,
   title TEXT NOT NULL,
   summary TEXT NOT NULL,
@@ -72,6 +76,14 @@ CREATE TABLE IF NOT EXISTS demo_artifacts (
   content_format TEXT NOT NULL,
   storage_path TEXT,
   metadata_json TEXT,
+  body TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_sources_project_id ON sources(project_id);
+CREATE INDEX IF NOT EXISTS idx_messages_project_id ON messages(project_id);
+CREATE INDEX IF NOT EXISTS idx_state_items_project_id ON state_items(project_id);
+CREATE INDEX IF NOT EXISTS idx_state_items_category ON state_items(category);
+CREATE INDEX IF NOT EXISTS idx_versions_project_id ON version_snapshots(project_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_project_id ON demo_artifacts(project_id);

@@ -1,127 +1,149 @@
-import { useEffect, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { WorkbenchPage } from './features/workbench/WorkbenchPage';
 import {
+  bindProjectNotebook,
   createProject,
-  createFileSource,
-  createTextSource,
-  createUrlSource,
+  createAndBindProjectNotebook,
+  deleteProjectSource,
   generateArtifact,
-  getArtifactContent,
+  getGlobalReadiness,
   getProject,
+  getProjectReadiness,
   getProjectState,
   listArtifacts,
+  listMessages,
+  listProjectNotebookLibrary,
   listProjects,
   listSources,
-  sendChatRound
+  retryProjectSourceSync,
+  streamChat,
+  uploadFileSources,
+  uploadTextSource,
 } from './lib/api';
-import type { ArtifactRecord, ChatEvent, ProjectState, ProjectSummary, SourceRecord } from './lib/types';
+import type {
+  ArtifactRecord,
+  GlobalReadiness,
+  MessageRecord,
+  NotebookLibraryItem,
+  ProjectReadiness,
+  ProjectState,
+  ProjectSummary,
+  SourceRecord,
+  StateItem,
+} from './lib/types';
 
 type WorkbenchData = {
   project: ProjectSummary | null;
   sources: SourceRecord[];
+  messages: MessageRecord[];
   state: ProjectState | null;
   artifacts: ArtifactRecord[];
+  notebookLibrary: NotebookLibraryItem[];
 };
 
-function appendStateItems(current: ProjectState, key: keyof ProjectState, items: Array<{ id: string; title: string; body: string }>) {
-  if (key === 'artifacts') {
-    return {
-      ...current,
-      artifacts: [...current.artifacts, ...items]
-    };
-  }
+type Notice = {
+  id: string;
+  kind: 'error' | 'info';
+  title: string;
+  body: string;
+};
 
+function emptyState(): ProjectState {
   return {
-    ...current,
-    [key]: [...current[key], ...items]
-  } as ProjectState;
+    current_understanding: [],
+    pending_items: [],
+    confirmed_items: [],
+    conflict_items: [],
+    mvp_items: [],
+    versions: [],
+    artifacts: [],
+  };
 }
 
-function applyChatEvent(
-  previous: WorkbenchData,
-  event: ChatEvent
-): WorkbenchData {
-  if (!previous.state) {
-    return previous;
+function upsertItems(existing: StateItem[], incoming: StateItem[]) {
+  const map = new Map(existing.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    map.set(item.id, item);
   }
+  return Array.from(map.values());
+}
 
-  if (event.event === 'current_understanding_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'currentUnderstanding', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
+function upsertArtifacts(existing: ArtifactRecord[], incoming: ArtifactRecord[]) {
+  const map = new Map(existing.map((item) => [item.id, item]));
+  for (const item of incoming) {
+    map.set(item.id, item);
   }
-  if (event.event === 'pending_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'pendingItems', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
-  }
-  if (event.event === 'confirmed_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'confirmedItems', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
-  }
-  if (event.event === 'conflict_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'conflictItems', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
-  }
-  if (event.event === 'mvp_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'mvpItems', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
-  }
-  if (event.event === 'version_patch') {
-    return { ...previous, state: appendStateItems(previous.state, 'versions', (event.data.items as Array<{ id: string; title: string; body: string }>) ?? []) };
-  }
-  if (event.event === 'artifact_patch') {
-    const artifactItems = (event.data.items as Array<{
-      id: string;
-      artifact_type: string;
-      title: string;
-      summary: string;
-      status: string;
-      content_format: string;
-      storage_path?: string;
-    }>) ?? [];
-    return {
-      ...previous,
-      state: appendStateItems(
-        previous.state,
-        'artifacts',
-        artifactItems.map((item) => ({
-          id: item.id,
-          title: item.title,
-          body: item.summary
-        }))
-      ),
-      artifacts: [
-        ...previous.artifacts,
-        ...artifactItems.map((item) => ({
-          id: item.id,
-          artifactType: item.artifact_type,
-          title: item.title,
-          summary: item.summary,
-          status: item.status,
-          contentFormat: item.content_format,
-          storagePath: item.storage_path
-        }))
-      ]
-    };
-  }
+  return Array.from(map.values());
+}
 
-  return previous;
+function updateAssistantMessage(
+  messages: MessageRecord[],
+  assistantId: string,
+  updater: (message: MessageRecord) => MessageRecord
+) {
+  return messages.map((item) => (item.id === assistantId ? updater(item) : item));
 }
 
 function HomeRoute() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
-
-  async function loadProjects() {
-    const loaded = await listProjects();
-    setProjects(loaded);
-  }
+  const [readiness, setReadiness] = useState<GlobalReadiness | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    void loadProjects();
+    void Promise.all([listProjects(), getGlobalReadiness()])
+      .then(([nextProjects, nextReadiness]) => {
+        setProjects(nextProjects);
+        setReadiness(nextReadiness);
+      })
+      .catch((err: Error) => setError(err.message));
   }, []);
 
-  async function handleCreateProject(name: string, summary: string, scenarioType: string) {
-    await createProject(name, summary, scenarioType);
-    await loadProjects();
+  if (error) {
+    return (
+      <main className="min-h-screen p-8 text-ink">
+        <div className="mx-auto max-w-3xl rounded-[28px] border border-rose-200 bg-rose-50 p-6 text-rose-800 shadow-panel">
+          <div className="text-sm font-medium uppercase tracking-[0.18em]">加载失败</div>
+          <p className="mt-3 leading-7">{error}</p>
+        </div>
+      </main>
+    );
   }
 
-  return <ProjectsPage projects={projects} onCreateProject={handleCreateProject} />;
+  async function handleCreateProject(payload: {
+    name: string;
+    scenario_type: string;
+    summary: string;
+  }) {
+    setCreating(true);
+    try {
+      const project = await createProject(payload);
+      if (readiness?.notebooklm.status === 'ready') {
+        await createAndBindProjectNotebook(project.id);
+      }
+      setProjects((current) => [project, ...current]);
+      navigate(`/projects/${project.id}/workbench`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '创建项目失败。';
+      setError(message);
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  return (
+    <ProjectsPage
+      projects={projects}
+      readiness={readiness}
+      creating={creating}
+      onCreateProject={handleCreateProject}
+    />
+  );
 }
 
 function WorkbenchRoute() {
@@ -129,96 +151,560 @@ function WorkbenchRoute() {
   const [data, setData] = useState<WorkbenchData>({
     project: null,
     sources: [],
+    messages: [],
     state: null,
-    artifacts: []
+    artifacts: [],
+    notebookLibrary: [],
   });
+  const [loading, setLoading] = useState(true);
+  const [readiness, setReadiness] = useState<ProjectReadiness | null>(null);
+  const [sending, setSending] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [bindingNotebook, setBindingNotebook] = useState(false);
+  const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
+  const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
+  const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const autoBindAttemptedProjectId = useRef<string | null>(null);
 
-  async function load() {
-    const [project, sources, state, artifacts] = await Promise.all([
-      getProject(projectId),
-      listSources(projectId),
-      getProjectState(projectId),
-      listArtifacts(projectId)
-    ]);
+  async function loadWorkbench(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+    }
+    try {
+      const [project, sources, messages, state, artifacts] = await Promise.all([
+        getProject(projectId),
+        listSources(projectId),
+        listMessages(projectId),
+        getProjectState(projectId),
+        listArtifacts(projectId),
+      ]);
+      setData((current) => ({
+        ...current,
+        project,
+        sources,
+        messages,
+        state,
+        artifacts,
+      }));
 
-    setData({ project, sources, state, artifacts });
+      void Promise.allSettled([
+        listProjectNotebookLibrary(projectId),
+        getProjectReadiness(projectId),
+      ]).then(([notebookLibraryResult, readinessResult]) => {
+        if (notebookLibraryResult.status === 'fulfilled') {
+          setData((current) => ({
+            ...current,
+            notebookLibrary: notebookLibraryResult.value,
+          }));
+        } else {
+          const message =
+            notebookLibraryResult.reason instanceof Error
+              ? notebookLibraryResult.reason.message
+              : 'Notebook 列表加载失败。';
+          setNotices((current) => [
+            {
+              id: `notebook-library-${Date.now()}`,
+              kind: 'info',
+              title: 'Notebook 列表加载较慢',
+              body: message,
+            },
+            ...current,
+          ]);
+        }
+
+        if (readinessResult.status === 'fulfilled') {
+          setReadiness(readinessResult.value);
+        } else {
+          const message =
+            readinessResult.reason instanceof Error
+              ? readinessResult.reason.message
+              : 'Provider 状态加载失败。';
+          setNotices((current) => [
+            {
+              id: `readiness-${Date.now()}`,
+              kind: 'info',
+              title: '运行状态加载较慢',
+              body: message,
+            },
+            ...current,
+          ]);
+        }
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '加载工作台失败。';
+      setNotices((current) => [
+        {
+          id: `load-${Date.now()}`,
+          kind: 'error',
+          title: '工作台加载失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      if (!options?.silent) {
+        setLoading(false);
+      }
+    }
   }
 
   useEffect(() => {
-    void load();
+    autoBindAttemptedProjectId.current = null;
+    void loadWorkbench();
   }, [projectId]);
 
-  if (!data.project || !data.state) {
+  useEffect(() => {
+    if (!data.project || bindingNotebook || readiness?.notebooklm.status !== 'binding_required') {
+      return;
+    }
+    if (autoBindAttemptedProjectId.current === projectId) {
+      return;
+    }
+
+    autoBindAttemptedProjectId.current = projectId;
+    void ensureProjectNotebookBinding();
+  }, [bindingNotebook, data.project, projectId, readiness?.notebooklm.status]);
+
+  async function ensureProjectNotebookBinding() {
+    if (bindingNotebook || readiness?.notebooklm.status !== 'binding_required') {
+      return true;
+    }
+
+    setBindingNotebook(true);
+    try {
+      await createAndBindProjectNotebook(projectId);
+      await loadWorkbench({ silent: true });
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : '自动创建并绑定项目 Notebook 失败。';
+      setNotices((current) => [
+        {
+          id: `auto-bind-${Date.now()}`,
+          kind: 'error',
+          title: '项目 Notebook 自动绑定失败',
+          body: message,
+        },
+        ...current,
+      ]);
+      return false;
+    } finally {
+      setBindingNotebook(false);
+    }
+  }
+
+  async function handleSendMessage(message: string) {
+    const notebookReady = await ensureProjectNotebookBinding();
+    if (!notebookReady) {
+      return;
+    }
+
+    setSending(true);
+    const userMessage: MessageRecord = {
+      id: `local-user-${Date.now()}`,
+      role: 'user',
+      content: message,
+      source_refs: [],
+      created_at: new Date().toISOString(),
+      stream_group_id: null,
+    };
+    const assistantId = `local-assistant-${Date.now()}`;
+
+    setData((current) => ({
+      ...current,
+      messages: [
+        ...current.messages,
+        userMessage,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          source_refs: [],
+          created_at: new Date().toISOString(),
+          stream_group_id: null,
+          status_label: '已接收问题，准备开始分析',
+          status_phase: 'received',
+        },
+      ],
+    }));
+
+    try {
+      await streamChat(
+        projectId,
+        {
+          message,
+          selected_source_ids: [],
+          request_artifact_types: [],
+          client_context: { route: 'workbench' },
+        },
+        (event, payload) => {
+          if (event === 'assistant_status' && payload.label) {
+            setData((current) => ({
+              ...current,
+              messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+                ...item,
+                status_label: payload.label ?? null,
+                status_phase: payload.phase ?? null,
+              })),
+            }));
+            return;
+          }
+
+          if (event === 'message_chunk' && payload.text) {
+            flushSync(() => {
+              setData((current) => ({
+                ...current,
+                messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+                  ...item,
+                  content: payload.replace ? payload.text ?? '' : `${item.content}${payload.text}`,
+                  status_label: item.status_label ?? '正在生成回复',
+                  status_phase: item.status_phase ?? 'drafting',
+                })),
+              }));
+            });
+            return;
+          }
+
+          if (event === 'current_understanding_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                current_understanding: payload.items as StateItem[],
+              },
+            }));
+            return;
+          }
+
+          if (event === 'pending_items_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                pending_items: payload.items as StateItem[],
+              },
+            }));
+            return;
+          }
+
+          if (event === 'confirmed_items_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                confirmed_items: payload.items as StateItem[],
+              },
+            }));
+            return;
+          }
+
+          if (event === 'conflict_items_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                conflict_items: payload.items as StateItem[],
+              },
+            }));
+            return;
+          }
+
+          if (event === 'mvp_items_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                mvp_items: payload.items as StateItem[],
+              },
+            }));
+            return;
+          }
+
+          if (event === 'version_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              state: {
+                ...(current.state ?? emptyState()),
+                versions: upsertItems(
+                  current.state?.versions ?? [],
+                  payload.items as StateItem[]
+                ),
+              },
+            }));
+            return;
+          }
+
+          if (event === 'artifact_patch' && payload.items) {
+            setData((current) => ({
+              ...current,
+              artifacts: upsertArtifacts(current.artifacts, payload.items as ArtifactRecord[]),
+            }));
+            return;
+          }
+
+          if (event === 'error') {
+            setNotices((current) => [
+              {
+                id: `notice-${Date.now()}`,
+                kind: 'error',
+                title: payload.provider ?? '分析失败',
+                body: payload.message ?? '聊天流返回错误。',
+              },
+              ...current,
+            ]);
+            setData((current) => ({
+              ...current,
+              messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+                ...item,
+                status_label: null,
+                status_phase: null,
+              })),
+            }));
+            return;
+          }
+
+          if (event === 'done') {
+            setData((current) => ({
+              ...current,
+              messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+                ...item,
+                status_label: null,
+                status_phase: null,
+              })),
+            }));
+          }
+        }
+      );
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : '聊天请求失败。';
+      setNotices((current) => [
+        {
+          id: `chat-${Date.now()}`,
+          kind: 'error',
+          title: '聊天请求失败',
+          body: messageText,
+        },
+        ...current,
+      ]);
+      setData((current) => ({
+        ...current,
+        messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+          ...item,
+          status_label: null,
+          status_phase: null,
+        })),
+      }));
+    } finally {
+      setSending(false);
+      await loadWorkbench({ silent: true });
+    }
+  }
+
+  async function handleUploadTextSource(payload: { name: string; text: string }) {
+    setUploading(true);
+    try {
+      await uploadTextSource(projectId, payload);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '文本资料导入失败。';
+      setNotices((current) => [
+        {
+          id: `upload-${Date.now()}`,
+          kind: 'error',
+          title: '导入资料失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleUploadFileSource(files: File[]) {
+    setUploading(true);
+    try {
+      await uploadFileSources(projectId, files);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '文件上传失败。';
+      setNotices((current) => [
+        {
+          id: `file-${Date.now()}`,
+          kind: 'error',
+          title: '上传文件失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteSource(sourceId: string) {
+    setDeletingSourceId(sourceId);
+    try {
+      await deleteProjectSource(projectId, sourceId);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '资料删除失败。';
+      setNotices((current) => [
+        {
+          id: `delete-${Date.now()}`,
+          kind: 'error',
+          title: '删除资料失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setDeletingSourceId(null);
+    }
+  }
+
+  async function handleRetrySourceSync(sourceId: string) {
+    setRetryingSourceId(sourceId);
+    try {
+      await retryProjectSourceSync(projectId, sourceId);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '资料重试同步失败。';
+      setNotices((current) => [
+        {
+          id: `retry-source-${Date.now()}`,
+          kind: 'error',
+          title: '重试同步失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setRetryingSourceId(null);
+    }
+  }
+
+  async function handleGenerateArtifact(artifactType: 'document' | 'page_solution' | 'interaction_flow') {
+    setGeneratingArtifactType(artifactType);
+    try {
+      await generateArtifact(projectId, artifactType);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '交付物生成失败。';
+      setNotices((current) => [
+        {
+          id: `artifact-${Date.now()}`,
+          kind: 'error',
+          title: '交付物生成失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setGeneratingArtifactType(null);
+    }
+  }
+
+  async function handleBindProjectNotebook(payload: { sourceUrl?: string; notebookId?: string }) {
+    setBindingNotebook(true);
+    try {
+      await bindProjectNotebook(projectId, {
+        source_url: payload.sourceUrl,
+        notebook_id: payload.notebookId,
+      });
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '绑定项目 notebook 失败。';
+      setNotices((current) => [
+        {
+          id: `binding-${Date.now()}`,
+          kind: 'error',
+          title: '绑定项目 notebook 失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setBindingNotebook(false);
+    }
+  }
+
+  async function handleCreateAndBindProjectNotebook() {
+    setBindingNotebook(true);
+    try {
+      await createAndBindProjectNotebook(projectId);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '创建并绑定项目 Notebook 失败。';
+      setNotices((current) => [
+        {
+          id: `bind-create-${Date.now()}`,
+          kind: 'error',
+          title: '创建并绑定项目 Notebook 失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setBindingNotebook(false);
+    }
+  }
+
+  const cleanedNotices = useMemo(() => notices.slice(0, 4), [notices]);
+
+  if (loading || !data.project || !data.state) {
     return (
-      <main className="page-shell">
-        <section className="hero-card">
-          <p className="eyebrow">Loading</p>
-          <h1>正在加载项目</h1>
-        </section>
+      <main className="min-h-screen p-8 text-ink">
+        <div className="mx-auto max-w-4xl rounded-[28px] border border-line bg-white p-8 shadow-panel">
+          <div className="text-xs uppercase tracking-[0.18em] text-muted">Loading</div>
+          <h1 className="mt-3 text-3xl font-semibold">正在加载工作台</h1>
+          <p className="mt-3 text-sm leading-7 text-muted">项目、资料、聊天与沉淀总集正在初始化。</p>
+        </div>
       </main>
     );
-  }
-
-  async function handleCreateTextSource(name: string, text: string) {
-    await createTextSource(projectId, name, text);
-    await load();
-  }
-
-  async function handleCreateUrlSource(name: string, url: string) {
-    await createUrlSource(projectId, name, url);
-    await load();
-  }
-
-  async function handleCreateFileSource(file: File) {
-    await createFileSource(projectId, file);
-    await load();
-  }
-
-  async function handleSendChat(
-    message: string,
-    onEvent?: (event: ChatEvent) => void
-  ): Promise<ChatEvent[]> {
-    const events = await sendChatRound(projectId, message, (event) => {
-      setData((current) => applyChatEvent(current, event));
-      onEvent?.(event);
-    });
-    await load();
-    return events;
-  }
-
-  async function handleGenerateArtifact(artifactType: string) {
-    await generateArtifact(projectId, artifactType);
-    await load();
-  }
-
-  async function handleOpenArtifact(artifact: ArtifactRecord) {
-    return getArtifactContent(projectId, artifact.id);
   }
 
   return (
     <WorkbenchPage
       project={data.project}
+      readiness={readiness}
       sources={data.sources}
+      messages={data.messages}
       state={data.state}
       artifacts={data.artifacts}
-      onCreateTextSource={handleCreateTextSource}
-      onCreateUrlSource={handleCreateUrlSource}
-      onCreateFileSource={handleCreateFileSource}
-      onSendChat={handleSendChat}
-      onGenerateArtifact={handleGenerateArtifact}
-      onOpenArtifact={handleOpenArtifact}
-    />
+      notebookLibrary={data.notebookLibrary}
+      notices={cleanedNotices}
+      sending={sending}
+      uploading={uploading}
+      deletingSourceId={deletingSourceId}
+      retryingSourceId={retryingSourceId}
+      bindingNotebook={bindingNotebook}
+      generatingArtifactType={generatingArtifactType}
+      onSendMessage={handleSendMessage}
+        onUploadTextSource={handleUploadTextSource}
+        onUploadFileSource={handleUploadFileSource}
+        onDeleteSource={handleDeleteSource}
+        onRetrySourceSync={handleRetrySourceSync}
+        onBindProjectNotebook={handleBindProjectNotebook}
+        onCreateAndBindProjectNotebook={handleCreateAndBindProjectNotebook}
+        onGenerateArtifact={handleGenerateArtifact}
+      />
   );
 }
 
 export default function App() {
   return (
     <BrowserRouter
-      future={{ v7_relativeSplatPath: true, v7_startTransition: true }}
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
     >
       <Routes>
         <Route path="/" element={<HomeRoute />} />
         <Route path="/projects/:projectId/workbench" element={<WorkbenchRoute />} />
+        <Route path="/project/:projectId/workbench" element={<Navigate to="/projects/seed-reconciliation/workbench" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

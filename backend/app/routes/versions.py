@@ -1,12 +1,15 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 
 from ..models import StateItem
-from ..services.project_catalog import list_versions
 
 
 router = APIRouter(prefix="/api/projects/{project_id}/versions", tags=["versions"])
 
 
 @router.get("", response_model=list[StateItem])
-def list_versions_route(project_id: str) -> list[StateItem]:
-    return list_versions(project_id)
+def list_versions(project_id: str, request: Request) -> list[StateItem]:
+    project = request.app.state.services.catalog.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    state = request.app.state.services.project_state.get_project_state(project_id)
+    return state.versions

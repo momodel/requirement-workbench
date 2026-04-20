@@ -1,274 +1,124 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from uuid import uuid4
+from urllib.parse import urlparse
 
-from ..config import PROJECTS_DIR
-from ..db import get_connection
-from ..models import SourceRecord
+from docx import Document
+from openpyxl import load_workbook
+from pypdf import PdfReader
 
-
-TEXT_SOURCE_KINDS = {"text", "txt", "markdown", "md", "pdf", "docx", "url"}
-TABULAR_SOURCE_KINDS = {"xlsx", "csv", "tsv"}
-IMAGE_SOURCE_KINDS = {"image", "png", "jpg", "jpeg", "webp"}
-AUDIO_SOURCE_KINDS = {"audio", "mp3", "wav", "m4a"}
+from ..config import AppSettings, DEFAULT_SETTINGS
 
 
-@dataclass
+@dataclass(slots=True)
 class NormalizedSource:
+    source_kind: str
     parse_status: str
     parse_summary: str
-    normalized_content: str
+    normalized_path: str | None = None
+    notebook_import_mode: str | None = None
 
 
-def _source_dir(project_id: str, source_id: str) -> Path:
-    path = PROJECTS_DIR / project_id / "sources" / source_id
-    path.mkdir(parents=True, exist_ok=True)
-    return path
+class SourceIngestionService:
+    def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
+        self.settings = settings
 
+    def project_source_dir(self, project_id: str) -> Path:
+        path = self.settings.projects_dir / project_id / "sources"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
-def _guess_source_kind(name: str, source_kind: str | None) -> str:
-    if source_kind:
-        return source_kind.lower()
-
-    suffix = Path(name).suffix.lower().lstrip(".")
-    return suffix or "text"
-
-
-def _decode_preview_text(content: bytes) -> str:
-    try:
-        return content.decode("utf-8")
-    except UnicodeDecodeError:
-        return content.decode("utf-8", errors="ignore")
-
-
-def _summarize_text_like(name: str, text: str, source_kind: str) -> NormalizedSource:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    preview = " ".join(lines[:3])[:180]
-    summary = preview or f"{name} 已完成 {source_kind} 标准化。"
-    return NormalizedSource(
-        parse_status="parsed",
-        parse_summary=summary,
-        normalized_content=f"# {name}\n\n{text.strip()}\n",
-    )
-
-
-def _summarize_tabular(name: str, text: str) -> NormalizedSource:
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    header = lines[1] if len(lines) > 1 and lines[0].startswith("sheet:") else lines[0] if lines else ""
-    sample = lines[2] if len(lines) > 2 else lines[1] if len(lines) > 1 else ""
-    summary = f"{name} 已抽取表头 {header or '未知'}，样例 {sample or '暂无'}。"
-    if lines and lines[0].startswith("sheet:"):
-        summary = f"{name} 已抽取 {lines[0]}，表头 {header or '未知'}。"
-
-    return NormalizedSource(
-        parse_status="parsed",
-        parse_summary=summary,
-        normalized_content="\n".join(
-            [
-                f"# {name}",
-                "",
-                "## 表格摘要",
-                f"- 行数预览：{max(len(lines) - 1, 0)}",
-                f"- 表头：{header or '未知'}",
-                f"- 样例：{sample or '暂无'}",
-                "",
-                "## 原始片段",
-                text.strip(),
-                "",
-            ]
-        ),
-    )
-
-
-def _summarize_binary(name: str, source_kind: str, mime_type: str | None, size: int) -> NormalizedSource:
-    normalized_content = "\n".join(
-        [
-            f"# {name}",
-            "",
-            "## 标准化说明",
-            f"- 文件类型：{source_kind}",
-            f"- MIME：{mime_type or 'unknown'}",
-            f"- 文件大小：{size} bytes",
-            "",
-            "当前环境未接入真实 OCR / ASR / 二进制解析器，先保留元信息供 NotebookLM 工作流引用。",
-            "",
-        ]
-    )
-    return NormalizedSource(
-        parse_status="parsed",
-        parse_summary=f"{name} 已登记为 {source_kind} 文件，并生成可检索的元信息摘要。",
-        normalized_content=normalized_content,
-    )
-
-
-def normalize_source(
-    *,
-    name: str,
-    source_kind: str,
-    text: str | None = None,
-    content: bytes | None = None,
-    mime_type: str | None = None,
-) -> NormalizedSource:
-    source_kind = _guess_source_kind(name, source_kind)
-
-    if source_kind in TEXT_SOURCE_KINDS:
-        return _summarize_text_like(name, text or _decode_preview_text(content or b""), source_kind)
-
-    if source_kind in TABULAR_SOURCE_KINDS:
-        return _summarize_tabular(name, text or _decode_preview_text(content or b""))
-
-    if source_kind in IMAGE_SOURCE_KINDS or source_kind in AUDIO_SOURCE_KINDS:
-        return _summarize_binary(name, source_kind, mime_type, len(content or b""))
-
-    return _summarize_binary(name, source_kind, mime_type, len(content or b""))
-
-
-def _insert_source(
-    *,
-    source_id: str,
-    project_id: str,
-    name: str,
-    source_kind: str,
-    upload_kind: str,
-    storage_path: str,
-    normalized_path: str,
-    parse_status: str,
-    parse_summary: str,
-) -> SourceRecord:
-    created_at = datetime.now().isoformat()
-    connection = get_connection()
-    try:
-        connection.execute(
-            """
-            INSERT INTO sources (
-              id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-              notebook_import_mode, parse_status, sync_status, parse_summary, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                source_id,
-                project_id,
-                name,
-                source_kind,
-                upload_kind,
-                storage_path,
-                normalized_path,
-                "normalized-text",
-                parse_status,
-                "pending",
-                parse_summary,
-                created_at,
-            ),
+    def ingest_text(self, project_id: str, name: str, text_content: str) -> tuple[str | None, NormalizedSource]:
+        source_dir = self.project_source_dir(project_id)
+        raw_path = source_dir / f"{name}.txt"
+        raw_path.write_text(text_content, encoding="utf-8")
+        summary = text_content.strip().replace("\n", " ")[:240]
+        return str(raw_path), NormalizedSource(
+            source_kind="text",
+            parse_status="parsed",
+            parse_summary=summary or f"{name} 已入库。",
+            normalized_path=str(raw_path),
+            notebook_import_mode="direct_text",
         )
-        connection.commit()
-    finally:
-        connection.close()
 
-    return SourceRecord(
-        id=source_id,
-        project_id=project_id,
-        name=name,
-        source_kind=source_kind,
-        upload_kind=upload_kind,
-        storage_path=storage_path,
-        normalized_path=normalized_path,
-        parse_status=parse_status,
-        parse_summary=parse_summary,
-        sync_status="pending",
-    )
+    def ingest_url(self, project_id: str, name: str, source_url: str) -> tuple[str | None, NormalizedSource]:
+        source_dir = self.project_source_dir(project_id)
+        raw_path = source_dir / f"{name}.url.txt"
+        raw_path.write_text(source_url, encoding="utf-8")
+        parsed = urlparse(source_url)
+        summary = f"URL source: {parsed.netloc}{parsed.path}"
+        return str(raw_path), NormalizedSource(
+            source_kind="url",
+            parse_status="parsed",
+            parse_summary=summary,
+            normalized_path=None,
+            notebook_import_mode="direct_url",
+        )
 
+    def ingest_file(self, project_id: str, filename: str, file_bytes: bytes) -> tuple[str, NormalizedSource]:
+        source_dir = self.project_source_dir(project_id)
+        raw_path = source_dir / filename
+        raw_path.write_bytes(file_bytes)
 
-def _write_text_source(
-    *,
-    project_id: str,
-    name: str,
-    source_kind: str,
-    upload_kind: str,
-    raw_text: str,
-    normalized: NormalizedSource,
-) -> SourceRecord:
-    source_id = f"src-{uuid4().hex[:8]}"
-    source_dir = _source_dir(project_id, source_id)
-    raw_path = source_dir / name
-    normalized_path = source_dir / "normalized.md"
+        suffix = raw_path.suffix.lower()
+        source_kind = suffix.lstrip(".") or "file"
+        normalized_path = None
+        summary = f"{filename} 已入库，等待解析。"
+        import_mode = "normalized_text"
 
-    raw_path.write_text(raw_text, encoding="utf-8")
-    normalized_path.write_text(normalized.normalized_content, encoding="utf-8")
+        try:
+            if suffix in {".md", ".txt"}:
+                text = raw_path.read_text(encoding="utf-8", errors="ignore")
+                normalized_path = raw_path
+                summary = text.strip().replace("\n", " ")[:240] or summary
+                import_mode = "direct_text"
+            elif suffix == ".pdf":
+                text = "\n".join(page.extract_text() or "" for page in PdfReader(str(raw_path)).pages)
+                normalized_path = source_dir / f"{raw_path.stem}.normalized.md"
+                normalized_path.write_text(text, encoding="utf-8")
+                summary = text.strip().replace("\n", " ")[:240] or "PDF 已解析为文本。"
+            elif suffix == ".docx":
+                document = Document(str(raw_path))
+                text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+                normalized_path = source_dir / f"{raw_path.stem}.normalized.md"
+                normalized_path.write_text(text, encoding="utf-8")
+                summary = text.strip().replace("\n", " ")[:240] or "DOCX 已解析为文本。"
+            elif suffix == ".xlsx":
+                workbook = load_workbook(str(raw_path), read_only=True, data_only=True)
+                lines: list[str] = []
+                for sheet in workbook.worksheets:
+                    lines.append(f"# Sheet: {sheet.title}")
+                    rows = list(sheet.iter_rows(values_only=True, max_row=6))
+                    if rows:
+                        header = [str(cell or "") for cell in rows[0]]
+                        lines.append("表头: " + " | ".join(header))
+                    for sample_row in rows[1:4]:
+                        lines.append("样例: " + " | ".join(str(cell or "") for cell in sample_row))
+                    lines.append(f"行数估计: {sheet.max_row}, 列数估计: {sheet.max_column}")
+                text = "\n".join(lines)
+                normalized_path = source_dir / f"{raw_path.stem}.normalized.md"
+                normalized_path.write_text(text, encoding="utf-8")
+                summary = text[:240] or "XLSX 已转成摘要文本。"
+            elif suffix in {".png", ".jpg", ".jpeg", ".webp"}:
+                summary = f"{filename} 已入库。图片类 source 需要后续接视觉描述链路。"
+            elif suffix in {".mp3", ".wav", ".m4a"}:
+                summary = f"{filename} 已入库。音频类 source 需要后续接转写链路。"
+            else:
+                summary = f"{filename} 已入库，但当前类型仅保留原始文件记录。"
+        except Exception as exc:
+            return str(raw_path), NormalizedSource(
+                source_kind=source_kind,
+                parse_status="failed",
+                parse_summary=f"{filename} 解析失败：{exc}",
+                normalized_path=None,
+                notebook_import_mode=None,
+            )
 
-    return _insert_source(
-        source_id=source_id,
-        project_id=project_id,
-        name=name,
-        source_kind=source_kind,
-        upload_kind=upload_kind,
-        storage_path=str(raw_path),
-        normalized_path=str(normalized_path),
-        parse_status=normalized.parse_status,
-        parse_summary=normalized.parse_summary,
-    )
-
-
-def ingest_text_source(project_id: str, name: str, text: str) -> SourceRecord:
-    normalized = normalize_source(name=name, source_kind="text", text=text)
-    return _write_text_source(
-        project_id=project_id,
-        name=name,
-        source_kind="text",
-        upload_kind="text",
-        raw_text=text,
-        normalized=normalized,
-    )
-
-
-def ingest_url_source(project_id: str, name: str, url: str) -> SourceRecord:
-    normalized = normalize_source(
-        name=name,
-        source_kind="url",
-        text=f"来源链接：{url}",
-    )
-    return _write_text_source(
-        project_id=project_id,
-        name=name,
-        source_kind="url",
-        upload_kind="url",
-        raw_text=url,
-        normalized=normalized,
-    )
-
-
-def ingest_file_source(
-    *,
-    project_id: str,
-    name: str,
-    content: bytes,
-    source_kind: str | None = None,
-    mime_type: str | None = None,
-) -> SourceRecord:
-    normalized_kind = _guess_source_kind(name, source_kind)
-    normalized = normalize_source(
-        name=name,
-        source_kind=normalized_kind,
-        content=content,
-        mime_type=mime_type,
-    )
-
-    source_id = f"src-{uuid4().hex[:8]}"
-    source_dir = _source_dir(project_id, source_id)
-    raw_path = source_dir / name
-    normalized_path = source_dir / "normalized.md"
-
-    raw_path.write_bytes(content)
-    normalized_path.write_text(normalized.normalized_content, encoding="utf-8")
-
-    return _insert_source(
-        source_id=source_id,
-        project_id=project_id,
-        name=name,
-        source_kind=normalized_kind,
-        upload_kind="file",
-        storage_path=str(raw_path),
-        normalized_path=str(normalized_path),
-        parse_status=normalized.parse_status,
-        parse_summary=normalized.parse_summary,
-    )
+        return str(raw_path), NormalizedSource(
+            source_kind=source_kind,
+            parse_status="parsed",
+            parse_summary=summary,
+            normalized_path=str(normalized_path) if normalized_path else None,
+            notebook_import_mode=import_mode,
+        )

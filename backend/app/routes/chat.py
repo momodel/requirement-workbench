@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from ..services.chat_service import run_chat_round
+from ..models import ChatStreamRequest
+from ..services.project_catalog import now_iso
 
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
@@ -14,21 +17,21 @@ def sse_event(event: str, data: dict) -> str:
 
 
 @router.post("/stream")
-def stream_chat(project_id: str, payload: dict | None = None) -> StreamingResponse:
-    request = payload or {}
-    message = request.get("message", "空输入")
-    selected_source_ids = request.get("selected_source_ids")
-    request_artifact_types = request.get("request_artifact_types")
-    client_context = request.get("client_context")
+async def stream_chat(project_id: str, payload: ChatStreamRequest, request: Request) -> StreamingResponse:
+    project = request.app.state.services.catalog.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-    def event_stream():
-        for event in run_chat_round(
-            project_id=project_id,
-            message=message,
-            selected_source_ids=selected_source_ids,
-            request_artifact_types=request_artifact_types,
-            client_context=client_context,
+    async def event_stream():
+        async for event_type, data in request.app.state.services.chat_service.stream_turn(
+            project_id,
+            payload,
         ):
-            yield sse_event(event["event"], event["data"])
+            envelope = {
+                "project_id": project_id,
+                "created_at": now_iso(request.app.state.services.settings),
+                **data,
+            }
+            yield sse_event(event_type, envelope)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

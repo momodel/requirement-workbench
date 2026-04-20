@@ -1,51 +1,162 @@
 export type ProjectSummary = {
   id: string;
   name: string;
+  scenario_type: string;
   summary: string;
   status: string;
-  scenarioType: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
+  seed_key: string | null;
+};
+
+export type CreateProjectRequest = {
+  name: string;
+  scenario_type: string;
+  summary: string;
+};
+
+export type NotebookBindingRecord = {
+  project_id: string;
+  notebook_id: string;
+  provider: string;
+  sync_status: string;
+  last_synced_at: string | null;
+  source_url: string | null;
+};
+
+export type CreateNotebookBindingResponse = {
+  notebook: NotebookLibraryItem;
+  binding: NotebookBindingRecord;
+};
+
+export type NotebookLibraryItem = {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  topics: string[];
+  use_count: number;
+  last_used: string | null;
+};
+
+export type ProviderReadiness = {
+  provider: string;
+  status: string;
+  summary: string;
+  detail: string | null;
+  action_label: string | null;
+};
+
+export type GlobalReadiness = {
+  claude: ProviderReadiness;
+  notebooklm: ProviderReadiness;
+};
+
+export type ProjectReadiness = {
+  project_id: string;
+  claude: ProviderReadiness;
+  notebooklm: ProviderReadiness;
+  notebook_binding: NotebookBindingRecord | null;
 };
 
 export type SourceRecord = {
   id: string;
+  project_id: string;
   name: string;
-  sourceKind: string;
-  uploadKind?: string;
-  storagePath?: string;
-  normalizedPath?: string;
-  parseStatus: string;
-  parseSummary?: string;
-  syncStatus: string;
+  source_kind: string;
+  upload_kind: string;
+  storage_path: string | null;
+  normalized_path: string | null;
+  notebook_import_mode: string | null;
+  parse_status: string;
+  parse_summary: string | null;
+  sync_status: string;
+  sync_error: string | null;
+  created_at: string;
+};
+
+export type MessageRecord = {
+  id: string;
+  role: string;
+  content: string;
+  source_refs: Array<{ title?: string; snippet?: string; source_id?: string }>;
+  created_at: string;
+  stream_group_id: string | null;
+  status_label?: string | null;
+  status_phase?: string | null;
 };
 
 export type StateItem = {
   id: string;
   title: string;
   body: string;
+  status: string;
+  category: string | null;
+  updated_at: string | null;
+  source_ids: string[];
+};
+
+export type ProjectState = {
+  current_understanding: StateItem[];
+  pending_items: StateItem[];
+  confirmed_items: StateItem[];
+  conflict_items: StateItem[];
+  mvp_items: StateItem[];
+  versions: StateItem[];
+  artifacts: StateItem[];
 };
 
 export type ArtifactRecord = {
   id: string;
-  artifactType: string;
+  project_id: string;
+  artifact_type: 'document' | 'page_solution' | 'interaction_flow' | string;
   title: string;
   summary: string;
   status: string;
-  contentFormat: string;
-  storagePath?: string;
+  content_format: string;
+  storage_path: string | null;
+  preview_url: string | null;
+  body: string | null;
+  updated_at: string;
 };
 
-export type ChatEvent = {
-  event: string;
-  data: Record<string, unknown>;
+export type ChatStreamRequest = {
+  message: string;
+  selected_source_ids: string[];
+  request_artifact_types: Array<'document' | 'page_solution' | 'interaction_flow'>;
+  client_context?: Record<string, unknown>;
 };
 
-export type ProjectState = {
-  currentUnderstanding: StateItem[];
-  pendingItems: StateItem[];
-  confirmedItems: StateItem[];
-  conflictItems: StateItem[];
-  mvpItems: StateItem[];
-  versions: StateItem[];
-  artifacts: StateItem[];
+export type BindNotebookRequest = {
+  source_url?: string;
+  notebook_id?: string;
+  notebook_name?: string;
+  description?: string;
+  topics?: string[];
+};
+
+export type CreateNotebookRequest = {
+  notebook_name?: string;
+  description?: string;
+  topics?: string[];
+};
+
+export type ChatCitation = {
+  title: string;
+  snippet?: string | null;
+  source_id?: string | null;
+};
+
+export type SseEventPayload = {
+  project_id: string;
+  created_at: string;
+  op?: 'replace' | 'upsert' | 'remove';
+  items?: unknown[];
+  text?: string;
+  replace?: boolean;
+  label?: string;
+  phase?: string;
+  provider?: string;
+  message?: string;
+  stream_group_id?: string;
 };

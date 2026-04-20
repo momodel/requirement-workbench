@@ -1,144 +1,349 @@
+from __future__ import annotations
+
+import asyncio
 import json
-from datetime import datetime
-from uuid import uuid4
+import uuid
 
-from ..db import get_connection
-from .agent_runtime import runtime as agent_runtime
-from .artifact_generation import generate_artifact
-from .notebooklm_service import query as query_evidence
-from .project_catalog import get_project
-from .project_state import create_version_snapshot, get_state_counts, upsert_state_items
-
-
-PATCH_EVENT_MAP = {
-    "current_understanding": "current_understanding_patch",
-    "pending_items": "pending_patch",
-    "confirmed_items": "confirmed_patch",
-    "conflict_items": "conflict_patch",
-    "mvp_items": "mvp_patch",
-}
+from ..models import AgentTurnInput, ChatStreamRequest, ProviderIssue, StateItem
+from .agent_runtime import ClaudeAgentRuntime
+from .artifact_generation import ArtifactGenerationService
+from .project_catalog import ProjectCatalog
+from .project_state import ProjectStateService
+from .runtime_contracts import AgentRuntime, EvidenceRuntime
 
 
-def sse_event(event: str, data: dict) -> dict:
-    return {"event": event, "data": data}
+class ChatService:
+    STRUCTURED_TRIGGER_KEYWORDS = (
+        "总结",
+        "沉淀",
+        "结论",
+        "范围",
+        "边界",
+        "方案",
+        "mvp",
+        "MVP",
+        "设计",
+        "交付",
+        "文档",
+        "梳理",
+        "收敛",
+        "待确认",
+        "确认项",
+        "风险",
+        "版本快照",
+        "页面方案",
+        "交互稿",
+    )
+    META_FOLLOW_UP_KEYWORDS = (
+        "前一个问题",
+        "上一个问题",
+        "刚刚问",
+        "刚才问",
+        "刚才说",
+        "上一条",
+        "你前面",
+        "你刚才",
+        "重复一遍",
+        "再说一遍",
+        "聊天记录",
+        "历史记录",
+    )
 
+    def __init__(
+        self,
+        catalog: ProjectCatalog,
+        project_state: ProjectStateService,
+        notebooklm: EvidenceRuntime,
+        agent_runtime: AgentRuntime,
+        artifact_generation: ArtifactGenerationService,
+    ):
+        self.catalog = catalog
+        self.project_state = project_state
+        self.notebooklm = notebooklm
+        self.agent_runtime = agent_runtime
+        self.artifact_generation = artifact_generation
 
-def _store_message(
-    project_id: str,
-    role: str,
-    content: str,
-    stream_group_id: str,
-    source_refs: list[dict[str, str]] | None = None,
-) -> None:
-    connection = get_connection()
-    try:
-        connection.execute(
-            """
-            INSERT INTO messages (
-              id, project_id, role, content, source_refs_json, created_at, stream_group_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                f"msg-{uuid4().hex[:8]}",
-                project_id,
-                role,
-                content,
-                json.dumps(source_refs or [], ensure_ascii=False),
-                datetime.now().isoformat(),
-                stream_group_id,
-            ),
+    async def _query_evidence_with_timeout(self, project_id: str, message: str):
+        timeout_seconds = self.catalog.settings.notebooklm_query_timeout_seconds
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self.notebooklm.query, project_id, message),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise ProviderIssue(
+                provider="NOTEBOOKLM_PY",
+                message="NotebookLM 查询超时，已跳过本轮证据检索。请稍后重试或检查当前 notebook 状态。",
+            ) from exc
+
+    async def _iterate_with_timeout(
+        self,
+        iterator,
+        *,
+        timeout_seconds: float,
+        provider: str,
+        timeout_message: str,
+    ):
+        while True:
+            try:
+                yield await asyncio.wait_for(iterator.__anext__(), timeout=timeout_seconds)
+            except StopAsyncIteration:
+                return
+            except asyncio.TimeoutError as exc:
+                raise ProviderIssue(
+                    provider=provider,
+                    message=timeout_message,
+                ) from exc
+
+    def _should_run_structured_turn(self, turn: AgentTurnInput) -> bool:
+        if turn.request_artifact_types:
+            return True
+
+        message = turn.user_message.strip()
+        if not message:
+            return False
+
+        lowered = message.lower()
+        if any(keyword in message for keyword in self.META_FOLLOW_UP_KEYWORDS):
+            return False
+
+        state_item_count = (
+            len(turn.state.current_understanding)
+            + len(turn.state.pending_items)
+            + len(turn.state.confirmed_items)
+            + len(turn.state.conflict_items)
+            + len(turn.state.mvp_items)
         )
-        connection.commit()
-    finally:
-        connection.close()
+        if state_item_count == 0:
+            return True
 
+        if any(keyword in message or keyword in lowered for keyword in self.STRUCTURED_TRIGGER_KEYWORDS):
+            return True
 
-def _patch_payload(project_id: str, items: list[dict[str, str] | object]) -> dict:
-    created_at = datetime.now().isoformat()
-    return {
-        "project_id": project_id,
-        "op": "upsert",
-        "items": [
-            item.model_dump() if hasattr(item, "model_dump") else item
-            for item in items
-        ],
-        "event_id": f"evt-{uuid4().hex[:8]}",
-        "created_at": created_at,
-    }
+        return False
 
+    async def stream_turn(self, project_id: str, payload: ChatStreamRequest):
+        project = self.catalog.get_project(project_id)
+        if not project:
+            raise LookupError("Project not found")
 
-def run_chat_round(
-    *,
-    project_id: str,
-    message: str,
-    selected_source_ids: list[str] | None = None,
-    request_artifact_types: list[str] | None = None,
-    client_context: dict | None = None,
-):
-    del client_context
+        stream_group_id = f"stream-{uuid.uuid4().hex[:10]}"
+        self.catalog.create_message(
+            project_id=project_id,
+            role="user",
+            content=payload.message,
+            stream_group_id=stream_group_id,
+        )
 
-    project = get_project(project_id)
-    if project is None:
-        raise ValueError(f"Unknown project: {project_id}")
+        sources = self.catalog.list_sources(project_id)
+        selected_sources = [
+            source for source in sources if source.id in payload.selected_source_ids
+        ] or sources
 
-    stream_group_id = f"stream-{uuid4().hex[:8]}"
-    _store_message(project_id, "user", message, stream_group_id)
-
-    evidence = query_evidence(
-        project_id=project_id,
-        question=message or "空输入",
-        selected_source_ids=selected_source_ids,
-    )
-    response = agent_runtime.respond(
-        project_summary=project.summary,
-        message=message or "空输入",
-        evidence_summary=evidence.summary,
-        citations=evidence.citations,
-        current_state_counts=get_state_counts(project_id),
-        request_artifact_types=request_artifact_types,
-    )
-
-    _store_message(
-        project_id,
-        "assistant",
-        response.message,
-        stream_group_id,
-        source_refs=response.citations,
-    )
-
-    for chunk in [part.strip() for part in response.message.split("。") if part.strip()]:
-        yield sse_event("message_chunk", {"project_id": project_id, "text": f"{chunk}。"})
-
-    if response.citations:
-        yield sse_event(
-            "citations",
+        yield (
+            "assistant_status",
             {
-                "project_id": project_id,
-                "items": response.citations,
-                "event_id": f"evt-{uuid4().hex[:8]}",
-                "created_at": datetime.now().isoformat(),
+                "phase": "source_scan",
+                "label": f"正在整理项目资料与 {len(selected_sources)} 份候选资料",
             },
         )
 
-    for category, items in response.state_patches.items():
-        persisted = upsert_state_items(
-            project_id=project_id,
-            category=category,
-            items=items,
+        evidence_summary = "当前未查询 NotebookLM。"
+        evidence_citations = []
+        try:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "evidence_query",
+                    "label": "正在读取 NotebookLM 证据与引用",
+                },
+            )
+            evidence = await self._query_evidence_with_timeout(
+                project_id,
+                payload.message,
+            )
+            evidence_summary = evidence.summary
+            evidence_citations = evidence.citations
+            yield ("citations", {"items": [citation.model_dump() for citation in evidence_citations]})
+            yield (
+                "assistant_status",
+                {
+                    "phase": "drafting",
+                    "label": "已拿到资料证据，正在组织回答",
+                },
+            )
+        except ProviderIssue as exc:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "drafting",
+                    "label": "NotebookLM 暂未返回可用证据，正在基于当前项目状态继续分析",
+                },
+            )
+
+        state = self.project_state.get_project_state(project_id)
+        turn_input = AgentTurnInput(
+            project=project,
+            state=state,
+            user_message=payload.message,
+            selected_source_ids=payload.selected_source_ids,
+            source_summaries=[source.parse_summary or source.name for source in selected_sources],
+            evidence_summary=evidence_summary,
+            evidence_citations=evidence_citations,
+            request_artifact_types=payload.request_artifact_types,
+            recent_messages=self.catalog.list_recent_messages(project_id, limit=12),
         )
-        yield sse_event(PATCH_EVENT_MAP[category], _patch_payload(project_id, persisted))
 
-    generated_artifacts = [
-        generate_artifact(project_id, artifact_type)
-        for artifact_type in response.artifact_requests
-    ]
-    if generated_artifacts:
-        yield sse_event("artifact_patch", _patch_payload(project_id, generated_artifacts))
+        try:
+            assistant_chunks: list[str] = []
+            assistant_saved = False
+            streamed_assistant_message = ""
+            async for chunk in self._iterate_with_timeout(
+                self.agent_runtime.stream_assistant_text(turn_input),
+                timeout_seconds=self.catalog.settings.claude_stream_timeout_seconds,
+                provider="CLAUDE_AGENT_SDK",
+                timeout_message="Claude 回复超时，当前轮对话已中止。请稍后重试。",
+            ):
+                if not chunk:
+                    continue
+                assistant_chunks.append(chunk)
+                yield ("message_chunk", {"text": chunk})
 
-    version_item = create_version_snapshot(
-        project_id=project_id,
-        trigger_kind="chat-round",
-        summary=response.version_summary or "完成一次聊天轮次。",
-    )
-    yield sse_event("version_patch", _patch_payload(project_id, [version_item]))
-    yield sse_event("done", {"project_id": project_id})
+            streamed_assistant_message = "".join(assistant_chunks).strip()
+            if streamed_assistant_message and not self._should_run_structured_turn(turn_input):
+                self.catalog.create_message(
+                    project_id=project_id,
+                    role="assistant",
+                    content=streamed_assistant_message,
+                    source_refs=[],
+                    stream_group_id=stream_group_id,
+                )
+                assistant_saved = True
+
+            if not self._should_run_structured_turn(turn_input):
+                yield ("done", {"stream_group_id": stream_group_id})
+                return
+
+            yield (
+                "assistant_status",
+                {
+                    "phase": "state_patch",
+                    "label": "正在写入沉淀与版本快照",
+                },
+            )
+
+            async for event_type, value in self._iterate_with_timeout(
+                self.agent_runtime.run_turn(
+                    turn_input,
+                    assistant_message=streamed_assistant_message or None,
+                ),
+                timeout_seconds=self.catalog.settings.claude_structured_timeout_seconds,
+                provider="CLAUDE_AGENT_SDK",
+                timeout_message="Claude 结构化沉淀生成超时，已终止本轮状态写入。请稍后重试。",
+            ):
+                if event_type == "message_chunk":
+                    if not streamed_assistant_message and value:
+                        fallback_text = str(value)
+                        streamed_assistant_message = f"{streamed_assistant_message}{fallback_text}".strip()
+                        yield ("message_chunk", {"text": fallback_text})
+                    continue
+
+                result = value
+                final_assistant_message = streamed_assistant_message or result.assistant_message
+                if not streamed_assistant_message and final_assistant_message:
+                    yield ("message_chunk", {"text": final_assistant_message})
+                if not assistant_saved:
+                    self.catalog.create_message(
+                        project_id=project_id,
+                        role="assistant",
+                        content=final_assistant_message,
+                        source_refs=[citation.model_dump() for citation in result.citations],
+                        stream_group_id=stream_group_id,
+                    )
+                    assistant_saved = True
+                for category, items in result.state_updates.items():
+                    if not items:
+                        # 结构化输出里的空数组表示“本轮没有该类新增沉淀”，
+                        # 不是要把历史沉淀整类清空。
+                        continue
+                    state_items = [
+                        StateItem(
+                            id=f"{category}-{uuid.uuid4().hex[:10]}",
+                            title=item.title,
+                            body=item.body,
+                            status=item.status,
+                            category=category,
+                            source_ids=item.source_ids,
+                        )
+                        for item in items
+                    ]
+                    self.project_state.replace_category(
+                        project_id=project_id,
+                        category=category,
+                        items=state_items,
+                    )
+                    yield (
+                        f"{category}_patch",
+                        {
+                            "op": "replace",
+                            "items": [item.model_dump() for item in state_items],
+                        },
+                    )
+
+                if result.version_summary:
+                    version = self.project_state.create_version(
+                        project_id=project_id,
+                        trigger_kind="analysis_checkpoint",
+                        summary=result.version_summary,
+                    )
+                    yield (
+                        "version_patch",
+                        {"op": "upsert", "items": [version.model_dump()]},
+                    )
+
+                artifact_types = list(dict.fromkeys(payload.request_artifact_types + result.request_artifacts))
+                if artifact_types:
+                    yield (
+                        "assistant_status",
+                        {
+                            "phase": "artifact_generation",
+                            "label": "正在生成交付物预览",
+                        },
+                    )
+                    state_after = self.project_state.get_project_state(project_id)
+                    created_artifacts = []
+                    for artifact_type in artifact_types:
+                        created_artifacts.append(
+                            await self.artifact_generation.generate_from_model(
+                                project=project,
+                                state=state_after,
+                                artifact_type=artifact_type,
+                                agent_runtime=self.agent_runtime,
+                            )
+                        )
+                    yield (
+                        "artifact_patch",
+                        {
+                            "op": "upsert",
+                            "items": [artifact.model_dump() for artifact in created_artifacts],
+                        },
+                    )
+        except ProviderIssue as exc:
+            if streamed_assistant_message and not assistant_saved:
+                self.catalog.create_message(
+                    project_id=project_id,
+                    role="assistant",
+                    content=streamed_assistant_message,
+                    source_refs=[],
+                    stream_group_id=stream_group_id,
+                )
+            if not streamed_assistant_message:
+                yield (
+                    "error",
+                    {
+                        "provider": exc.provider,
+                        "message": exc.message,
+                    },
+                )
+
+        yield ("done", {"stream_group_id": stream_group_id})

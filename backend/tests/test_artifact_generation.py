@@ -1,69 +1,59 @@
-import importlib
-import json
-import os
-import unittest
-from pathlib import Path
-from tempfile import TemporaryDirectory
+from app.services.artifact_generation import ArtifactGenerationService
 
 
-class ArtifactGenerationTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp_dir = TemporaryDirectory()
-        os.environ["REQUIREMENT_WORKBENCH_DATA_DIR"] = self.temp_dir.name
+def test_validate_html_rejects_empty_output() -> None:
+    service = ArtifactGenerationService()
 
-        from backend.app import config, db
-        from backend.app.services import artifact_generation, project_catalog
-
-        self.config = importlib.reload(config)
-        self.db = importlib.reload(db)
-        self.artifact_generation = importlib.reload(artifact_generation)
-        self.project_catalog = importlib.reload(project_catalog)
-
-        self.db.init_db()
-
-    def tearDown(self) -> None:
-        os.environ.pop("REQUIREMENT_WORKBENCH_DATA_DIR", None)
-        self.temp_dir.cleanup()
-
-    def test_generate_document_artifact_persists_metadata_and_file(self) -> None:
-        artifact = self.artifact_generation.generate_artifact(
-            project_id="seed-reconciliation",
-            artifact_type="document"
-        )
-
-        self.assertEqual(artifact.status, "generated")
-        self.assertTrue(Path(artifact.storage_path).exists())
-
-        stored = self.project_catalog.list_artifacts("seed-reconciliation")
-        self.assertEqual(len(stored), 1)
-        self.assertEqual(stored[0].id, artifact.id)
-
-        payload = json.loads(Path(artifact.storage_path).read_text(encoding="utf-8"))
-        self.assertEqual(payload["artifact_type"], "document")
-        self.assertIn("sections", payload)
-
-    def test_generate_html_artifact_writes_previewable_page(self) -> None:
-        artifact = self.artifact_generation.generate_artifact(
-            project_id="seed-reconciliation",
-            artifact_type="page_solution"
-        )
-
-        html = Path(artifact.storage_path).read_text(encoding="utf-8")
-        self.assertEqual(artifact.content_format, "html")
-        self.assertIn("<title>", html)
-        self.assertIn("页面方案", html)
-
-    def test_validate_html_rejects_external_script(self) -> None:
-        with self.assertRaises(ValueError):
-            self.artifact_generation.validate_html_artifact(
-                """
-                <html>
-                  <head><title>bad</title></head>
-                  <body><main>test</main><script src="https://cdn.example.com/app.js"></script></body>
-                </html>
-                """
-            )
+    try:
+        service.validate_html_output("页面方案", "   ")
+    except ValueError as exc:
+        assert "HTML 不能为空" in str(exc)
+    else:
+        raise AssertionError("Expected empty HTML to be rejected")
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_validate_html_rejects_missing_title_and_external_script() -> None:
+    service = ArtifactGenerationService()
+
+    bad_html = """
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <script src="https://cdn.example.com/app.js"></script>
+      </head>
+      <body>
+        <main><h1>页面方案</h1></main>
+      </body>
+    </html>
+    """
+
+    try:
+        service.validate_html_output("页面方案", bad_html)
+    except ValueError as exc:
+        message = str(exc)
+        assert "title" in message or "外链脚本" in message
+    else:
+        raise AssertionError("Expected invalid HTML to be rejected")
+
+
+def test_validate_html_accepts_complete_local_document() -> None:
+    service = ArtifactGenerationService()
+
+    html = """
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>页面方案</title>
+      </head>
+      <body>
+        <main>
+          <h1>页面方案</h1>
+          <section>总览</section>
+        </main>
+      </body>
+    </html>
+    """
+
+    assert service.validate_html_output("页面方案", html) == html.strip()
