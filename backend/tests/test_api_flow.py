@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
-from app.models import ProviderIssue, ProviderReadiness
+from app.models import GeneratedArtifactOutput, ProviderIssue, ProviderReadiness
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -506,3 +506,45 @@ def test_generate_artifact_returns_validation_detail(tmp_path: Path, monkeypatch
 
     assert response.status_code == 422
     assert response.json()["detail"] == "交互稿 的 HTML 缺少 title。"
+
+
+def test_generate_artifact_creates_version_and_returns_absolute_preview_url(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
+
+    async def fake_generate_artifact(*, project, state, artifact_type):
+        assert artifact_type == "interaction_flow"
+        return GeneratedArtifactOutput(
+            title="逐笔对账交互稿",
+            summary="覆盖差异查看、归因确认和处理闭环。",
+            html="<!doctype html><html><head><title>逐笔对账交互稿</title></head><body><main>ok</main></body></html>",
+        )
+
+    monkeypatch.setattr(
+        app.state.services.agent_runtime,
+        "generate_artifact",
+        fake_generate_artifact,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/seed-reconciliation/artifacts/generate",
+            json={"artifact_type": "interaction_flow"},
+        )
+
+        assert response.status_code == 200
+        artifact = response.json()
+        assert artifact["preview_url"].startswith("http://testserver/api/projects/seed-reconciliation/artifacts/")
+
+        state_response = client.get("/api/projects/seed-reconciliation/state")
+        assert state_response.status_code == 200
+        state = state_response.json()
+        assert len(state["versions"]) >= 1
+        assert any(
+            item["title"] == "artifact_generated" and "逐笔对账交互稿" in item["body"]
+            for item in state["versions"]
+        )

@@ -41,8 +41,16 @@ import type {
   ProjectState,
   ProjectSummary,
   SourceRecord,
-  StateItem,
 } from '../../lib/types';
+import {
+  deriveStageState,
+  deriveStateOverviewSections,
+  type StateOverviewItem,
+  type StateOverviewSection,
+  WORKBENCH_STAGE_LABELS,
+  WORKBENCH_STAGE_ORDER,
+  type WorkbenchStage,
+} from './workbench-derived';
 
 type WorkbenchPageProps = {
   project: ProjectSummary;
@@ -69,26 +77,6 @@ type WorkbenchPageProps = {
   onCreateAndBindProjectNotebook: () => Promise<void>;
   onGenerateArtifact: (artifactType: 'document' | 'page_solution' | 'interaction_flow') => Promise<void>;
 };
-
-const STAGES = [
-  '需求接入',
-  '业务理解',
-  '需求收敛',
-  '方案定义',
-  '设计交付',
-];
-
-const STATE_SECTIONS: Array<{
-  key: keyof ProjectState;
-  label: string;
-}> = [
-  { key: 'current_understanding', label: '当前理解' },
-  { key: 'pending_items', label: '待确认项' },
-  { key: 'confirmed_items', label: '已确认项' },
-  { key: 'conflict_items', label: '冲突项' },
-  { key: 'mvp_items', label: 'MVP' },
-  { key: 'versions', label: '版本快照' },
-];
 
 function relativeTime(value: string) {
   return new Date(value).toLocaleString('zh-CN');
@@ -170,6 +158,58 @@ function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
   return Array.from(latest.values());
 }
 
+function stageTone(
+  stage: WorkbenchStage,
+  primaryStage: WorkbenchStage,
+  revisitingStages: WorkbenchStage[]
+) {
+  if (stage === primaryStage) {
+    return {
+      badge: '当前重点',
+      cardClass: 'border-accent/20 bg-accentSoft/70 text-accent',
+      badgeVariant: 'accent' as const,
+    };
+  }
+
+  if (revisitingStages.includes(stage)) {
+    return {
+      badge: '补充中',
+      cardClass: 'border-amber-200 bg-amber-50 text-amber-900',
+      badgeVariant: 'warning' as const,
+    };
+  }
+
+  const primaryIndex = WORKBENCH_STAGE_ORDER.indexOf(primaryStage);
+  const stageIndex = WORKBENCH_STAGE_ORDER.indexOf(stage);
+
+  if (stageIndex < primaryIndex) {
+    return {
+      badge: '已形成',
+      cardClass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+      badgeVariant: 'success' as const,
+    };
+  }
+
+  return {
+    badge: '待进入',
+    cardClass: 'border-line bg-slate-50 text-muted',
+    badgeVariant: 'default' as const,
+  };
+}
+
+function getSectionEmptyText(sectionId: string) {
+  if (sectionId === 'artifacts') return '当前还没有交付物。';
+  if (sectionId === 'versions') return '关键快照还没有生成。';
+  return '当前还没有内容。';
+}
+
+function getItemBody(item: StateOverviewItem) {
+  if (item.kind === 'artifact') {
+    return item.body || '当前还没有摘要。';
+  }
+  return sanitizeStateBody(item.title, item.body);
+}
+
 function SourcePreview({
   source,
   position,
@@ -212,50 +252,268 @@ function SourcePreview({
   );
 }
 
-function StateBlock({
-  label,
-  items,
-  recentInsightIds,
+function WorkbenchStageRail({
+  primaryStage,
+  revisitingStages,
 }: {
-  label: string;
-  items: StateItem[];
-  recentInsightIds: string[];
+  primaryStage: WorkbenchStage;
+  revisitingStages: WorkbenchStage[];
 }) {
   return (
+    <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
+      {WORKBENCH_STAGE_ORDER.map((stage) => {
+        const tone = stageTone(stage, primaryStage, revisitingStages);
+
+        return (
+          <div
+            key={stage}
+            className={cn('rounded-[16px] border px-3 py-2 transition-colors', tone.cardClass)}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">{WORKBENCH_STAGE_LABELS[stage]}</div>
+              <Badge variant={tone.badgeVariant}>{tone.badge}</Badge>
+            </div>
+            <div className="mt-1 text-[12px] leading-5 opacity-80">
+              {stage === primaryStage
+                ? '当前主线推进重点。'
+                : revisitingStages.includes(stage)
+                  ? '有新信息正在回流补充。'
+                  : '作为分析过程中的阶段语义展示。'}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function StateSectionCard({
+  section,
+  onOpen,
+  onOpenItem,
+}: {
+  section: StateOverviewSection;
+  onOpen: () => void;
+  onOpenItem: (item: StateOverviewItem) => void;
+}) {
+  const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+
+  return (
     <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-ink">{label}</h3>
-        <Badge>{items.length}</Badge>
-      </div>
-      <div className="mt-2.5 grid gap-2.5">
-        {items.length === 0 ? (
+      <button
+        type="button"
+        className="w-full text-left transition hover:text-accent"
+        aria-label={section.title}
+        onClick={onOpen}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-semibold text-ink">{section.title}</h3>
+              {section.recentCount > 0 ? <Badge variant="accent">本轮新增</Badge> : null}
+            </div>
+            <p className="mt-1 text-xs leading-5 text-muted">{section.description}</p>
+          </div>
+          <Badge>{section.totalCount}</Badge>
+        </div>
+      </button>
+      <div className="mt-2.5 grid gap-2">
+        {previewItems.length === 0 ? (
           <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
-            当前还没有内容。
+            {getSectionEmptyText(section.id)}
           </div>
         ) : (
-          items.slice(0, 4).map((item) => (
-            <div
+          previewItems.map((item) => (
+            <button
               key={item.id}
+              type="button"
               className={cn(
-                'rounded-[16px] border border-white bg-white p-3 transition-colors',
-                recentInsightIds.includes(item.id) && 'border-accent/30 bg-accentSoft/40'
+                'rounded-[16px] border bg-white p-3 text-left transition hover:border-accent/25 hover:bg-slate-50',
+                item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
               )}
+              onClick={() => onOpenItem(item)}
             >
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium text-ink">{item.title}</div>
-                {recentInsightIds.includes(item.id) ? <Badge variant="accent">本轮新增</Badge> : null}
+              <div className="flex items-start justify-between gap-2">
+                {item.title === section.title ? (
+                  <div className="text-sm font-medium text-ink">{item.kind === 'artifact' ? item.title : '最新条目'}</div>
+                ) : (
+                  <div className="text-sm font-medium text-ink">{item.title}</div>
+                )}
+                {item.kind === 'artifact' ? (
+                  <Badge variant={statusVariant(item.status)}>{item.artifactType}</Badge>
+                ) : null}
               </div>
-              <p className="mt-1.5 text-sm leading-6 text-muted">{sanitizeStateBody(item.title, item.body)}</p>
+              <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
-                {item.status ? <span>{`状态：${item.status}`}</span> : null}
-                {item.updated_at ? <span>{`更新于 ${relativeTime(item.updated_at)}`}</span> : null}
-                <span>{`来源 ${item.source_ids.length} 份资料`}</span>
+                <span>{`形成于 ${WORKBENCH_STAGE_LABELS[item.formedStage]}`}</span>
+                {item.updatedAt ? <span>{relativeTime(item.updatedAt)}</span> : null}
               </div>
-            </div>
+            </button>
           ))
         )}
       </div>
     </div>
+  );
+}
+
+function StateSectionDrawer({
+  section,
+  activeItem,
+  onClose,
+  onSelectItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  section: StateOverviewSection | null;
+  activeItem: StateOverviewItem | null;
+  onClose: () => void;
+  onSelectItem: (item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  return (
+    <Dialog open={Boolean(section)} onOpenChange={(open) => !open && onClose()}>
+      {section ? (
+        <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[min(980px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
+          <div className="grid h-full grid-cols-[320px_minmax(0,1fr)]">
+            <div className="flex min-h-0 flex-col border-r border-line bg-slate-50/80">
+              <DialogHeader className="border-b border-line px-5 py-4">
+                <DialogTitle>{section.title}</DialogTitle>
+                <DialogDescription>{section.description}</DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div className="grid gap-2">
+                  {section.items.length === 0 ? (
+                    <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                      {getSectionEmptyText(section.id)}
+                    </div>
+                  ) : (
+                    section.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={cn(
+                          'rounded-[18px] border p-3 text-left transition',
+                          activeItem?.id === item.id
+                            ? 'border-accent bg-accentSoft/50'
+                            : 'border-line bg-white hover:border-accent/25 hover:bg-slate-50'
+                        )}
+                        onClick={() => onSelectItem(item)}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-sm font-semibold text-ink">{item.title}</div>
+                          {item.isRecent ? <Badge variant="accent">本轮新增</Badge> : null}
+                        </div>
+                        <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-col bg-white">
+              <div className="border-b border-line px-5 py-4">
+                <div className="text-sm font-medium text-muted">条目详情</div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                {activeItem ? (
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-semibold text-ink">{activeItem.title}</h3>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Badge variant={statusVariant(activeItem.status)}>{activeItem.status}</Badge>
+                          <Badge>{WORKBENCH_STAGE_LABELS[activeItem.updatedStage]}</Badge>
+                          {activeItem.isRecent ? <Badge variant="accent">本轮新增</Badge> : null}
+                        </div>
+                      </div>
+                      {activeItem.kind === 'artifact' ? (
+                        activeItem.contentFormat === 'html' ? (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              onOpenArtifact({
+                                id: activeItem.id,
+                                project_id: '',
+                                artifact_type: activeItem.artifactType ?? 'artifact',
+                                title: activeItem.title,
+                                summary: activeItem.body,
+                                status: activeItem.status,
+                                content_format: activeItem.contentFormat ?? 'html',
+                                storage_path: null,
+                                preview_url: activeItem.previewUrl ?? null,
+                                body: activeItem.documentBody ?? null,
+                                updated_at: activeItem.updatedAt ?? '',
+                              })
+                            }
+                          >
+                            打开预览
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              onOpenDocument({
+                                id: activeItem.id,
+                                project_id: '',
+                                artifact_type: activeItem.artifactType ?? 'artifact',
+                                title: activeItem.title,
+                                summary: activeItem.body,
+                                status: activeItem.status,
+                                content_format: activeItem.contentFormat ?? 'document',
+                                storage_path: null,
+                                preview_url: activeItem.previewUrl ?? null,
+                                body: activeItem.documentBody ?? null,
+                                updated_at: activeItem.updatedAt ?? '',
+                              })
+                            }
+                          >
+                            查看正文
+                          </Button>
+                        )
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-3 rounded-[22px] border border-line bg-slate-50/80 p-4 text-sm">
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">形成于</div>
+                        <div className="text-ink">{WORKBENCH_STAGE_LABELS[activeItem.formedStage]}</div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">最近更新于</div>
+                        <div className="text-ink">{WORKBENCH_STAGE_LABELS[activeItem.updatedStage]}</div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">更新时间</div>
+                        <div className="text-ink">
+                          {activeItem.updatedAt ? relativeTime(activeItem.updatedAt) : '暂无'}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">来源资料</div>
+                        <div className="text-ink">{`${activeItem.sourceCount} 份`}</div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[22px] border border-line bg-white p-4">
+                      <div className="mb-3 text-sm font-medium text-muted">正文</div>
+                      <div className="whitespace-pre-wrap text-sm leading-7 text-ink">
+                        {activeItem.kind === 'artifact' ? activeItem.body || '当前还没有摘要。' : activeItem.body}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+                    先从左侧列表选择一个条目，再查看详情。
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
   );
 }
 
@@ -336,20 +594,30 @@ export function WorkbenchPage({
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
   const [activeDocument, setActiveDocument] = useState<ArtifactRecord | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [activeSectionItemId, setActiveSectionItemId] = useState<string | null>(null);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
 
   const latestVersions = state.versions.slice(0, 3);
-  const stageIndex = useMemo(() => {
-    if (state.artifacts.length > 0) return 4;
-    if (state.mvp_items.length > 0) return 3;
-    if (state.confirmed_items.length > 0 || state.conflict_items.length > 0) return 2;
-    if (state.current_understanding.length > 0) return 1;
-    return 0;
-  }, [state]);
-
   const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
+  const stageState = useMemo(
+    () => deriveStageState(state, recentInsightIds),
+    [recentInsightIds, state]
+  );
+  const overviewSections = useMemo(
+    () => deriveStateOverviewSections(state, artifacts, recentInsightIds),
+    [artifacts, recentInsightIds, state]
+  );
+  const activeSection = useMemo(
+    () => overviewSections.find((section) => section.id === activeSectionId) ?? null,
+    [activeSectionId, overviewSections]
+  );
+  const activeSectionItem = useMemo(
+    () => activeSection?.items.find((item) => item.id === activeSectionItemId) ?? null,
+    [activeSection, activeSectionItemId]
+  );
   const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
   const referencedSourceCount = sources.filter(
     (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
@@ -370,6 +638,22 @@ export function WorkbenchPage({
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ block: 'end' });
   }, [lastMessageContent, messages.length, notices.length, sending]);
+
+  useEffect(() => {
+    if (!activeSection) {
+      setActiveSectionItemId(null);
+      return;
+    }
+
+    if (activeSection.items.length === 0) {
+      setActiveSectionItemId(null);
+      return;
+    }
+
+    if (!activeSection.items.some((item) => item.id === activeSectionItemId)) {
+      setActiveSectionItemId(activeSection.items[0]?.id ?? null);
+    }
+  }, [activeSection, activeSectionItemId]);
 
   async function handleSend() {
     const trimmed = composer.trim();
@@ -454,22 +738,10 @@ export function WorkbenchPage({
           </CardContent>
         </Card>
 
-        <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
-          {STAGES.map((stage, index) => (
-            <div
-              key={stage}
-              className={cn(
-                'rounded-[16px] border border-transparent px-3 py-2 text-sm transition-colors',
-                index < stageIndex && 'bg-emerald-50 text-emerald-900',
-                index === stageIndex && 'border-accent/15 bg-accentSoft text-accent',
-                index > stageIndex && 'bg-slate-50 text-muted'
-              )}
-            >
-              <div className="text-[10px] uppercase tracking-[0.18em]">{`Stage ${index + 1}`}</div>
-              <div className="mt-0.5 font-medium">{stage}</div>
-            </div>
-          ))}
-        </div>
+        <WorkbenchStageRail
+          primaryStage={stageState.primaryStage}
+          revisitingStages={stageState.revisitingStages}
+        />
 
         <section className="grid min-h-0 flex-1 grid-cols-[292px_minmax(0,1fr)_332px] gap-3">
           <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
@@ -705,23 +977,14 @@ export function WorkbenchPage({
                   <CardTitle className="text-base">沉淀总集</CardTitle>
                 </div>
                 <div className="text-xs text-muted">
-                  {`${state.current_understanding.length} 当前理解 · ${state.pending_items.length} 待确认 · ${artifacts.length} 交付物`}
+                  {`${overviewSections.length} 个资产分区 · ${totalInsightCount} 条沉淀 · ${artifacts.length} 份交付物`}
                 </div>
               </div>
             </CardHeader>
             <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3 px-3 pb-3 pt-0">
-              {STATE_SECTIONS.map((section) => (
-                <StateBlock
-                  key={section.key}
-                  label={section.label}
-                  items={state[section.key]}
-                  recentInsightIds={recentInsightIds}
-                />
-              ))}
-
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-ink">交付物</h3>
+                  <h3 className="text-sm font-semibold text-ink">产物动作</h3>
                   <Badge>{latestArtifacts.length}</Badge>
                 </div>
                 <div className="mt-2.5 grid gap-2.5">
@@ -752,37 +1015,6 @@ export function WorkbenchPage({
                       交互稿
                     </Button>
                   </div>
-                  {latestArtifacts.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
-                      当前还没有交付物。
-                    </div>
-                  ) : (
-                    latestArtifacts.map((artifact) => (
-                      <button
-                        key={artifact.id}
-                        type="button"
-                        className="rounded-[16px] border border-white bg-white p-3 text-left transition hover:border-accent/25 hover:bg-slate-50"
-                        onClick={() => {
-                          if (artifact.content_format === 'html') {
-                            setActiveArtifact(artifact);
-                          } else {
-                            setActiveDocument(artifact);
-                          }
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-ink">{artifact.title}</div>
-                            <p className="mt-1.5 text-sm leading-6 text-muted">{artifact.summary}</p>
-                          </div>
-                          <Badge variant={statusVariant(artifact.status)}>{artifact.status}</Badge>
-                        </div>
-                        <div className="mt-2 text-xs text-muted">
-                          {artifact.updated_at ? relativeTime(artifact.updated_at) : '刚刚更新'}
-                        </div>
-                      </button>
-                    ))
-                  )}
                   {artifactHistoryCount > 0 ? (
                     <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs text-muted">
                       {`当前已折叠 ${artifactHistoryCount} 个历史版本，侧栏默认只显示每类最新交付物。`}
@@ -791,9 +1023,27 @@ export function WorkbenchPage({
                 </div>
               </div>
 
+              {overviewSections.map((section) => (
+                <StateSectionCard
+                  key={section.id}
+                  section={
+                    section.id === 'artifacts'
+                      ? { ...section, items: section.items.slice(0, 3) }
+                      : section.id === 'versions'
+                        ? { ...section, items: section.items.slice(0, 2) }
+                        : section
+                  }
+                  onOpen={() => setActiveSectionId(section.id)}
+                  onOpenItem={(item) => {
+                    setActiveSectionId(section.id);
+                    setActiveSectionItemId(item.id);
+                  }}
+                />
+              ))}
+
               {latestVersions.length > 0 ? (
                 <div className="rounded-[20px] border border-line bg-white p-3.5">
-                  <div className="text-sm font-semibold text-ink">最近版本</div>
+                  <div className="text-sm font-semibold text-ink">最近更新</div>
                   <div className="mt-2.5 grid gap-2.5">
                     {latestVersions.map((version) => (
                       <div key={version.id} className="rounded-[16px] border border-line bg-slate-50 p-3">
@@ -816,6 +1066,15 @@ export function WorkbenchPage({
           onClose={() => setSelectedSource(null)}
         />
       ) : null}
+
+      <StateSectionDrawer
+        section={activeSection}
+        activeItem={activeSectionItem}
+        onClose={() => setActiveSectionId(null)}
+        onSelectItem={(item) => setActiveSectionItemId(item.id)}
+        onOpenArtifact={setActiveArtifact}
+        onOpenDocument={setActiveDocument}
+      />
 
       <Dialog open={Boolean(activeArtifact)} onOpenChange={(open) => !open && setActiveArtifact(null)}>
         {activeArtifact ? (

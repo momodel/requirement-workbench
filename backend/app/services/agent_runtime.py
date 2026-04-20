@@ -405,11 +405,40 @@ class ClaudeAgentRuntime:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
         root = settings.root_dir
+        self.runtime_config_dir = root / "backend" / ".claude-runtime"
         self.methodology_skill = _read_skill(
             root / "backend" / ".claude" / "skills" / "requirement-analysis-methodology" / "SKILL.md"
         )
         self.evidence_skill = _read_skill(
             root / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow" / "SKILL.md"
+        )
+
+    def _build_options(
+        self,
+        *,
+        system_prompt: str,
+        include_partial_messages: bool,
+        output_format: dict | None = None,
+    ) -> ClaudeAgentOptions:
+        # Claude CLI 默认会读取 ~/.claude 下的用户级设置、插件和历史。
+        # 这里强制收口到项目内运行时目录，并显式禁用 user setting source，
+        # 避免用户机器上的全局配置污染项目级对话行为。
+        self.runtime_config_dir.mkdir(parents=True, exist_ok=True)
+        return ClaudeAgentOptions(
+            system_prompt=system_prompt,
+            allowed_tools=[],
+            tools=[],
+            model=self.settings.claude_model,
+            max_turns=self.settings.claude_max_turns,
+            cwd=str(self.settings.root_dir),
+            cli_path=self.settings.claude_cli_path,
+            include_partial_messages=include_partial_messages,
+            output_format=output_format,
+            setting_sources=["project", "local"],
+            plugins=[],
+            env={
+                "CLAUDE_CONFIG_DIR": str(self.runtime_config_dir),
+            },
         )
 
     def _methodology_execution_notes(self) -> str:
@@ -719,14 +748,8 @@ NotebookLM citations：
     async def stream_assistant_text(self, turn: AgentTurnInput) -> AsyncIterator[str]:
         self.ensure_available()
 
-        options = ClaudeAgentOptions(
+        options = self._build_options(
             system_prompt="你是客户需求转译台的一期正式分析智能体。",
-            allowed_tools=[],
-            tools=[],
-            model=self.settings.claude_model,
-            max_turns=self.settings.claude_max_turns,
-            cwd=str(self.settings.root_dir),
-            cli_path=self.settings.claude_cli_path,
             include_partial_messages=True,
         )
 
@@ -859,14 +882,8 @@ NotebookLM citations：
     ) -> AsyncIterator[tuple[str, str | AgentTurnResult]]:
         self.ensure_available()
 
-        options = ClaudeAgentOptions(
+        options = self._build_options(
             system_prompt="你是客户需求转译台的一期正式分析智能体。",
-            allowed_tools=[],
-            tools=[],
-            model=self.settings.claude_model,
-            max_turns=self.settings.claude_max_turns,
-            cwd=str(self.settings.root_dir),
-            cli_path=self.settings.claude_cli_path,
             include_partial_messages=True,
             output_format=_output_schema(),
         )
@@ -948,14 +965,8 @@ NotebookLM citations：
 
         try:
             for attempt in range(max_attempts):
-                options = ClaudeAgentOptions(
+                options = self._build_options(
                     system_prompt="你是客户需求转译台的一期正式交付物生成智能体。",
-                    allowed_tools=[],
-                    tools=[],
-                    model=self.settings.claude_model,
-                    max_turns=self.settings.claude_max_turns,
-                    cwd=str(self.settings.root_dir),
-                    cli_path=self.settings.claude_cli_path,
                     include_partial_messages=False,
                     output_format=output_format,
                 )

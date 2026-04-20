@@ -11,12 +11,24 @@ from ..models import ArtifactGenerateRequest, ArtifactRecord, ProviderIssue
 router = APIRouter(prefix="/api/projects/{project_id}/artifacts", tags=["artifacts"])
 
 
+def with_public_preview_url(artifact: ArtifactRecord, request: Request) -> ArtifactRecord:
+    if not artifact.preview_url or artifact.preview_url.startswith("http"):
+        return artifact
+
+    return artifact.model_copy(
+        update={"preview_url": f"{str(request.base_url).rstrip('/')}{artifact.preview_url}"}
+    )
+
+
 @router.get("", response_model=list[ArtifactRecord])
 def list_artifacts(project_id: str, request: Request) -> list[ArtifactRecord]:
     project = request.app.state.services.catalog.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return request.app.state.services.catalog.list_artifacts(project_id)
+    return [
+        with_public_preview_url(artifact, request)
+        for artifact in request.app.state.services.catalog.list_artifacts(project_id)
+    ]
 
 
 @router.post("/generate", response_model=ArtifactRecord)
@@ -37,12 +49,18 @@ async def generate_artifact(
 
     state = services.project_state.get_project_state(project_id)
     try:
-        return await services.artifact_generation.generate_from_model(
+        artifact = await services.artifact_generation.generate_from_model(
             project=project,
             state=state,
             artifact_type=payload.artifact_type,
             agent_runtime=services.agent_runtime,
         )
+        services.project_state.create_artifact_version(
+            project_id=project_id,
+            artifact_title=artifact.title,
+            artifact_type=artifact.artifact_type,
+        )
+        return with_public_preview_url(artifact, request)
     except ProviderIssue as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
     except ValueError as exc:

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from './App';
@@ -506,7 +506,8 @@ describe('App', () => {
     expect((await screen.findAllByText('财务口径说明')).length).toBeGreaterThan(0);
     expect(await screen.findByText('我先把逐笔对账的真实矛盾拆开。')).toBeInTheDocument();
     expect(await screen.findByText('核心矛盾')).toBeInTheDocument();
-    expect(await screen.findByText('Stage 1')).toBeInTheDocument();
+    expect(await screen.findByText('当前重点')).toBeInTheDocument();
+    expect((await screen.findAllByText('业务理解')).length).toBeGreaterThan(0);
     expect(scrollIntoView).toHaveBeenCalled();
     expect(screen.getByTestId('sources-panel-content')).toHaveClass('flex', 'flex-1', 'flex-col');
     expect(screen.getByTestId('sources-scroll-area')).toHaveClass('overflow-y-auto');
@@ -1954,7 +1955,155 @@ describe('App', () => {
     await user.type(composer, '请继续分析');
     await user.keyboard('{Enter}');
 
-    expect(await screen.findByText('当前需求定义')).toBeInTheDocument();
+    expect((await screen.findAllByText('当前需求定义')).length).toBeGreaterThan(0);
     expect(await screen.findByText('本轮新增')).toBeInTheDocument();
+  });
+
+  it('shows stage focus, revisiting hints, and opens state drawers from the overview', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock({
+      '/api/projects/seed-reconciliation': {
+        id: 'seed-reconciliation',
+        name: '集团业财逐笔对账需求分析',
+        scenario_type: 'reconciliation',
+        summary: '默认 seed 项目。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: 'seed-reconciliation',
+      },
+      '/api/projects/seed-reconciliation/sources': [],
+      '/api/projects/seed-reconciliation/messages': [
+        {
+          id: 'msg-assistant-1',
+          role: 'assistant',
+          content: '我先确认逐笔对账范围，再把当前理解写入沉淀。',
+          source_refs: [],
+          created_at: '2026-04-16T10:00:00+08:00',
+          stream_group_id: null,
+        },
+      ],
+      '/api/projects/seed-reconciliation/state': {
+        current_understanding: [
+          {
+            id: 'understanding-1',
+            title: '当前需求定义',
+            body: '一期围绕业财逐笔对账分析推进。',
+            status: 'active',
+            category: 'current_understanding',
+            updated_at: '2026-04-16T10:00:00+08:00',
+            source_ids: ['src-1'],
+          },
+        ],
+        pending_items: [],
+        confirmed_items: [
+          {
+            id: 'confirmed-1',
+            title: '对账粒度',
+            body: '一期按逐笔对账推进。',
+            status: 'confirmed',
+            category: 'confirmed_items',
+            updated_at: '2026-04-16T10:05:00+08:00',
+            source_ids: ['src-1'],
+          },
+        ],
+        conflict_items: [
+          {
+            id: 'conflict-1',
+            title: '退款口径冲突',
+            body: '退款与冲销在财务侧挂接口径不一致。',
+            status: 'active',
+            category: 'conflict_items',
+            updated_at: '2026-04-16T10:10:00+08:00',
+            source_ids: ['src-2'],
+          },
+        ],
+        mvp_items: [
+          {
+            id: 'mvp-1',
+            title: 'MVP 结论',
+            body: '先做差异识别与人工确认闭环。',
+            status: 'active',
+            category: 'mvp_items',
+            updated_at: '2026-04-16T10:12:00+08:00',
+            source_ids: ['src-1'],
+          },
+        ],
+        versions: [
+          {
+            id: 'version-1',
+            title: '需求收敛快照',
+            body: '已确认逐笔对账是主线。',
+            status: 'snapshot',
+            category: 'versions',
+            updated_at: '2026-04-16T10:15:00+08:00',
+            source_ids: [],
+          },
+        ],
+        artifacts: [],
+      },
+      '/api/projects/seed-reconciliation/readiness': {
+        project_id: 'seed-reconciliation',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        notebooklm: {
+          provider: 'NOTEBOOKLM_PY',
+          status: 'ready',
+          summary: '当前项目已绑定专属 NotebookLM notebook。',
+          detail: 'Notebook ID: nb-ready-001',
+          action_label: null,
+        },
+        notebook_binding: {
+          project_id: 'seed-reconciliation',
+          notebook_id: 'nb-ready-001',
+          provider: 'NOTEBOOKLM_PY',
+          sync_status: 'bound',
+          last_synced_at: null,
+          source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
+        },
+      },
+      '/api/projects/seed-reconciliation/notebook-library': [],
+      '/api/projects/seed-reconciliation/artifacts': [
+        {
+          id: 'artifact-page-new',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'page_solution',
+          title: '页面方案 v2',
+          summary: '最新页面方案',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/page-v2.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-page-new/preview',
+          body: null,
+          updated_at: '2026-04-16T10:20:00+08:00',
+        },
+      ],
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('当前重点')).toBeInTheDocument();
+    expect((await screen.findAllByText('方案定义')).length).toBeGreaterThan(0);
+    expect(screen.getByText('补充中')).toBeInTheDocument();
+    expect(screen.getByText('需求收敛')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '关键待确认' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '风险与冲突' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '风险与冲突' }));
+    const drawer = await screen.findByRole('heading', { name: '风险与冲突' });
+    expect(drawer).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /退款口径冲突/ }));
+
+    expect(await screen.findByText('形成于')).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).getAllByText('需求收敛').length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText('退款与冲销在财务侧挂接口径不一致。').length).toBeGreaterThan(0);
   });
 });

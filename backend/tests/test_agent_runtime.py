@@ -274,6 +274,41 @@ def test_runtime_loads_skills_from_backend_dot_claude(tmp_path: Path) -> None:
     assert runtime.evidence_skill == "EVIDENCE_SKILL"
 
 
+def test_runtime_builds_isolated_claude_options(tmp_path: Path) -> None:
+    methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
+    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    methodology_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
+    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model="glm-5",
+        )
+    )
+
+    options = runtime._build_options(
+        system_prompt="测试系统提示词",
+        include_partial_messages=True,
+        output_format={"type": "object"},
+    )
+
+    assert options.setting_sources == ["project", "local"]
+    assert options.plugins == []
+    assert options.env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "backend" / ".claude-runtime")
+    assert Path(options.env["CLAUDE_CONFIG_DIR"]).exists()
+    assert options.cwd == str(tmp_path)
+    assert options.model == "glm-5"
+
+
 def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
     evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"

@@ -49,6 +49,24 @@ class StubArtifactGenerationService:
         raise AssertionError("this test should not generate artifacts")
 
 
+class PersistingArtifactGenerationService:
+    def __init__(self, catalog: ProjectCatalog):
+        self.catalog = catalog
+
+    async def generate_from_model(self, *, project, state, artifact_type, agent_runtime):
+        return self.catalog.save_artifact(
+            project_id=project.id,
+            artifact_type=artifact_type,
+            title="逐笔对账页面方案",
+            summary="覆盖总览、差异明细和异常处理。",
+            status="generated",
+            content_format="html",
+            storage_path=f"/tmp/{artifact_type}.html",
+            body=None,
+            metadata={"generator": "test"},
+        )
+
+
 class EmptyPatchAgentRuntime:
     def ensure_available(self) -> None:
         return None
@@ -155,6 +173,36 @@ class StreamOnlyAgentRuntime:
 
     async def generate_artifact(self, **kwargs):
         raise AssertionError("this test should not generate artifacts")
+
+
+class StreamThenArtifactAgentRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def stream_assistant_text(self, turn: AgentTurnInput):
+        yield "我先整理主线，"
+        yield "再补页面方案。"
+
+    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
+        yield (
+            "result",
+            AgentTurnResult(
+                assistant_message=assistant_message or "我先整理主线，再补页面方案。",
+                citations=[ChatCitation(title="stub", snippet="stub", source_id=None)],
+                state_updates={
+                    "current_understanding": [],
+                    "pending_items": [],
+                    "confirmed_items": [],
+                    "conflict_items": [],
+                    "mvp_items": [],
+                },
+                version_summary=None,
+                request_artifacts=["page_solution"],
+            ),
+        )
+
+    async def generate_artifact(self, **kwargs):
+        raise AssertionError("chat service should call artifact_generation service instead")
 
 
 def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
@@ -404,3 +452,43 @@ def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Pa
     messages = catalog.list_recent_messages("seed-reconciliation")
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
+
+
+def test_chat_generates_artifact_and_version_patch(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        notebooklm=StubEvidenceRuntime(),
+        agent_runtime=StreamThenArtifactAgentRuntime(),
+        artifact_generation=PersistingArtifactGenerationService(catalog),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="请顺便生成页面方案", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    artifact_patches = [payload for event_type, payload in events if event_type == "artifact_patch"]
+    version_patches = [payload for event_type, payload in events if event_type == "version_patch"]
+
+    assert artifact_patches
+    assert version_patches
+    assert artifact_patches[0]["items"][0]["title"] == "逐笔对账页面方案"
+    assert version_patches[-1]["items"][0]["title"] == "artifact_generated"
+
+    state = project_state.get_project_state("seed-reconciliation")
+    assert state.artifacts
+    assert any(item.title == "artifact_generated" for item in state.versions)

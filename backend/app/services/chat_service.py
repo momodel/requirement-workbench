@@ -312,15 +312,23 @@ class ChatService:
                     )
                     state_after = self.project_state.get_project_state(project_id)
                     created_artifacts = []
+                    created_versions = []
                     for artifact_type in artifact_types:
-                        created_artifacts.append(
-                            await self.artifact_generation.generate_from_model(
-                                project=project,
-                                state=state_after,
-                                artifact_type=artifact_type,
-                                agent_runtime=self.agent_runtime,
+                        artifact = await self.artifact_generation.generate_from_model(
+                            project=project,
+                            state=state_after,
+                            artifact_type=artifact_type,
+                            agent_runtime=self.agent_runtime,
+                        )
+                        created_artifacts.append(artifact)
+                        created_versions.append(
+                            self.project_state.create_artifact_version(
+                                project_id=project_id,
+                                artifact_title=artifact.title,
+                                artifact_type=artifact.artifact_type,
                             )
                         )
+                        state_after = self.project_state.get_project_state(project_id)
                     yield (
                         "artifact_patch",
                         {
@@ -328,6 +336,14 @@ class ChatService:
                             "items": [artifact.model_dump() for artifact in created_artifacts],
                         },
                     )
+                    if created_versions:
+                        yield (
+                            "version_patch",
+                            {
+                                "op": "upsert",
+                                "items": [version.model_dump() for version in created_versions],
+                            },
+                        )
         except ProviderIssue as exc:
             if streamed_assistant_message and not assistant_saved:
                 self.catalog.create_message(

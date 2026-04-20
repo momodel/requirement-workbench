@@ -55,3 +55,16 @@ class ProjectStateService:
             summary=summary,
             state_json=self.snapshot_json(project_id),
         )
+
+    def create_artifact_version(
+        self,
+        *,
+        project_id: str,
+        artifact_title: str,
+        artifact_type: str,
+    ) -> StateItem:
+        return self.create_version(
+            project_id=project_id,
+            trigger_kind="artifact_generated",
+            summary=f"已生成 {artifact_type} 交付物：{artifact_title}",
+        )
