@@ -1,204 +1,282 @@
-# 客户需求转译台 Demo
+# 客户需求转译台
 
-这是一个基于 React + Vite 的单页演示项目，用来展示“客户需求转译台”如何把模糊诉求逐步收敛成可执行的需求分析结果。
+这是“客户需求转译台”的全栈一期主工程。
 
-当前主案例是“集团业财逐笔对账需求分析”。演示重点不是做一个真正的对账系统，而是展示 AI 工作台如何接收资料、理解业务、推进对话、沉淀结论，并最终产出页面方案和交付稿。
+主产品是一个面向需求分析的三栏工作台：
 
-## 在线地址
+- 左栏 `Sources`：项目知识库，负责资料导入、解析、同步、引用
+- 中栏 `Chat`：用户和主智能体的需求分析对话，支持流式输出和引用依据
+- 右栏 `Project State`：沉淀总集，聚合理解项、待确认项、冲突、MVP、版本快照和交付物
 
-- 正式演示地址：[https://requirementnyl.vercel.app](https://requirementnyl.vercel.app)
-- GitHub 仓库：[https://github.com/lzfxxx/requirement-workbench-demo](https://github.com/lzfxxx/requirement-workbench-demo)
+默认自带一个 `业财逐笔对账` seed project，方便直接演示和回归。
+
+当前仓库不是“前端 demo 壳”，而是一期主工程。旧的 demo 和 HTML 原型都已归档到 `archive/legacy-demo/`，只作为视觉、交互和文案参考基线。
+
+## 当前能力
+
+当前主链路已经接上的部分：
+
+- 项目列表页和三栏工作台
+- 真实 FastAPI + SQLite + 本地文件落盘
+- source 文本导入、文件上传、多文件上传、删除、失败后重试同步
+- 项目级 NotebookLM notebook 的创建、绑定、查看 readiness
+- 真实 `notebooklm-py` 接入，认证态保存在项目内 `data/notebooklm/`
+- 真实 `Claude Agent SDK` Python 依赖和运行时接入
+- SSE 聊天流
+- assistant Markdown 渲染
+- 右栏沉淀总集、版本快照、artifact 列表
+- 文档稿抽屉预览
+- 页面方案 / 交互稿 HTML 大预览层
+
+还没有完全收口的部分，见：
+
+- [一期规格](docs/product/fullstack-phase1-spec.md)
+- [一期 Todo](docs/planning/fullstack-phase1-todo.md)
+
+## 技术路线
+
+- 前端：`React + Vite + TypeScript + Tailwind`
+- 后端：`FastAPI`
+- 存储：`SQLite + data/projects/`
+- 主智能体：`Claude Agent SDK`
+- 证据层：`NotebookLM`，当前 provider 为 `notebooklm-py`
+- 项目级方法论：`backend/.claude/skills/requirement-analysis-methodology/`
+- 项目级 NotebookLM 工作流：`backend/.claude/skills/notebooklm-evidence-workflow/`
 
 说明：
 
-- `requirementnyl.vercel.app` 是当前项目绑定的正式别名域名，后续重新部署会继续覆盖这个地址
-- GitHub 仓库当前为私有仓库，只有有权限的账号才能访问
+- `Claude Agent SDK` 和 `NotebookLM` 都走真实 provider，不允许静默 fallback 成本地假实现
+- 失败就报失败，未配置就报未配置
+- `archive/legacy-demo/` 是新版 UI 和交互的参考基线，不是当前主路径代码
 
-## 项目目标
-
-这个 Demo 主要想说明三件事：
-
-1. AI 不是只会聊天，而是可以在工作台里持续引用资料、推进分析和沉淀结果
-2. “自动对账”这类宽泛诉求，需要先拆成业务对象、口径、边界、优先级和待确认项
-3. 在需求分析阶段，最终交付物不只是文字结论，还包括页面方案、交互流和文档稿
-
-## 当前演示内容
-
-项目采用单工作台结构，核心区域包括：
-
-- 项目知识库：展示订单字段、结算样例、财务科目口径、历史差异、映射规则等资料
-- 需求分析对话：模拟用户与 AI 的逐轮分析过程
-- 沉淀总集：按“已确认事实、待确认项、范围边界、MVP 结论、页面方案 / 交付物”归档结论
-- 阶段进度条：覆盖需求接入、业务理解、需求收敛、方案定义、设计交付五个阶段
-- 交付详情抽屉：支持查看文档稿、页面方案和关键交互流的详情与原型
-
-核心案例信息：
-
-- 项目名称：集团业财逐笔对账需求分析
-- 行业方向：企业财务 / 业财协同
-- 主要使用人：财务 / 对账专员
-- 当前状态：需求分析中
-
-## 演示建议
-
-推荐按下面的顺序演示：
-
-1. 首页
-说明这不是对账系统本体，而是需求转译台在分析一个业财对账项目。
-
-2. 五阶段总览
-讲清需求接入、业务理解、需求收敛、方案定义、设计交付的推进过程。
-
-3. 阶段 1：需求接入
-演示系统如何接住原始诉求和零散资料。
-
-4. 阶段 2：业务理解
-强调流程、字段映射、财务科目和系统边界。
-
-5. 阶段 3：需求收敛
-重点讲“自动对账”如何被拆成真实需求、边界和待确认项。
-
-6. 阶段 4：方案定义
-强调一期只做差异识别、归因建议和人工确认，不做自动改账。
-
-7. 阶段 5：设计交付
-展示未来业财对账系统的页面方案和文档交付。
-
-8. 交付预览
-用文档稿和页面方案收尾。
-
-## 核心业务口径
-
-- 上游业务系统：订单系统或结算系统
-- 财务侧：财务系统中与业务系统对应科目的金额
-- 对账粒度：逐笔对账
-- 核心矛盾：业务字段到财务科目映射口径不一致
-
-## 技术栈
-
-- React 18
-- React Router 6
-- Vite 5
-- TypeScript 5
-- Vitest + Testing Library
-
-## 本地开发
-
-### 安装依赖
-
-```bash
-npm install
-```
-
-### 启动开发环境
-
-```bash
-npm run dev
-```
-
-启动后访问终端输出中的本地地址。
-
-### 运行测试
-
-```bash
-npm test
-```
-
-### 构建生产包
-
-```bash
-npm run build
-```
-
-### 本地预览生产构建
-
-```bash
-npm run preview
-```
-
-## 路由说明
-
-项目使用 `BrowserRouter`，主要路由包括：
-
-- `/`
-- `/project/reconciliation/workbench`
-
-另外几个历史路由会自动重定向回工作台：
-
-- `/project/:projectId/overview`
-- `/project/:projectId/export`
-- `/project/:projectId/stage/:stageId`
-
-为了保证 Vercel 上刷新子路由不出现 404，项目额外配置了 `vercel.json` 做 SPA 回退。
-
-## 部署到 Vercel
-
-当前项目已经完成 Vercel 绑定，后续更新可以直接在项目根目录执行：
-
-```bash
-vercel --prod
-```
-
-如果是首次在新环境部署，也可以走完整流程：
-
-```bash
-npm install
-npm run build
-vercel
-```
-
-部署说明：
-
-- 项目会自动识别为 Vite 应用
-- 正式环境会发布到当前绑定的 Vercel 项目
-- `requirementnyl.vercel.app` 会始终指向当前生产版本
-- 如果后面新增环境变量，需要先在 Vercel 项目里配置，再重新部署
-
-## 已合并的项目资产
-
-为了把之前 `projects/requirement-workbench/` 里的产物并进这个交互 demo 仓库，当前仓库除了 React/Vite 应用本身，也保留了项目资产目录。
-
-典型资产包括：
-
-- `docs/`
-  - 历史 PRD、可视化 PRD、最新 PRD
-- `prototypes/`
-  - 早期单页工作台和五阶段 HTML 原型
-- `deliverables/`
-  - 已导出的 PDF 交付件
-- `archive/`
-  - 历史归档包
-
-可以把当前仓库理解成两部分：
-
-- React/Vite 交互 demo：用于 mock 数据演示和交互流程展示
-- 项目资产目录：用于保存 PRD、静态原型、PDF 和历史归档
-
-## 仓库结构
+## 目录结构
 
 ```text
 .
 ├── archive/
-├── deliverables/
+│   └── legacy-demo/                # 旧 demo、HTML 原型、历史文档归档
+├── backend/
+│   ├── .claude/skills/             # 后端运行时使用的项目级 skills
+│   ├── app/                        # FastAPI 应用
+│   ├── requirements.txt
+│   └── .env.local.example
+├── data/
+│   ├── notebooklm/                 # 项目内 NotebookLM 认证和本地数据
+│   ├── projects/                   # source / artifact 落盘
+│   └── sqlite/                     # SQLite 数据库
 ├── docs/
-├── prototypes/
-├── public/
-│   └── prototypes/
-├── src/
-│   ├── App.tsx
-│   ├── App.test.tsx
-│   ├── demoData.ts
-│   ├── main.tsx
-│   ├── styles.css
-│   └── test/
-├── index.html
-├── package.json
-├── vercel.json
-└── README.md
+│   ├── product/
+│   ├── planning/
+│   └── demo/
+└── frontend/
+    ├── src/
+    └── package.json
 ```
 
-## 备注
+## 环境要求
 
-- `.vercel` 已加入 `.gitignore`，不会提交到仓库
-- `node_modules`、`dist` 和构建缓存已忽略
-- 当前仓库已经推送到 GitHub 私有仓库，可继续在此基础上迭代
+- Python `3.11+`
+- Node.js `18+`
+- 一个可用的 `claude` CLI，或者在环境变量里显式配置 `CLAUDE_CODE_CLI_PATH`
+- 可正常联网，供 Claude provider 和 NotebookLM 使用
+
+## 5 分钟启动
+
+### 1. 准备后端环境
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. 准备前端环境
+
+```bash
+cd frontend
+npm install
+```
+
+### 3. 配置 Claude
+
+后端会自动读取 `backend/.env.local`。
+
+先复制示例文件：
+
+```bash
+cd backend
+cp .env.local.example .env.local
+```
+
+然后填写最少这几个变量：
+
+```bash
+ANTHROPIC_API_KEY=你的key
+ANTHROPIC_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
+CLAUDE_MODEL=glm-5
+```
+
+按当前代码，Claude 运行还依赖一个可执行的 `claude` CLI：
+
+- 如果 `claude` 已经在 `PATH` 里，后端会直接使用
+- 如果不在 `PATH` 里，就在 `.env.local` 里补 `CLAUDE_CODE_CLI_PATH=/absolute/path/to/claude`
+
+快速检查方式：
+
+```bash
+cd backend
+source .venv/bin/activate
+python -c "import claude_agent_sdk; print('claude_agent_sdk ok')"
+which claude
+```
+
+如果 `which claude` 没输出，就需要配 `CLAUDE_CODE_CLI_PATH`。
+
+### 4. 做 NotebookLM 认证
+
+NotebookLM 认证态要求放在项目内，不用系统全局目录。
+
+在 `backend/` 下执行：
+
+```bash
+cd backend
+source .venv/bin/activate
+NOTEBOOKLM_HOME=../data/notebooklm ./.venv/bin/notebooklm login
+```
+
+认证完成后可以检查状态：
+
+```bash
+cd backend
+source .venv/bin/activate
+NOTEBOOKLM_HOME=../data/notebooklm ./.venv/bin/notebooklm status
+```
+
+说明：
+
+- 认证态保存在 `data/notebooklm/`
+- 这是项目级运行数据，后续做服务化部署时也沿用这个思路
+
+### 5. 启动后端
+
+```bash
+cd backend
+source .venv/bin/activate
+./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+后端启动后会自动：
+
+- 初始化 SQLite
+- 初始化数据目录
+- 确保 seed project 存在
+
+### 6. 启动前端
+
+```bash
+cd frontend
+npm run dev -- --host 127.0.0.1 --port 4173
+```
+
+打开：
+
+- 前端工作台：[http://127.0.0.1:4173](http://127.0.0.1:4173)
+- 后端健康检查：[http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+
+## 首次进入后怎么验证
+
+建议按这条顺序快速验一遍：
+
+1. 打开首页，确认项目列表能正常加载
+2. 看首页或工作台的 provider readiness，确认 `Claude` 和 `NotebookLM` 不是未配置状态
+3. 进入 seed project 的工作台，确认三栏都能显示
+4. 在左栏导入一段文本资料，确认只在 source 区出现局部 loading
+5. 发一条消息，确认中栏能收到 SSE 流式输出，右栏会逐步更新
+6. 打开右栏 artifact，确认文档稿能在抽屉看，HTML artifact 能在大预览层看
+
+如果是新项目，还要多做一步：
+
+1. 进入项目工作台
+2. 如果提示 `binding_required`，先创建并绑定项目专属 NotebookLM notebook
+3. 再开始上传资料和提问
+
+## 开发入口
+
+常用代码入口：
+
+- 前端项目页：`frontend/src/features/projects/ProjectsPage.tsx`
+- 前端工作台：`frontend/src/features/workbench/WorkbenchPage.tsx`
+- 前端 API：`frontend/src/lib/api.ts`
+- 后端入口：`backend/app/main.py`
+- 后端配置：`backend/app/config.py`
+- 聊天 SSE 路由：`backend/app/routes/chat.py`
+- Source 路由：`backend/app/routes/sources.py`
+
+开发前建议先读：
+
+- [docs/product/fullstack-phase1-spec.md](docs/product/fullstack-phase1-spec.md)
+- [docs/planning/fullstack-phase1-todo.md](docs/planning/fullstack-phase1-todo.md)
+- [docs/README.md](docs/README.md)
+
+## 常见问题
+
+### 1. `ModuleNotFoundError: No module named 'claude_agent_sdk'`
+
+说明后端虚拟环境还没装依赖。
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. `未找到 Claude Code CLI`
+
+说明 Python 包装好了，但 CLI 没找到。
+
+处理方式：
+
+- 让 `claude` 出现在 `PATH`
+- 或在 `backend/.env.local` 配 `CLAUDE_CODE_CLI_PATH`
+
+### 3. `NOTEBOOKLM_PY 未配置或项目未绑定 notebook`
+
+先分两类看：
+
+- 全局未认证：先执行 `notebooklm login`
+- 项目未绑定：进入工作台后先创建并绑定项目专属 notebook
+
+### 4. `NotebookLM 查询超时`
+
+当前代码默认超时是 `30` 秒，可在 `backend/.env.local` 调整：
+
+```bash
+NOTEBOOKLM_QUERY_TIMEOUT_SECONDS=30
+```
+
+如果网络不稳定，优先先确认：
+
+- `notebooklm status` 是否正常
+- 当前项目是否已绑定 notebook
+- 最近上传的资料是否已完成同步
+
+### 5. 某个 source 变成 `sync_failed`
+
+这表示 source 已入库，但同步到 NotebookLM 失败。
+
+当前 UI 已支持在 source 卡片上重试同步。重试前先确认：
+
+- NotebookLM 认证正常
+- 项目 notebook 已绑定
+- 该 source 的标准化结果已生成
+
+## 归档和参考资产
+
+这些内容不再作为主路径实现，但仍然有参考价值：
+
+- 视觉和交互基线：[archive/legacy-demo/](archive/legacy-demo/)
+- 归档说明：[archive/legacy-demo/README.md](archive/legacy-demo/README.md)
+
+后续如果新版 UI 退化到明显弱于归档基线，应优先按归档基线回补产品感，而不是继续堆接口。

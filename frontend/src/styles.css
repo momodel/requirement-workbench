@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color: #10213a;
+    background:
+      radial-gradient(circle at top left, rgba(23, 71, 111, 0.12), transparent 28%),
+      linear-gradient(180deg, #eef4f9 0%, #f6f8fb 55%, #eef2f7 100%);
+    font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+    color-scheme: light;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
