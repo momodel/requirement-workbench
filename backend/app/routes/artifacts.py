@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
 
 from ..models import ArtifactGenerateRequest, ArtifactRecord, ProviderIssue
@@ -36,13 +36,20 @@ async def generate_artifact(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     state = services.project_state.get_project_state(project_id)
-    state = services.project_state.get_project_state(project_id)
-    return await services.artifact_generation.generate_from_model(
-        project=project,
-        state=state,
-        artifact_type=payload.artifact_type,
-        agent_runtime=services.agent_runtime,
-    )
+    try:
+        return await services.artifact_generation.generate_from_model(
+            project=project,
+            state=state,
+            artifact_type=payload.artifact_type,
+            agent_runtime=services.agent_runtime,
+        )
+    except ProviderIssue as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{artifact_id}/preview")

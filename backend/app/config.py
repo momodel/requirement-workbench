@@ -41,6 +41,7 @@ class AppSettings:
     claude_max_turns: int = 6
     claude_stream_timeout_seconds: float = 90.0
     claude_structured_timeout_seconds: float = 45.0
+    claude_artifact_timeout_seconds: float = 180.0
     notebooklm_query_timeout_seconds: float = 30.0
     notebooklm_default_notebook_id: str | None = None
     default_timezone: str = "Asia/Shanghai"
@@ -79,6 +80,9 @@ class AppSettings:
             ),
             claude_structured_timeout_seconds=float(
                 os.getenv("CLAUDE_STRUCTURED_TIMEOUT_SECONDS", "45")
+            ),
+            claude_artifact_timeout_seconds=float(
+                os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS", "180")
             ),
             notebooklm_query_timeout_seconds=float(
                 os.getenv("NOTEBOOKLM_QUERY_TIMEOUT_SECONDS", "30")

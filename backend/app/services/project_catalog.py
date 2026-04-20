@@ -486,6 +486,52 @@ class ProjectCatalog:
                 return artifact
         return None
 
+    def get_latest_artifact_with_metadata(
+        self,
+        project_id: str,
+        artifact_type: str,
+    ) -> tuple[ArtifactRecord, dict] | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, artifact_type, title, summary, status, content_format,
+                       storage_path, metadata_json, body, updated_at
+                FROM demo_artifacts
+                WHERE project_id = ? AND artifact_type = ? AND status = 'generated'
+                ORDER BY datetime(updated_at) DESC
+                LIMIT 1
+                """,
+                (project_id, artifact_type),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        preview_url = None
+        if row["storage_path"] and row["content_format"] == "html":
+            preview_url = f"/api/projects/{project_id}/artifacts/{row['id']}/preview"
+
+        metadata_json = row["metadata_json"] or "{}"
+        try:
+            metadata = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            metadata = {}
+
+        artifact = ArtifactRecord(
+            id=row["id"],
+            project_id=row["project_id"],
+            artifact_type=row["artifact_type"],
+            title=row["title"],
+            summary=row["summary"],
+            status=row["status"],
+            content_format=row["content_format"],
+            storage_path=row["storage_path"],
+            preview_url=preview_url,
+            body=row["body"],
+            updated_at=row["updated_at"],
+        )
+        return artifact, metadata
+
     def save_artifact(
         self,
         *,

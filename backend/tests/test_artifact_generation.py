@@ -1,4 +1,20 @@
+from pathlib import Path
+
+from app.config import AppSettings
+from app.db import init_db
+from app.models import CreateProjectRequest, GeneratedArtifactOutput, ProjectState, StateItem
 from app.services.artifact_generation import ArtifactGenerationService
+from app.services.project_catalog import ProjectCatalog
+
+
+class FakeAgentRuntime:
+    def __init__(self, output: GeneratedArtifactOutput):
+        self.output = output
+        self.call_count = 0
+
+    async def generate_artifact(self, *, project, state, artifact_type):
+        self.call_count += 1
+        return self.output
 
 
 def test_validate_html_rejects_empty_output() -> None:
@@ -57,3 +73,102 @@ def test_validate_html_accepts_complete_local_document() -> None:
     """
 
     assert service.validate_html_output("页面方案", html) == html.strip()
+
+
+def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(tmp_path: Path) -> None:
+    settings = AppSettings(
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
+        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+        claude_artifact_timeout_seconds=5.0,
+    )
+    init_db(settings)
+
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        payload=CreateProjectRequest(
+            name="集团业财逐笔对账需求分析",
+            scenario_type="reconciliation",
+            summary="分析业财逐笔对账需求。",
+        )
+    )
+    state = ProjectState(
+        current_understanding=[
+            StateItem(
+                id="cu-1",
+                title="核心目标",
+                body="把逐笔对账需求收敛成可交付方案。",
+                status="active",
+                category="current_understanding",
+                updated_at="2026-04-20T10:00:00+08:00",
+                source_ids=["src-1"],
+            )
+        ],
+        pending_items=[
+            StateItem(
+                id="pending-1",
+                title="异常处理边界",
+                body="退款和冲销是否纳入一期待确认。",
+                status="active",
+                category="pending_items",
+                updated_at="2026-04-20T10:00:00+08:00",
+                source_ids=[],
+            )
+        ],
+        confirmed_items=[],
+        conflict_items=[],
+        mvp_items=[],
+        versions=[],
+        artifacts=[],
+    )
+    runtime = FakeAgentRuntime(
+        GeneratedArtifactOutput(
+            title="逐笔对账交互稿",
+            summary="覆盖差异查看和处理闭环。",
+            html="<!doctype html><html><head><title>逐笔对账交互稿</title></head><body><main>ok</main></body></html>",
+        )
+    )
+    service = ArtifactGenerationService(settings)
+
+    import asyncio
+
+    first = asyncio.run(
+        service.generate_from_model(
+            project=project,
+            state=state,
+            artifact_type="interaction_flow",
+            agent_runtime=runtime,
+        )
+    )
+
+    state_with_saved_artifact = state.model_copy(
+        update={
+            "artifacts": [
+                StateItem(
+                    id=first.id,
+                    title=first.title,
+                    body=first.summary,
+                    status="generated",
+                    category="artifacts",
+                    updated_at=first.updated_at,
+                    source_ids=[],
+                )
+            ]
+        }
+    )
+
+    second = asyncio.run(
+        service.generate_from_model(
+            project=project,
+            state=state_with_saved_artifact,
+            artifact_type="interaction_flow",
+            agent_runtime=runtime,
+        )
+    )
+
+    assert runtime.call_count == 1
+    assert second.id == first.id
+    assert second.preview_url == first.preview_url

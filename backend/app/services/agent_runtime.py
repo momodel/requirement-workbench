@@ -256,6 +256,33 @@ def _coerce_state_items(value, fallback_title: str) -> list[dict]:
     return normalized
 
 
+def _clean_artifact_body(text: str, max_length: int = 140) -> str:
+    cleaned = " ".join(str(text).split()).strip()
+    cleaned = re.sub(
+        r"\b(content|impact|source|reason|notes|evidence|confidence|resolution|answer_needed)\s*:\s*",
+        "",
+        cleaned,
+        flags=re.I,
+    )
+    cleaned = re.sub(r"(；\s*){2,}", "；", cleaned).strip("； ").strip()
+    if len(cleaned) > max_length:
+        cleaned = f"{cleaned[:max_length].rstrip()}..."
+    return cleaned
+
+
+def _format_artifact_items(label: str, items: list[dict], limit: int = 4) -> str:
+    if not items:
+        return ""
+
+    lines = [f"{label}："]
+    for item in items[:limit]:
+        payload = item.model_dump() if hasattr(item, "model_dump") else item
+        title = " ".join(str(payload.get("title", "")).split()).strip() or label
+        body = _clean_artifact_body(payload.get("body", ""))
+        lines.append(f"- {title}：{body}" if body and body != title else f"- {title}")
+    return "\n".join(lines)
+
+
 def _normalize_structured_output_payload(raw) -> dict:
     if not isinstance(raw, dict):
         return raw
@@ -286,6 +313,94 @@ def _normalize_structured_output_payload(raw) -> dict:
     return normalized
 
 
+def _normalize_generated_artifact_output_payload(raw) -> dict:
+    if not isinstance(raw, dict):
+        return raw
+
+    normalized = dict(raw)
+    for key in ("content", "data", "result", "artifact"):
+        nested = normalized.get(key)
+        if isinstance(nested, dict):
+            merged = dict(nested)
+            for outer_key, outer_value in normalized.items():
+                if outer_key not in {"content", "data", "result", "artifact"} and outer_key not in merged:
+                    merged[outer_key] = outer_value
+            normalized = merged
+            break
+
+    if "html" not in normalized and isinstance(normalized.get("content"), str):
+        normalized["html"] = normalized["content"]
+    if "body" not in normalized and isinstance(normalized.get("markdown"), str):
+        normalized["body"] = normalized["markdown"]
+
+    return normalized
+
+
+def _coerce_html_artifact_payload(raw: str) -> dict:
+    text = raw.strip()
+    marker_match = re.search(
+        r"TITLE:\s*(?P<title>[^\n]+)\nSUMMARY:\s*(?P<summary>[^\n]+)\nHTML:\s*\n(?P<html>[\s\S]+)",
+        text,
+        re.I,
+    )
+    if marker_match:
+        return {
+            "title": marker_match.group("title").strip(),
+            "summary": marker_match.group("summary").strip(),
+            "html": marker_match.group("html").strip(),
+        }
+
+    def extract_loose_string_field(names: tuple[str, ...]) -> str | None:
+        for name in names:
+            match = re.search(rf'["\']?{re.escape(name)}["\']?\s*:\s*', text, re.I)
+            if not match:
+                continue
+
+            idx = match.end()
+            while idx < len(text) and text[idx].isspace():
+                idx += 1
+            if idx >= len(text) or text[idx] not in {'"', "'"}:
+                continue
+
+            quote = text[idx]
+            idx += 1
+            parts: list[str] = []
+            escaped = False
+            while idx < len(text):
+                char = text[idx]
+                if escaped:
+                    if char == "n":
+                        parts.append("\n")
+                    elif char == "t":
+                        parts.append("\t")
+                    else:
+                        parts.append(char)
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == quote:
+                    return "".join(parts)
+                else:
+                    parts.append(char)
+                idx += 1
+        return None
+
+    loose_title = extract_loose_string_field(("title",))
+    loose_summary = extract_loose_string_field(("summary",))
+    loose_html = extract_loose_string_field(("html", "content"))
+    if loose_title and loose_summary and loose_html:
+        return {
+            "title": loose_title.strip(),
+            "summary": loose_summary.strip(),
+            "html": loose_html.strip(),
+        }
+
+    parsed = _normalize_generated_artifact_output_payload(_coerce_json_payload(text))
+    if "html" not in parsed and isinstance(parsed.get("content"), str):
+        parsed["html"] = parsed["content"]
+    return parsed
+
+
 class ClaudeAgentRuntime:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
@@ -306,6 +421,37 @@ class ClaudeAgentRuntime:
 4. 如果当前主要任务是还原流程和系统边界，优先按 Event Storming 视角抽取关键事件、参与对象、系统边界、异常分支，优先写入 current_understanding、conflict_items 或 mvp_items。
 5. 如果三种镜头得出的结论互相冲突，先保留冲突或待确认项，不要抢着塞进 confirmed_items。
         """.strip()
+
+    def _artifact_generation_notes(self) -> str:
+        return """
+交付物生成提醒：
+1. 只基于当前已沉淀的项目理解生成，不要把状态对象原样搬进结果。
+2. 优先把目标、范围、关键对象、核心流程和待确认边界翻译成用户能直接看的交付物。
+3. 信息不够时可以明确写“待确认”或“暂定”，不要用空壳页面或空洞流程凑数。
+4. 页面方案强调信息结构和页面分工，交互稿强调步骤、动作和页面衔接。
+5. 不要输出内部状态桶名，不要把方法论术语直接写进交付物。
+        """.strip()
+
+    def _artifact_state_summary(self, state: ProjectState) -> str:
+        sections = [
+            _format_artifact_items("当前理解", state.current_understanding, limit=6),
+            _format_artifact_items("待确认项", state.pending_items, limit=5),
+            _format_artifact_items("已确认项", state.confirmed_items, limit=4),
+            _format_artifact_items("冲突项", state.conflict_items, limit=4),
+            _format_artifact_items("MVP 方向", state.mvp_items, limit=4),
+        ]
+        artifact_count = len(state.artifacts)
+        version_count = len(state.versions)
+        meta_lines: list[str] = []
+        if artifact_count:
+            meta_lines.append(f"已有历史交付物：{artifact_count} 份")
+        if version_count:
+            meta_lines.append(f"已有版本快照：{version_count} 个")
+
+        summary_parts = [section for section in sections if section]
+        if meta_lines:
+            summary_parts.append("\n".join(meta_lines))
+        return "\n\n".join(summary_parts) if summary_parts else "当前还没有可用沉淀，请基于项目摘要给出最小可用交付物。"
 
     def ensure_available(self) -> None:
         cli_path = self.settings.claude_cli_path
@@ -652,7 +798,7 @@ NotebookLM citations：
         state: ProjectState,
         artifact_type: ArtifactType,
     ) -> str:
-        state_json = state.model_dump_json(indent=2)
+        state_summary = self._artifact_state_summary(state)
         if artifact_type == "document":
             output_instruction = (
                 "输出文档稿。body 用 markdown 正文，至少包含：项目目标、真实需求、范围边界、"
@@ -660,14 +806,26 @@ NotebookLM citations：
             )
         elif artifact_type == "page_solution":
             output_instruction = (
-                "输出完整 HTML 页面方案。必须包含 <!doctype html>、<title>、<main>、至少三个页面/模块区块，"
-                "不允许外链脚本，不允许引用外部样式资源。"
+                "输出单页 HTML 页面方案。必须包含 <!doctype html>、<title>、<main>、3 到 5 个页面/模块区块，"
+                "说明文字简短直接，整体尽量控制在 220 行内，不允许外链脚本，不允许引用外部样式资源。"
             )
         else:
             output_instruction = (
-                "输出完整 HTML 交互稿。必须包含 <!doctype html>、<title>、<main>、主流程步骤、关键交互约束和页面衔接说明，"
+                "输出单页 HTML 交互稿。必须包含 <!doctype html>、<title>、<main>、4 到 6 个主流程步骤、"
+                "关键交互约束和页面衔接说明，说明文字简短直接，整体尽量控制在 220 行内，"
                 "不允许外链脚本，不允许引用外部样式资源。"
             )
+        output_contract = (
+            "只输出结构化 JSON，不要输出额外解释。"
+            if artifact_type == "document"
+            else (
+                "严格按下面格式输出，不要加 ```json 或 ```html 代码块：\n"
+                "TITLE: <标题>\n"
+                "SUMMARY: <摘要>\n"
+                "HTML:\n"
+                "<!doctype html>..."
+            )
+        )
 
         return f"""
 你在客户需求转译台的一期正式运行时里工作，当前任务是生成 artifact。
@@ -677,14 +835,10 @@ NotebookLM citations：
 - 场景：{project.scenario_type}
 - 摘要：{project.summary}
 
-当前项目状态：
-{state_json}
+当前项目沉淀摘要：
+{state_summary}
 
-需求分析方法参考：
-{self.methodology_skill}
-
-方法论执行提醒：
-{self._methodology_execution_notes()}
+{self._artifact_generation_notes()}
 
 任务类型：{artifact_type}
 要求：
@@ -692,7 +846,7 @@ NotebookLM citations：
 2. title 和 summary 用自然中文。
 3. 内容必须基于当前项目状态，不要编造未出现的业务主体。
 4. 如果状态信息不足，也要明确写出待确认边界，不能用空壳内容搪塞。
-5. 只输出结构化 JSON，不要输出额外解释。
+5. {output_contract}
 6. 不要把方法论名词硬写进最终交付物，除非用户明确要求展示分析方法。
         """.strip()
 
@@ -787,24 +941,34 @@ NotebookLM citations：
     ) -> GeneratedArtifactOutput:
         self.ensure_available()
 
-        options = ClaudeAgentOptions(
-            system_prompt="你是客户需求转译台的一期正式交付物生成智能体。",
-            allowed_tools=[],
-            tools=[],
-            model=self.settings.claude_model,
-            max_turns=self.settings.claude_max_turns,
-            cwd=str(self.settings.root_dir),
-            cli_path=self.settings.claude_cli_path,
-            include_partial_messages=False,
-            output_format=_artifact_output_schema(artifact_type),
-        )
+        output_format = _artifact_output_schema(artifact_type) if artifact_type == "document" else None
+        max_attempts = 1 if artifact_type == "document" else 2
 
         try:
-            async for message in query(
-                prompt=self._artifact_prompt(project=project, state=state, artifact_type=artifact_type),
-                options=options,
-            ):
-                if isinstance(message, ResultMessage):
+            for attempt in range(max_attempts):
+                options = ClaudeAgentOptions(
+                    system_prompt="你是客户需求转译台的一期正式交付物生成智能体。",
+                    allowed_tools=[],
+                    tools=[],
+                    model=self.settings.claude_model,
+                    max_turns=self.settings.claude_max_turns,
+                    cwd=str(self.settings.root_dir),
+                    cli_path=self.settings.claude_cli_path,
+                    include_partial_messages=False,
+                    output_format=output_format,
+                )
+                parse_error: Exception | None = None
+                prompt = self._artifact_prompt(project=project, state=state, artifact_type=artifact_type)
+                if artifact_type != "document" and attempt > 0:
+                    prompt = (
+                        f"{prompt}\n\n补充要求：你上一轮没有按指定格式输出。"
+                        "这一轮必须严格返回 TITLE、SUMMARY、HTML 三段，除此之外不要输出任何其他文字。"
+                    )
+
+                async for message in query(prompt=prompt, options=options):
+                    if not isinstance(message, ResultMessage):
+                        continue
+
                     if message.is_error:
                         errors = ", ".join(message.errors or [])
                         raise ProviderIssue(
@@ -813,9 +977,30 @@ NotebookLM citations：
                         )
 
                     raw = message.structured_output
-                    if not raw and message.result:
-                        raw = _coerce_json_payload(message.result)
-                    return GeneratedArtifactOutput.model_validate(raw)
+                    try:
+                        if artifact_type == "document":
+                            if not raw and message.result:
+                                raw = _coerce_json_payload(message.result)
+                            return GeneratedArtifactOutput.model_validate(
+                                _normalize_generated_artifact_output_payload(raw)
+                            )
+
+                        if raw:
+                            return GeneratedArtifactOutput.model_validate(
+                                _normalize_generated_artifact_output_payload(raw)
+                            )
+                        if message.result:
+                            return GeneratedArtifactOutput.model_validate(
+                                _coerce_html_artifact_payload(message.result)
+                            )
+                    except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+                        parse_error = exc
+                        break
+
+                if parse_error and attempt < max_attempts - 1:
+                    continue
+                if parse_error:
+                    raise parse_error
         except CLINotFoundError as exc:
             raise ProviderIssue(
                 provider="CLAUDE_AGENT_SDK",

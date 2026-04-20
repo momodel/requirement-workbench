@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import re
 from pathlib import Path
 
 from ..config import AppSettings, DEFAULT_SETTINGS
-from ..models import ArtifactRecord, ArtifactType, ProjectState, ProjectSummary
+from ..models import ArtifactRecord, ArtifactType, ProjectState, ProjectSummary, ProviderIssue
 from .project_catalog import ProjectCatalog
 from .runtime_contracts import AgentRuntime
 
@@ -33,6 +36,69 @@ class ArtifactGenerationService:
         artifact_dir.mkdir(parents=True, exist_ok=True)
         return artifact_dir
 
+    @staticmethod
+    def _state_item_payload(items) -> list[dict]:
+        normalized: list[dict] = []
+        for item in items:
+            payload = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+            normalized.append(
+                {
+                    "title": payload.get("title", ""),
+                    "body": payload.get("body", ""),
+                    "status": payload.get("status", ""),
+                    "source_ids": payload.get("source_ids", []),
+                }
+            )
+        return normalized
+
+    def _generation_cache_key(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        artifact_type: ArtifactType,
+    ) -> str:
+        payload = {
+            "artifact_type": artifact_type,
+            "project": {
+                "name": project.name,
+                "scenario_type": project.scenario_type,
+                "summary": project.summary,
+            },
+            "state": {
+                "current_understanding": self._state_item_payload(state.current_understanding),
+                "pending_items": self._state_item_payload(state.pending_items),
+                "confirmed_items": self._state_item_payload(state.confirmed_items),
+                "conflict_items": self._state_item_payload(state.conflict_items),
+                "mvp_items": self._state_item_payload(state.mvp_items),
+            },
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    def _reusable_artifact(
+        self,
+        *,
+        project_id: str,
+        artifact_type: ArtifactType,
+        cache_key: str,
+    ) -> ArtifactRecord | None:
+        latest = self.catalog.get_latest_artifact_with_metadata(project_id, artifact_type)
+        if not latest:
+            return None
+
+        artifact, metadata = latest
+        if metadata.get("generation_cache_key") != cache_key:
+            return None
+
+        if artifact.content_format == "html":
+            if not artifact.storage_path or not Path(artifact.storage_path).exists():
+                return None
+        elif artifact.content_format == "markdown" and not (artifact.body or "").strip():
+            return None
+
+        return artifact
+
     async def generate_from_model(
         self,
         *,
@@ -41,11 +107,34 @@ class ArtifactGenerationService:
         artifact_type: ArtifactType,
         agent_runtime: AgentRuntime,
     ) -> ArtifactRecord:
-        generated = await agent_runtime.generate_artifact(
+        generation_cache_key = self._generation_cache_key(
             project=project,
             state=state,
             artifact_type=artifact_type,
         )
+        cached = self._reusable_artifact(
+            project_id=project.id,
+            artifact_type=artifact_type,
+            cache_key=generation_cache_key,
+        )
+        if cached:
+            return cached
+
+        try:
+            generated = await asyncio.wait_for(
+                agent_runtime.generate_artifact(
+                    project=project,
+                    state=state,
+                    artifact_type=artifact_type,
+                ),
+                timeout=self.settings.claude_artifact_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message="Claude 交付物生成超时，请稍后重试。",
+                status_code=504,
+            ) from exc
 
         if artifact_type == "document":
             body = (generated.body or "").strip()
@@ -60,7 +149,10 @@ class ArtifactGenerationService:
                 content_format="markdown",
                 storage_path=None,
                 body=body,
-                metadata={"generator": "claude-agent-sdk"},
+                metadata={
+                    "generator": "claude-agent-sdk",
+                    "generation_cache_key": generation_cache_key,
+                },
             )
 
         html = self.validate_html_output(generated.title, generated.html or "")
@@ -75,5 +167,8 @@ class ArtifactGenerationService:
             content_format="html",
             storage_path=str(index_path),
             body=None,
-            metadata={"generator": "claude-agent-sdk"},
+            metadata={
+                "generator": "claude-agent-sdk",
+                "generation_cache_key": generation_cache_key,
+            },
         )

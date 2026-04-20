@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
-from app.models import ProviderReadiness
+from app.models import ProviderIssue, ProviderReadiness
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -450,8 +450,59 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
         delete_response = client.delete(f"/api/projects/{project_id}/sources/{source_id}")
         assert delete_response.status_code == 200
         assert delete_response.json()["deleted"] is True
-
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         assert sources_response.json() == []
         assert source_registry == []
+
+
+def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
+
+    async def fake_generate_artifact(**kwargs):
+        raise ProviderIssue(
+            provider="CLAUDE_AGENT_SDK",
+            message="Claude 交付物生成超时，请稍后重试。",
+            status_code=504,
+        )
+
+    monkeypatch.setattr(
+        app.state.services.artifact_generation,
+        "generate_from_model",
+        fake_generate_artifact,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/seed-reconciliation/artifacts/generate",
+            json={"artifact_type": "interaction_flow"},
+        )
+
+    assert response.status_code == 504
+    assert response.json()["detail"] == "Claude 交付物生成超时，请稍后重试。"
+
+
+def test_generate_artifact_returns_validation_detail(tmp_path: Path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
+
+    async def fake_generate_artifact(**kwargs):
+        raise ValueError("交互稿 的 HTML 缺少 title。")
+
+    monkeypatch.setattr(
+        app.state.services.artifact_generation,
+        "generate_from_model",
+        fake_generate_artifact,
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/projects/seed-reconciliation/artifacts/generate",
+            json={"artifact_type": "interaction_flow"},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "交互稿 的 HTML 缺少 title。"

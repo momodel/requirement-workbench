@@ -21,7 +21,20 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
-    const detail = await response.text();
+    const raw = await response.text();
+    let detail = raw;
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown };
+        if (typeof parsed.detail === 'string') {
+          detail = parsed.detail;
+        } else if (parsed.detail !== undefined) {
+          detail = JSON.stringify(parsed.detail);
+        }
+      } catch {
+        detail = raw;
+      }
+    }
     throw new Error(detail || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;

@@ -10,6 +10,8 @@ from app.models import AgentStructuredOutput, AgentTurnInput, MessageRecord, Pro
 from app.services.agent_runtime import (
     ClaudeAgentRuntime,
     _coerce_json_payload,
+    _coerce_html_artifact_payload,
+    _normalize_generated_artifact_output_payload,
     _normalize_structured_output_payload,
 )
 
@@ -118,6 +120,70 @@ def test_normalize_structured_output_payload_flattens_state_patch_shape() -> Non
     assert "逐笔一致性校验" in output.current_understanding[0].body
     assert len(output.pending_items) == 2
     assert output.pending_items[0].title == "退款和冲销是否纳入一期范围？"
+
+
+def test_normalize_generated_artifact_output_payload_unwraps_content_shape() -> None:
+    raw = {
+        "type": "interaction_flow",
+        "content": {
+            "title": "逐笔对账交互稿",
+            "summary": "覆盖差异查看、归因确认和提交处理。",
+            "html": "<!doctype html><html><head><title>交互稿</title></head><body><main>ok</main></body></html>",
+        },
+    }
+
+    normalized = _normalize_generated_artifact_output_payload(raw)
+
+    assert normalized["title"] == "逐笔对账交互稿"
+    assert normalized["summary"] == "覆盖差异查看、归因确认和提交处理。"
+    assert "<main>ok</main>" in normalized["html"]
+
+
+def test_normalize_generated_artifact_output_payload_maps_content_html_alias() -> None:
+    raw = {
+        "title": "调试测试项目 - 页面方案",
+        "summary": "最小测试项目的页面结构方案。",
+        "content": "<!doctype html><html><head><title>页面方案</title></head><body><main>ok</main></body></html>",
+    }
+
+    normalized = _normalize_generated_artifact_output_payload(raw)
+
+    assert normalized["title"] == "调试测试项目 - 页面方案"
+    assert normalized["summary"] == "最小测试项目的页面结构方案。"
+    assert normalized["html"].startswith("<!doctype html>")
+
+
+def test_coerce_html_artifact_payload_parses_marker_format() -> None:
+    raw = """
+TITLE: 逐笔对账页面方案
+SUMMARY: 覆盖总览、差异明细和异常处理三个页面。
+HTML:
+<!doctype html>
+<html>
+  <head><title>逐笔对账页面方案</title></head>
+  <body><main>ok</main></body>
+</html>
+    """.strip()
+
+    parsed = _coerce_html_artifact_payload(raw)
+
+    assert parsed["title"] == "逐笔对账页面方案"
+    assert parsed["summary"] == "覆盖总览、差异明细和异常处理三个页面。"
+    assert "<main>ok</main>" in parsed["html"]
+
+
+def test_coerce_html_artifact_payload_parses_loose_object_format() -> None:
+    raw = """{
+      title: "客户需求转译台 · 页面方案",
+      summary: "覆盖项目概览、材料管理和需求梳理工作台。",
+      content: "<!doctype html>\\n<html><head><title>页面方案</title></head><body><main>ok</main></body></html>"
+    }"""
+
+    parsed = _coerce_html_artifact_payload(raw)
+
+    assert parsed["title"] == "客户需求转译台 · 页面方案"
+    assert parsed["summary"] == "覆盖项目概览、材料管理和需求梳理工作台。"
+    assert "<main>ok</main>" in parsed["html"]
 
 
 def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch) -> None:
@@ -336,6 +402,140 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
     assert "助手: 项目核心问题是把模糊需求转成可执行输入。" in prompt
 
 
+def test_artifact_prompt_uses_compact_state_summary(tmp_path: Path) -> None:
+    methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
+    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    methodology_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
+    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+            claude_model="glm-5",
+        )
+    )
+
+    prompt = runtime._artifact_prompt(
+        project=ProjectSummary(
+            id="project-1",
+            name="集团业财逐笔对账需求分析",
+            scenario_type="reconciliation",
+            summary="分析业财逐笔对账需求。",
+            status="active",
+            created_at="2026-04-16T10:00:00+08:00",
+            updated_at="2026-04-16T10:00:00+08:00",
+            seed_key="reconciliation",
+        ),
+        state=ProjectState(
+            current_understanding=[
+                {
+                    "id": "current-1",
+                    "title": "核心目标",
+                    "body": "先把模糊诉求收敛成可执行方案。",
+                    "status": "active",
+                    "category": "current_understanding",
+                    "updated_at": "2026-04-16T10:00:00+08:00",
+                    "source_ids": ["src-1", "src-2"],
+                }
+            ],
+            pending_items=[
+                {
+                    "id": "pending-1",
+                    "title": "一期交付物边界",
+                    "body": "到底是文档为主还是方案为主？",
+                    "status": "active",
+                    "category": "pending_items",
+                    "updated_at": "2026-04-16T10:00:00+08:00",
+                    "source_ids": [],
+                }
+            ],
+            confirmed_items=[],
+            conflict_items=[],
+            mvp_items=[],
+            versions=[],
+            artifacts=[
+                {
+                    "id": "artifact-1",
+                    "title": "旧页面方案",
+                    "body": "一份较早的页面方案",
+                    "status": "generated",
+                    "category": "artifacts",
+                    "updated_at": "2026-04-16T10:00:00+08:00",
+                    "source_ids": [],
+                }
+            ],
+        ),
+        artifact_type="page_solution",
+    )
+
+    assert "当前项目状态：" not in prompt
+    assert '"id": "current-1"' not in prompt
+    assert '"updated_at"' not in prompt
+    assert '"source_ids"' not in prompt
+    assert "当前项目沉淀摘要：" in prompt
+    assert "当前理解：" in prompt
+    assert "待确认项：" in prompt
+    assert "核心目标：先把模糊诉求收敛成可执行方案。" in prompt
+    assert "一期交付物边界：到底是文档为主还是方案为主？" in prompt
+
+
+def test_artifact_prompt_uses_shorter_artifact_specific_guidance(tmp_path: Path) -> None:
+    methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
+    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    methodology_dir.mkdir(parents=True, exist_ok=True)
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    (methodology_dir / "SKILL.md").write_text("METHOD_SKILL" * 200, encoding="utf-8")
+    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+            claude_model="glm-5",
+        )
+    )
+
+    prompt = runtime._artifact_prompt(
+        project=ProjectSummary(
+            id="project-1",
+            name="集团业财逐笔对账需求分析",
+            scenario_type="reconciliation",
+            summary="分析业财逐笔对账需求。",
+            status="active",
+            created_at="2026-04-16T10:00:00+08:00",
+            updated_at="2026-04-16T10:00:00+08:00",
+            seed_key="reconciliation",
+        ),
+        state=ProjectState(
+            current_understanding=[],
+            pending_items=[],
+            confirmed_items=[],
+            conflict_items=[],
+            mvp_items=[],
+            versions=[],
+            artifacts=[],
+        ),
+        artifact_type="interaction_flow",
+    )
+
+    assert "需求分析方法参考：" not in prompt
+    assert "METHOD_SKILL" not in prompt
+    assert "交付物生成提醒：" in prompt
+    assert "220 行内" in prompt
+    assert len(prompt) < 3000
+
+
 def test_stream_assistant_text_uses_stream_event_text_deltas(monkeypatch, tmp_path: Path) -> None:
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -504,3 +704,98 @@ def test_run_turn_wraps_invalid_structured_output_as_provider_issue(
         asyncio.run(collect())
 
     assert "无法解析的结构化结果" in exc_info.value.message
+
+
+def test_generate_artifact_retries_html_parse_failure_once(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model="glm-5",
+        )
+    )
+
+    monkeypatch.setattr(runtime, "ensure_available", lambda: None)
+
+    call_count = {"value": 0}
+
+    async def fake_query(*, prompt, options):
+        call_count["value"] += 1
+        if call_count["value"] == 1:
+            yield agent_runtime_module.ResultMessage(
+                subtype="success",
+                duration_ms=1,
+                duration_api_ms=1,
+                is_error=False,
+                num_turns=1,
+                session_id="s1",
+                stop_reason="end_turn",
+                total_cost_usd=0.0,
+                usage=None,
+                result="我先给你一个思路说明，不按约定格式输出。",
+                structured_output=None,
+                model_usage=None,
+                permission_denials=None,
+                errors=None,
+                uuid="1",
+            )
+            return
+
+        yield agent_runtime_module.ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="s2",
+            stop_reason="end_turn",
+            total_cost_usd=0.0,
+            usage=None,
+            result="TITLE: 正确页面方案\nSUMMARY: 成功重试后的结果。\nHTML:\n<!doctype html><html><head><title>页面方案</title></head><body><main>ok</main></body></html>",
+            structured_output=None,
+            model_usage=None,
+            permission_denials=None,
+            errors=None,
+            uuid="2",
+        )
+
+    monkeypatch.setattr(agent_runtime_module, "query", fake_query)
+
+    async def run():
+        return await runtime.generate_artifact(
+            project=ProjectSummary(
+                id="project-1",
+                name="集团业财逐笔对账需求分析",
+                scenario_type="reconciliation",
+                summary="分析业财逐笔对账需求。",
+                status="active",
+                created_at="2026-04-16T10:00:00+08:00",
+                updated_at="2026-04-16T10:00:00+08:00",
+                seed_key="reconciliation",
+            ),
+            state=ProjectState(
+                current_understanding=[],
+                pending_items=[],
+                confirmed_items=[],
+                conflict_items=[],
+                mvp_items=[],
+                versions=[],
+                artifacts=[],
+            ),
+            artifact_type="page_solution",
+        )
+
+    output = asyncio.run(run())
+
+    assert call_count["value"] == 2
+    assert output.title == "正确页面方案"
+    assert output.summary == "成功重试后的结果。"
+    assert "<main>ok</main>" in output.html
