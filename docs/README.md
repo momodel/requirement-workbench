@@ -5,7 +5,9 @@
 ## 当前文档
 
 - 产品规格：`product/fullstack-phase1-spec.md`
+- 证据层重构方向 PRD（开发方向稿）：`product/evidence-runtime-rag-direction-prd.md`
 - 执行清单：`planning/fullstack-phase1-todo.md`
+- 证据层重构执行方案：`planning/evidence-runtime-rag-execution-plan.md`
 - 演示脚本：`demo/fullstack-phase1-demo-script.md`
 
 ## 项目级 Skills
