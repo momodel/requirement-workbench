@@ -9,7 +9,6 @@ import {
   createProject,
   createAndBindProjectNotebook,
   deleteProjectSource,
-  generateArtifact,
   getGlobalReadiness,
   getProject,
   getProjectReadiness,
@@ -27,6 +26,7 @@ import {
 import type {
   ArtifactRecord,
   GlobalReadiness,
+  MessageActionEvent,
   MessageRecord,
   NotebookLibraryItem,
   ProjectReadiness,
@@ -90,6 +90,79 @@ function updateAssistantMessage(
   updater: (message: MessageRecord) => MessageRecord
 ) {
   return messages.map((item) => (item.id === assistantId ? updater(item) : item));
+}
+
+function appendAssistantAction(
+  messages: MessageRecord[],
+  assistantId: string,
+  action: MessageActionEvent
+) {
+  return updateAssistantMessage(messages, assistantId, (item) => {
+    const actions = item.action_events ?? [];
+    const existingIndex = actions.findIndex((current) => current.id === action.id);
+
+    if (existingIndex >= 0) {
+      const nextActions = [...actions];
+      nextActions[existingIndex] = action;
+      return { ...item, action_events: nextActions };
+    }
+
+    return {
+      ...item,
+      action_events: [...actions, action],
+    };
+  });
+}
+
+function buildPatchAction(
+  kind: MessageActionEvent['kind'],
+  label: string,
+  payload: { created_at: string; items?: unknown[] }
+): MessageActionEvent {
+  const count = Array.isArray(payload.items) ? payload.items.length : 0;
+  return {
+    id: `${kind}:${payload.created_at}:${label}:${count}`,
+    kind,
+    label: count > 0 ? `${label}（${count}）` : label,
+  };
+}
+
+function buildArtifactAction(items: ArtifactRecord[], createdAt: string): MessageActionEvent {
+  const typeLabelMap: Record<string, string> = {
+    document: '文档稿',
+    page_solution: '页面方案',
+    interaction_flow: '交互稿',
+  };
+  const labels = items.map((item) => typeLabelMap[item.artifact_type] ?? item.title).slice(0, 3);
+
+  return {
+    id: `artifact:${createdAt}:${items.map((item) => item.id).join(',')}`,
+    kind: 'artifact',
+    label:
+      labels.length > 0
+        ? `已生成交付物：${labels.join('、')}`
+        : '已生成交付物',
+  };
+}
+
+function buildStatusAction(payload: {
+  created_at: string;
+  phase?: string;
+  label?: string;
+}): MessageActionEvent {
+  const phase = payload.phase ?? '';
+  let kind: MessageActionEvent['kind'] = 'status';
+  if (phase.startsWith('tool_running:')) {
+    kind = 'tool_running';
+  } else if (phase.startsWith('tool_completed:')) {
+    kind = 'tool_completed';
+  }
+
+  return {
+    id: `status:${phase || payload.created_at}`,
+    kind,
+    label: payload.label ?? '',
+  };
 }
 
 function HomeRoute() {
@@ -167,7 +240,6 @@ function WorkbenchRoute() {
   const [bindingNotebook, setBindingNotebook] = useState(false);
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
-  const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoBindAttemptedProjectId = useRef<string | null>(null);
@@ -342,23 +414,25 @@ function WorkbenchRoute() {
     };
     const assistantId = `local-assistant-${Date.now()}`;
 
-    setData((current) => ({
-      ...current,
-      messages: [
-        ...current.messages,
-        userMessage,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          source_refs: [],
-          created_at: new Date().toISOString(),
-          stream_group_id: null,
-          status_label: '已接收问题，准备开始分析',
-          status_phase: 'received',
-        },
-      ],
-    }));
+    flushSync(() => {
+      setData((current) => ({
+        ...current,
+        messages: [
+          ...current.messages,
+          userMessage,
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: '',
+            source_refs: [],
+            created_at: new Date().toISOString(),
+            stream_group_id: null,
+            status_label: '已接收问题，准备开始分析',
+            status_phase: 'received',
+          },
+        ],
+      }));
+    });
 
     try {
       await streamChat(
@@ -371,13 +445,24 @@ function WorkbenchRoute() {
         },
         (event, payload) => {
           if (event === 'assistant_status' && payload.label) {
+            const shouldRecordAction = payload.phase !== 'agent_started';
             setData((current) => ({
               ...current,
-              messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
-                ...item,
-                status_label: payload.label ?? null,
-                status_phase: payload.phase ?? null,
-              })),
+              messages: shouldRecordAction
+                ? appendAssistantAction(
+                    updateAssistantMessage(current.messages, assistantId, (item) => ({
+                      ...item,
+                      status_label: payload.label ?? null,
+                      status_phase: payload.phase ?? null,
+                    })),
+                    assistantId,
+                    buildStatusAction(payload)
+                  )
+                : updateAssistantMessage(current.messages, assistantId, (item) => ({
+                    ...item,
+                    status_label: payload.label ?? null,
+                    status_phase: payload.phase ?? null,
+                  })),
             }));
             return;
           }
@@ -390,10 +475,21 @@ function WorkbenchRoute() {
                   ...item,
                   content: payload.replace ? payload.text ?? '' : `${item.content}${payload.text}`,
                   status_label: item.status_label ?? '正在生成回复',
-                  status_phase: item.status_phase ?? 'drafting',
+                  status_phase: item.status_phase ?? 'agent_streaming',
                 })),
               }));
             });
+            return;
+          }
+
+          if (event === 'citations' && payload.items) {
+            setData((current) => ({
+              ...current,
+              messages: updateAssistantMessage(current.messages, assistantId, (item) => ({
+                ...item,
+                source_refs: payload.items as MessageRecord['source_refs'],
+              })),
+            }));
             return;
           }
 
@@ -401,9 +497,17 @@ function WorkbenchRoute() {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('state', '已写入当前理解', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
-                current_understanding: payload.items as StateItem[],
+                current_understanding: upsertItems(
+                  current.state?.current_understanding ?? [],
+                  payload.items as StateItem[]
+                ),
               },
             }));
             return;
@@ -413,9 +517,17 @@ function WorkbenchRoute() {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('state', '已写入待确认项', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
-                pending_items: payload.items as StateItem[],
+                pending_items: upsertItems(
+                  current.state?.pending_items ?? [],
+                  payload.items as StateItem[]
+                ),
               },
             }));
             return;
@@ -425,9 +537,17 @@ function WorkbenchRoute() {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('state', '已写入已确认项', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
-                confirmed_items: payload.items as StateItem[],
+                confirmed_items: upsertItems(
+                  current.state?.confirmed_items ?? [],
+                  payload.items as StateItem[]
+                ),
               },
             }));
             return;
@@ -437,9 +557,17 @@ function WorkbenchRoute() {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('state', '已写入冲突项', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
-                conflict_items: payload.items as StateItem[],
+                conflict_items: upsertItems(
+                  current.state?.conflict_items ?? [],
+                  payload.items as StateItem[]
+                ),
               },
             }));
             return;
@@ -449,9 +577,17 @@ function WorkbenchRoute() {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('state', '已写入 MVP 方向', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
-                mvp_items: payload.items as StateItem[],
+                mvp_items: upsertItems(
+                  current.state?.mvp_items ?? [],
+                  payload.items as StateItem[]
+                ),
               },
             }));
             return;
@@ -460,6 +596,11 @@ function WorkbenchRoute() {
           if (event === 'version_patch' && payload.items) {
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildPatchAction('version', '已生成版本快照', payload)
+              ),
               state: {
                 ...(current.state ?? emptyState()),
                 versions: upsertItems(
@@ -474,6 +615,11 @@ function WorkbenchRoute() {
           if (event === 'artifact_patch' && payload.items) {
             setData((current) => ({
               ...current,
+              messages: appendAssistantAction(
+                current.messages,
+                assistantId,
+                buildArtifactAction(payload.items as ArtifactRecord[], payload.created_at)
+              ),
               artifacts: upsertArtifacts(current.artifacts, payload.items as ArtifactRecord[]),
             }));
             return;
@@ -533,7 +679,6 @@ function WorkbenchRoute() {
       }));
     } finally {
       setSending(false);
-      await loadWorkbench({ silent: true });
     }
   }
 
@@ -621,27 +766,6 @@ function WorkbenchRoute() {
     }
   }
 
-  async function handleGenerateArtifact(artifactType: 'document' | 'page_solution' | 'interaction_flow') {
-    setGeneratingArtifactType(artifactType);
-    try {
-      await generateArtifact(projectId, artifactType);
-      await loadWorkbench({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '交付物生成失败。';
-      setNotices((current) => [
-        {
-          id: `artifact-${Date.now()}`,
-          kind: 'error',
-          title: '交付物生成失败',
-          body: message,
-        },
-        ...current,
-      ]);
-    } finally {
-      setGeneratingArtifactType(null);
-    }
-  }
-
   async function handleBindProjectNotebook(payload: { sourceUrl?: string; notebookId?: string }) {
     setBindingNotebook(true);
     try {
@@ -717,7 +841,6 @@ function WorkbenchRoute() {
       deletingSourceId={deletingSourceId}
       retryingSourceId={retryingSourceId}
       bindingNotebook={bindingNotebook}
-      generatingArtifactType={generatingArtifactType}
       onSendMessage={handleSendMessage}
         onUploadTextSource={handleUploadTextSource}
         onUploadFileSource={handleUploadFileSource}
@@ -725,7 +848,6 @@ function WorkbenchRoute() {
         onRetrySourceSync={handleRetrySourceSync}
         onBindProjectNotebook={handleBindProjectNotebook}
         onCreateAndBindProjectNotebook={handleCreateAndBindProjectNotebook}
-        onGenerateArtifact={handleGenerateArtifact}
       />
   );
 }

@@ -5,38 +5,46 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import uuid
 from typing import AsyncIterator
 
 from claude_agent_sdk import (
     AssistantMessage,
     CLINotFoundError,
     ClaudeAgentOptions,
+    McpSdkServerConfig,
     ResultMessage,
     StreamEvent,
     TextBlock,
+    create_sdk_mcp_server,
     query,
+    tool,
 )
 from pydantic import ValidationError
 
 from ..config import AppSettings, DEFAULT_SETTINGS
 from ..models import (
+    STATE_CATEGORIES,
     AgentStructuredOutput,
     ArtifactType,
     AgentTurnInput,
     AgentTurnResult,
+    ArtifactRecord,
     ChatCitation,
     GeneratedArtifactOutput,
     ProjectState,
     ProjectSummary,
     ProviderReadiness,
     ProviderIssue,
+    StateCategory,
+    StateItem,
     SourceUpsert,
 )
-
-
-def _read_skill(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
-
+from .artifact_generation import ArtifactGenerationService
+from .notebooklm_service import NotebookLMService
+from .project_catalog import ProjectCatalog
+from .project_state import ProjectStateService
+from .runtime_contracts import EvidenceRuntime
 
 def _output_schema() -> dict:
     item_schema = {
@@ -114,6 +122,28 @@ def _artifact_output_schema(artifact_type: ArtifactType) -> dict:
         "required": required,
         "additionalProperties": False,
     }
+
+
+def _state_item_tool_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string"},
+            "body": {"type": "string"},
+            "source_ids": {"type": "array", "items": {"type": "string"}},
+            "status": {"type": "string"},
+        },
+        "required": ["title", "body"],
+        "additionalProperties": False,
+    }
+
+
+def _state_tool_categories() -> tuple[StateCategory, ...]:
+    return tuple(
+        category
+        for category in STATE_CATEGORIES
+        if category not in {"versions", "artifacts"}
+    )
 
 
 def _coerce_json_payload(raw: str) -> dict:
@@ -402,16 +432,18 @@ def _coerce_html_artifact_payload(raw: str) -> dict:
 
 
 class ClaudeAgentRuntime:
-    def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
+    def __init__(
+        self,
+        settings: AppSettings = DEFAULT_SETTINGS,
+        evidence_runtime: EvidenceRuntime | None = None,
+    ):
         self.settings = settings
         root = settings.root_dir
         self.runtime_config_dir = root / "backend" / ".claude-runtime"
-        self.methodology_skill = _read_skill(
-            root / "backend" / ".claude" / "skills" / "requirement-analysis-methodology" / "SKILL.md"
-        )
-        self.evidence_skill = _read_skill(
-            root / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow" / "SKILL.md"
-        )
+        self.catalog = ProjectCatalog(settings)
+        self.project_state_service = ProjectStateService(self.catalog)
+        self.artifact_generation_service = ArtifactGenerationService(settings)
+        self.evidence_runtime = evidence_runtime or NotebookLMService(settings)
 
     def _build_options(
         self,
@@ -419,6 +451,8 @@ class ClaudeAgentRuntime:
         system_prompt: str,
         include_partial_messages: bool,
         output_format: dict | None = None,
+        mcp_servers: dict[str, McpSdkServerConfig] | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> ClaudeAgentOptions:
         # Claude CLI 默认会读取 ~/.claude 下的用户级设置、插件和历史。
         # 这里强制收口到项目内运行时目录，并显式禁用 user setting source，
@@ -426,19 +460,33 @@ class ClaudeAgentRuntime:
         self.runtime_config_dir.mkdir(parents=True, exist_ok=True)
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
-            allowed_tools=[],
+            allowed_tools=allowed_tools or [],
             tools=[],
             model=self.settings.claude_model,
+            permission_mode="bypassPermissions" if mcp_servers else None,
             max_turns=self.settings.claude_max_turns,
             cwd=str(self.settings.root_dir),
             cli_path=self.settings.claude_cli_path,
             include_partial_messages=include_partial_messages,
             output_format=output_format,
+            mcp_servers=mcp_servers,
             setting_sources=["project", "local"],
             plugins=[],
             env={
                 "CLAUDE_CONFIG_DIR": str(self.runtime_config_dir),
             },
+        )
+
+    @staticmethod
+    def _system_prompt() -> str:
+        return (
+            "你是客户需求转译台的主分析智能体，不是普通聊天助手。"
+            "先理解真实需求，再决定是否写沉淀、打快照、生成交付物。"
+            "讨论态不等于确认态；没有足够证据，不要写 confirmed。"
+            "不要把页面建议或实现建议直接当成正式需求结论。"
+            "不要伪造 citations。"
+            "不要把内部桶名、tool_call、方法论术语、内部路径暴露给用户。"
+            "只有真实工具执行成功，才算状态写入、快照生成、artifact 生成成功。"
         )
 
     def _methodology_execution_notes(self) -> str:
@@ -585,6 +633,64 @@ class ClaudeAgentRuntime:
     def _build_prompt(self, turn: AgentTurnInput) -> str:
         return self._build_structured_prompt(turn)
 
+    def _build_loop_prompt(self, turn: AgentTurnInput) -> str:
+        state_summary = self._artifact_state_summary(turn.state)
+        source_json = json.dumps(turn.source_summaries, ensure_ascii=False, indent=2)
+        history_text = self._format_recent_messages(turn)
+        selected_source_ids = json.dumps(turn.selected_source_ids, ensure_ascii=False)
+        return f"""
+你在客户需求转译台的一期正式运行时里工作。
+
+项目：
+- 名称：{turn.project.name}
+- 场景：{turn.project.scenario_type}
+- 摘要：{turn.project.summary}
+
+当前用户消息：
+{turn.user_message}
+
+最近对话记录：
+{history_text}
+
+当前项目沉淀摘要：
+{state_summary}
+
+当前可用资料摘要：
+{source_json}
+
+本轮用户显式选中的 source IDs：
+{selected_source_ids}
+
+可用工具：
+1. `query_notebook_evidence`
+   - 需要 source-grounded 证据、引用或核对资料说法时再调用
+   - 不要用它代替最终项目裁决
+2. `update_project_state`
+   - 只写本轮新增的 current_understanding / pending_items / confirmed_items / conflict_items / mvp_items
+   - 讨论、计划、评审意见不要为了凑动作硬写入
+3. `create_version_snapshot`
+   - 只在明确形成问题定义、范围边界、冲突结论、MVP 方向，或用户明确要求留痕时调用
+4. `generate_artifact`
+   - 只在已经形成稳定阶段性输出，且用户明确要求或你明确承诺现在整理交付物时调用
+
+方法论执行提醒：
+{self._methodology_execution_notes()}
+
+交付物生成提醒：
+{self._artifact_generation_notes()}
+
+输出与动作要求：
+1. 正文只输出面向用户的自然中文，不要输出 JSON、HTML、Markdown 标题、工具痕迹、内部状态桶名字。
+2. 如果只是讨论、评审、头脑风暴、要计划、要求“不要直接开始改”，通常只聊天，不写沉淀、不打快照、不生成交付物。
+3. 如果需要 grounded 证据，请先调用 `query_notebook_evidence`，再基于结果回答。
+4. 如果本轮确实形成了新增理解、待确认项、已确认事实、冲突或 MVP，再调用 `update_project_state`，只写本轮增量。
+5. 只有命中关键里程碑时才调用 `create_version_snapshot`。
+6. 只有需要真实交付物时才调用 `generate_artifact`。
+7. 可以先说话，再调工具；也可以先查证据再回答。顺序由你自己判断。
+8. 如果工具失败，要诚实告诉用户当前哪一步失败了，以及还能继续做什么。
+9. 不要为了显得积极而调用无关工具。
+        """.strip()
+
     @staticmethod
     def _format_recent_messages(turn: AgentTurnInput) -> str:
         if not turn.recent_messages:
@@ -638,14 +744,8 @@ NotebookLM grounding：
 NotebookLM citations：
 {citations_json}
 
-需求分析方法参考：
-{self.methodology_skill}
-
 方法论执行提醒：
 {self._methodology_execution_notes()}
-
-资料理解工作流参考：
-{self.evidence_skill}
 
 请直接输出面向用户的自然中文回复，不要输出 JSON，不要输出 markdown 标题。
 要求：
@@ -655,7 +755,11 @@ NotebookLM citations：
 4. 如果本轮已经足够形成沉淀，要顺手说明你准备写入什么，但不要直接说内部状态桶名字。
 5. 如果证据不足，要明确指出还需要确认什么。
 6. 尽量把回复控制在 2 到 4 段，便于前端流式展示。
-7. 不要生成交付物，不要描述内部状态桶名字。
+7. 只有当你判断本轮确实应该触发交付物时，才可以在正文里承诺“现在整理成文档稿 / 页面方案 / 交互稿”。
+8. 一旦正文里承诺会整理某类交付物，后续结构化结果必须填对应的 request_artifacts，不能只说不做。
+9. 如果本轮是要生成交付物，正文只需要简短说明“现在开始整理什么、会写到哪里、用户稍后怎么看”，不要在聊天区提前展开完整文档、完整页面方案、完整交互稿或大段结构化清单。
+10. 严禁在聊天正文里直接输出 HTML、Markdown 文档正文、伪 JSON、伪 YAML、request_artifacts 列表或状态桶明细。
+11. 严禁输出 <think>、tool_call、TodoWrite、文件写入步骤、目录操作或任何工具调用痕迹。
         """.strip()
 
     def _build_structured_prompt(
@@ -663,7 +767,7 @@ NotebookLM citations：
         turn: AgentTurnInput,
         assistant_message: str | None = None,
     ) -> str:
-        state_json = json.dumps(turn.state.model_dump(mode="json"), ensure_ascii=False, indent=2)
+        state_summary = self._artifact_state_summary(turn.state)
         citations_json = json.dumps(
             [citation.model_dump() for citation in turn.evidence_citations],
             ensure_ascii=False,
@@ -688,9 +792,6 @@ NotebookLM citations：
 本轮用户选中的 source IDs：
 {json.dumps(turn.selected_source_ids, ensure_ascii=False)}
 
-当前项目状态：
-{state_json}
-
 本轮 source 摘要：
 {source_json}
 
@@ -703,25 +804,26 @@ NotebookLM citations：
 刚刚已经流式发送给用户的助手回复：
 {assistant_message or "当前没有已发送正文，你需要在 assistant_message 里补出完整回复。"}
 
-需求分析方法参考：
-{self.methodology_skill}
+当前项目沉淀摘要：
+{state_summary}
 
 方法论执行提醒：
 {self._methodology_execution_notes()}
 
-资料理解工作流参考：
-{self.evidence_skill}
+你现在处于“状态提交 pass”。
+这一轮不是继续聊天，也不是再写一份 JSON，而是根据上面的用户消息、证据和已发送正文，判断应该调用哪些工具，把本轮结论落成真实动作。
 
-请输出结构化 JSON，不要输出额外解释。
 要求：
-1. assistant_message 用自然中文，简洁但完整。
-1a. 如果上面已经提供了“刚刚已经流式发送给用户的助手回复”，assistant_message 必须与那段正文保持一致，不要改写。
-2. 优先推进真实需求理解，不要空泛鼓励。
-3. 每个状态桶只放当前轮最值得沉淀的内容。
-4. 如果证据不足，不要把内容塞进 confirmed_items。
-5. request_artifacts 仅在用户本轮明确要求交付物时再填。
-6. citations 只整理当前 grounding 已提供的内容，不要编造。
-7. 不要向用户炫耀方法论名词，要把分析结果翻译成自然业务语言。
+1. 如果上面已经提供了“刚刚已经流式发送给用户的助手回复”，把它当作已经发出去的正文，不要再改写聊天内容。
+2. 先判断有没有本轮新增沉淀；有的话立刻调用 `update_project_state`，只提交本轮真正形成的结论。
+3. 如果本轮形成了一个值得记录的阶段性结论，调用 `create_version_snapshot`。
+4. 如果 assistant_message 已经承诺“现在整理成文档稿 / 页面方案 / 交互稿”，本轮必须直接调用 `generate_artifact`，不能遗漏。
+5. `generate_artifact` 工具需要你把完整交付物内容一起带上：文档稿传 body，页面方案和交互稿传 html，同时补齐 title、summary。
+6. 交互稿对应 `interaction_flow`，页面方案对应 `page_solution`，文档稿对应 `document`。
+7. 如果当前证据不足，不要把内容塞进 confirmed_items。
+8. citations 只整理当前 grounding 已提供的内容，不要编造。
+9. 优先顺序是：先调用需要的工具，再结束这一轮。
+10. 最终文本只允许一句简短中文，可留空；不要输出 JSON、状态桶明细、工具调用痕迹或交付物正文。
         """.strip()
 
     @staticmethod
@@ -745,7 +847,63 @@ NotebookLM citations：
         text = delta.get("text")
         return text if isinstance(text, str) and text else None
 
+    @staticmethod
+    def _stream_event_tool_status(message: StreamEvent) -> dict[str, str] | None:
+        event = message.event if isinstance(message.event, dict) else None
+        if not event or event.get("type") != "content_block_start":
+            return None
+
+        content_block = event.get("content_block")
+        if not isinstance(content_block, dict) or content_block.get("type") != "tool_use":
+            return None
+
+        tool_name = str(content_block.get("name") or "").strip()
+        if tool_name.endswith("query_notebook_evidence"):
+            return {
+                "phase": "tool_running:query_notebook_evidence",
+                "label": "正在检索资料证据",
+            }
+        if tool_name.endswith("update_project_state"):
+            return {
+                "phase": "tool_running:update_project_state",
+                "label": "正在写入本轮沉淀",
+            }
+        if tool_name.endswith("create_version_snapshot"):
+            return {
+                "phase": "tool_running:create_version_snapshot",
+                "label": "正在生成版本快照",
+            }
+        if tool_name.endswith("generate_artifact"):
+            return {
+                "phase": "tool_running:generate_artifact",
+                "label": "正在生成交付物预览",
+            }
+
+        return None
+
+    @staticmethod
+    def _full_text_delta(full_text: str, emitted_text: str) -> str:
+        if not full_text:
+            return ""
+        if not emitted_text:
+            return full_text
+        if full_text == emitted_text:
+            return ""
+        if full_text.startswith(emitted_text):
+            return full_text[len(emitted_text):]
+        if full_text in emitted_text:
+            return ""
+
+        max_overlap = min(len(full_text), len(emitted_text))
+        for overlap in range(max_overlap, 0, -1):
+            if emitted_text[-overlap:] == full_text[:overlap]:
+                return full_text[overlap:]
+
+        return full_text
+
     async def stream_assistant_text(self, turn: AgentTurnInput) -> AsyncIterator[str]:
+        # 兼容旧测试和手工调试路径。
+        # 当前正式工作台主链路已经切到 run_streaming_turn，不再走这条双段式流程。
         self.ensure_available()
 
         options = self._build_options(
@@ -770,10 +928,7 @@ NotebookLM citations：
                     if not full_text:
                         continue
 
-                    delta = full_text
-                    if full_text.startswith(emitted_text):
-                        delta = full_text[len(emitted_text):]
-
+                    delta = self._full_text_delta(full_text, emitted_text)
                     if delta:
                         emitted_text = full_text
                         yield delta
@@ -822,6 +977,7 @@ NotebookLM citations：
         project: ProjectSummary,
         state: ProjectState,
         artifact_type: ArtifactType,
+        additional_instruction: str | None = None,
     ) -> str:
         state_summary = self._artifact_state_summary(state)
         if artifact_type == "document":
@@ -863,6 +1019,9 @@ NotebookLM citations：
 当前项目沉淀摘要：
 {state_summary}
 
+本轮额外整理重点：
+{additional_instruction or "无，按当前项目沉淀直接整理。"}
+
 {self._artifact_generation_notes()}
 
 任务类型：{artifact_type}
@@ -875,17 +1034,615 @@ NotebookLM citations：
 6. 不要把方法论名词硬写进最终交付物，除非用户明确要求展示分析方法。
         """.strip()
 
+    @staticmethod
+    def _normalize_artifact_type(raw_type: str | None) -> ArtifactType:
+        allowed: tuple[ArtifactType, ...] = ("document", "page_solution", "interaction_flow")
+        if raw_type in allowed:
+            return raw_type
+        raise ValueError(f"不支持的 artifact_type：{raw_type}")
+
+    @staticmethod
+    def _infer_artifact_types_from_assistant_message(message: str | None) -> list[ArtifactType]:
+        if not message:
+            return []
+
+        normalized = message.replace(" ", "")
+        inferred: list[ArtifactType] = []
+        if "交互稿" in normalized:
+            inferred.append("interaction_flow")
+        if "页面方案" in normalized:
+            inferred.append("page_solution")
+        if "文档稿" in normalized or "需求文档" in normalized:
+            inferred.append("document")
+        return list(dict.fromkeys(inferred))
+
+    def _make_update_project_state_tool(
+        self,
+        *,
+        project_id: str,
+        applied_state_updates: dict[StateCategory, list[StateItem]],
+    ):
+        item_schema = _state_item_tool_schema()
+        properties = {
+            category: {"type": "array", "items": item_schema}
+            for category in _state_tool_categories()
+        }
+
+        @tool(
+            "update_project_state",
+            "把本轮确认过的项目沉淀真实写入项目状态。",
+            {
+                "type": "object",
+                "properties": properties,
+                "additionalProperties": False,
+            },
+        )
+        async def update_project_state_tool(args: dict) -> dict:
+            try:
+                applied_categories: dict[str, int] = {}
+                for category in _state_tool_categories():
+                    raw_items = args.get(category)
+                    if not isinstance(raw_items, list) or not raw_items:
+                        continue
+
+                    normalized_items = [
+                        SourceUpsert.model_validate(item)
+                        for item in raw_items
+                    ]
+                    state_items = [
+                        StateItem(
+                            id=f"{category}-{uuid.uuid4().hex[:10]}",
+                            title=item.title,
+                            body=item.body,
+                            status=item.status,
+                            category=category,
+                            source_ids=item.source_ids,
+                        )
+                        for item in normalized_items
+                    ]
+                    self.project_state_service.append_category(
+                        project_id=project_id,
+                        category=category,
+                        items=state_items,
+                    )
+                    applied_state_updates[category] = state_items
+                    applied_categories[category] = len(state_items)
+
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "project_id": project_id,
+                                    "applied_categories": applied_categories,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    ]
+                }
+            except Exception as exc:
+                return {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "is_error": True,
+                }
+
+        return update_project_state_tool
+
+    def _make_query_notebook_evidence_tool(
+        self,
+        *,
+        project_id: str,
+        default_selected_source_ids: list[str],
+        evidence_results: list[dict],
+    ):
+        @tool(
+            "query_notebook_evidence",
+            "基于当前项目的 NotebookLM 资料库查询 grounded 证据和 citations。",
+            {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "selected_source_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                },
+                "required": ["question"],
+                "additionalProperties": False,
+            },
+        )
+        async def query_notebook_evidence_tool(args: dict) -> dict:
+            try:
+                question = str(args.get("question") or "").strip()
+                if not question:
+                    raise ValueError("question 不能为空。")
+
+                raw_selected_source_ids = args.get("selected_source_ids")
+                selected_source_ids = (
+                    [str(item) for item in raw_selected_source_ids if item]
+                    if isinstance(raw_selected_source_ids, list)
+                    else default_selected_source_ids
+                )
+                try:
+                    evidence = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self.evidence_runtime.query,
+                            project_id,
+                            question,
+                            selected_source_ids or None,
+                        ),
+                        timeout=self.settings.notebooklm_query_timeout_seconds,
+                    )
+                except asyncio.TimeoutError as exc:
+                    raise ProviderIssue(
+                        provider="NOTEBOOKLM_PY",
+                        message="NotebookLM 查询超时，当前证据工具暂不可用。",
+                    ) from exc
+                evidence_payload = {
+                    "summary": evidence.summary,
+                    "citations": [citation.model_dump() for citation in evidence.citations],
+                    "source_refs": [citation.source_id for citation in evidence.citations if citation.source_id],
+                    "coverage_hint": "grounded" if evidence.citations else "ungrounded",
+                }
+                evidence_results.append(evidence_payload)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(evidence_payload, ensure_ascii=False),
+                        }
+                    ]
+                }
+            except Exception as exc:
+                message = exc.message if isinstance(exc, ProviderIssue) else str(exc)
+                return {
+                    "content": [{"type": "text", "text": message}],
+                    "is_error": True,
+                }
+
+        return query_notebook_evidence_tool
+
+    def _make_create_version_snapshot_tool(
+        self,
+        *,
+        project_id: str,
+        generated_versions: list[StateItem],
+    ):
+        @tool(
+            "create_version_snapshot",
+            "在关键轮次生成一个项目版本快照。",
+            {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string"},
+                    "trigger_kind": {"type": "string"},
+                },
+                "required": ["summary"],
+                "additionalProperties": False,
+            },
+        )
+        async def create_version_snapshot_tool(args: dict) -> dict:
+            try:
+                version = self.project_state_service.create_version(
+                    project_id=project_id,
+                    trigger_kind=str(args.get("trigger_kind") or "analysis_checkpoint"),
+                    summary=str(args.get("summary") or "").strip(),
+                )
+                generated_versions.append(version)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "project_id": project_id,
+                                    "version_id": version.id,
+                                    "title": version.title,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    ]
+                }
+            except Exception as exc:
+                return {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "is_error": True,
+                }
+
+        return create_version_snapshot_tool
+
+    def _make_generate_artifact_tool(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        generated_artifacts: list[ArtifactRecord],
+        generated_versions: list[StateItem],
+    ):
+        @tool(
+            "generate_artifact",
+            "把当前轮已经整理好的交付物内容真实落盘，并返回已保存的结果。",
+            {
+                "type": "object",
+                "properties": {
+                    "artifact_type": {
+                        "type": "string",
+                        "enum": ["document", "page_solution", "interaction_flow"],
+                    },
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "body": {"type": "string"},
+                    "html": {"type": "string"},
+                    "focus": {"type": "string"},
+                    "working_notes": {"type": "string"},
+                },
+                "required": ["artifact_type", "title", "summary"],
+                "additionalProperties": False,
+            },
+        )
+        async def generate_artifact_tool(args: dict) -> dict:
+            try:
+                artifact_type = self._normalize_artifact_type(args.get("artifact_type"))
+                generated = GeneratedArtifactOutput.model_validate(
+                    {
+                        "title": args.get("title"),
+                        "summary": args.get("summary"),
+                        "body": args.get("body"),
+                        "html": args.get("html"),
+                    }
+                )
+                artifact = self.artifact_generation_service.save_generated_output(
+                    project_id=project.id,
+                    artifact_type=artifact_type,
+                    generated=generated,
+                    metadata={
+                        "generator": "claude-agent-sdk-mcp",
+                        "focus": str(args.get("focus") or "").strip() or None,
+                        "working_notes": str(args.get("working_notes") or "").strip() or None,
+                    },
+                )
+                version = self.project_state_service.create_artifact_version(
+                    project_id=project.id,
+                    artifact_title=artifact.title,
+                    artifact_type=artifact.artifact_type,
+                )
+                generated_artifacts.append(artifact)
+                generated_versions.append(version)
+                payload = json.dumps(
+                    {
+                        "artifact_id": artifact.id,
+                        "artifact_type": artifact.artifact_type,
+                        "title": artifact.title,
+                        "summary": artifact.summary,
+                        "preview_url": artifact.preview_url,
+                        "version_id": version.id,
+                    },
+                    ensure_ascii=False,
+                )
+                return {"content": [{"type": "text", "text": payload}]}
+            except Exception as exc:
+                return {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "is_error": True,
+                }
+
+        return generate_artifact_tool
+
+    def _artifact_mcp_servers(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        generated_artifacts: list[ArtifactRecord],
+        generated_versions: list[StateItem],
+    ) -> dict[str, McpSdkServerConfig]:
+        artifact_tool = self._make_generate_artifact_tool(
+            project=project,
+            state=state,
+            generated_artifacts=generated_artifacts,
+            generated_versions=generated_versions,
+        )
+        return {
+            "artifacts": create_sdk_mcp_server(
+                name="project-artifacts",
+                tools=[artifact_tool],
+            )
+        }
+
+    def _turn_mcp_servers(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        default_selected_source_ids: list[str],
+        evidence_results: list[dict],
+        applied_state_updates: dict[StateCategory, list[StateItem]],
+        generated_artifacts: list[ArtifactRecord],
+        generated_versions: list[StateItem],
+    ) -> dict[str, McpSdkServerConfig]:
+        evidence_tool = self._make_query_notebook_evidence_tool(
+            project_id=project.id,
+            default_selected_source_ids=default_selected_source_ids,
+            evidence_results=evidence_results,
+        )
+        state_tool = self._make_update_project_state_tool(
+            project_id=project.id,
+            applied_state_updates=applied_state_updates,
+        )
+        version_tool = self._make_create_version_snapshot_tool(
+            project_id=project.id,
+            generated_versions=generated_versions,
+        )
+        artifact_tool = self._make_generate_artifact_tool(
+            project=project,
+            state=state,
+            generated_artifacts=generated_artifacts,
+            generated_versions=generated_versions,
+        )
+        return {
+            "project-actions": create_sdk_mcp_server(
+                name="project-actions",
+                tools=[evidence_tool, state_tool, version_tool, artifact_tool],
+            )
+        }
+
+    def _artifact_commit_prompt(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        artifact_types: list[ArtifactType],
+        assistant_message: str | None = None,
+    ) -> str:
+        state_summary = self._artifact_state_summary(state)
+        return f"""
+你现在只负责把已经承诺的交付物真实写入系统，不要再重复做大段分析。
+
+项目：
+- 名称：{project.name}
+- 场景：{project.scenario_type}
+- 摘要：{project.summary}
+
+当前沉淀摘要：
+{state_summary}
+
+本轮已经发给用户的说明：
+{assistant_message or "本轮没有额外说明。"}
+
+待生成的 artifact 类型：
+{json.dumps(artifact_types, ensure_ascii=False)}
+
+要求：
+1. 必须调用 generate_artifact 工具，为列表里的每个 artifact_type 各生成一次。
+2. `document` 传 body；`page_solution` 和 `interaction_flow` 传 html。
+3. title、summary 用自然中文，不要复用内部桶名。
+4. html 必须包含 <!doctype html>、<title>、<main>。
+5. 工具调用完成后，只用一句中文回复“已写入交付物区”或“已写入交付物区，可继续调整”。
+6. 不要输出额外说明，不要在最终文本里重复 artifact 正文。
+        """.strip()
+
+    async def run_streaming_turn(
+        self,
+        turn: AgentTurnInput,
+    ) -> AsyncIterator[tuple[str, dict]]:
+        self.ensure_available()
+
+        applied_state_updates: dict[StateCategory, list[StateItem]] = {}
+        evidence_results: list[dict] = []
+        generated_artifacts: list[ArtifactRecord] = []
+        generated_versions: list[StateItem] = []
+
+        emitted_text = ""
+        latest_assistant_text = ""
+        final_result_text = ""
+
+        options = self._build_options(
+            system_prompt=self._system_prompt(),
+            include_partial_messages=True,
+            output_format=None,
+            mcp_servers=self._turn_mcp_servers(
+                project=turn.project,
+                state=turn.state,
+                default_selected_source_ids=turn.selected_source_ids,
+                evidence_results=evidence_results,
+                applied_state_updates=applied_state_updates,
+                generated_artifacts=generated_artifacts,
+                generated_versions=generated_versions,
+            ),
+            allowed_tools=[
+                "query_notebook_evidence",
+                "update_project_state",
+                "create_version_snapshot",
+                "generate_artifact",
+            ],
+        )
+
+        yield (
+            "assistant_status",
+            {
+                "phase": "agent_started",
+                "label": "已接收问题，正在启动分析",
+            },
+        )
+
+        try:
+            async for message in query(
+                prompt=self._build_loop_prompt(turn),
+                options=options,
+            ):
+                if isinstance(message, StreamEvent):
+                    delta_text = self._stream_event_text_delta(message)
+                    if delta_text:
+                        emitted_text = f"{emitted_text}{delta_text}"
+                        yield ("message_chunk", {"text": delta_text})
+                        continue
+
+                    tool_status = self._stream_event_tool_status(message)
+                    if tool_status:
+                        yield ("assistant_status", tool_status)
+                    continue
+
+                if isinstance(message, AssistantMessage):
+                    full_text = self._assistant_text_from_message(message)
+                    if not full_text:
+                        continue
+
+                    delta = self._full_text_delta(full_text, emitted_text)
+                    if delta:
+                        emitted_text = full_text
+                        yield ("message_chunk", {"text": delta})
+                    latest_assistant_text = full_text.strip()
+                    continue
+
+                if isinstance(message, ResultMessage):
+                    if message.is_error:
+                        errors = ", ".join(message.errors or [])
+                        raise ProviderIssue(
+                            provider="CLAUDE_AGENT_SDK",
+                            message=errors or message.result or "Claude Agent SDK 返回错误。",
+                        )
+
+                    final_result_text = (message.result or "").strip()
+                    continue
+        except CLINotFoundError as exc:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message=f"未找到 Claude Code CLI：{exc}",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message=f"Claude Agent SDK 运行失败：{exc}",
+            ) from exc
+
+        final_assistant_message = (
+            latest_assistant_text
+            or final_result_text
+            or emitted_text.strip()
+        )
+
+        latest_evidence = evidence_results[-1] if evidence_results else None
+        citations = latest_evidence.get("citations", []) if latest_evidence else []
+        if latest_evidence:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_completed:query_notebook_evidence",
+                    "label": "已拿到资料证据",
+                },
+            )
+        if citations:
+            yield ("citations", {"items": citations})
+
+        if applied_state_updates:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_completed:update_project_state",
+                    "label": "已写入本轮沉淀",
+                },
+            )
+            for category, items in applied_state_updates.items():
+                if not items:
+                    continue
+                yield (
+                    f"{category}_patch",
+                    {
+                        "op": "upsert",
+                        "items": [item.model_dump() for item in items],
+                    },
+                )
+
+        explicit_versions = [
+            version for version in generated_versions if version.title != "artifact_generated"
+        ]
+        if explicit_versions:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_completed:create_version_snapshot",
+                    "label": "已生成版本快照",
+                },
+            )
+
+        if generated_versions:
+            yield (
+                "version_patch",
+                {
+                    "op": "upsert",
+                    "items": [version.model_dump() for version in generated_versions],
+                },
+            )
+
+        if generated_artifacts:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_completed:generate_artifact",
+                    "label": "已生成交付物预览",
+                },
+            )
+            yield (
+                "artifact_patch",
+                {
+                    "op": "upsert",
+                    "items": [artifact.model_dump() for artifact in generated_artifacts],
+                },
+            )
+
+        yield (
+            "final_message",
+            {
+                "text": final_assistant_message,
+                "citations": citations,
+            },
+        )
+        yield (
+            "assistant_status",
+            {
+                "phase": "agent_completed",
+                "label": "本轮分析已完成",
+            },
+        )
+
     async def run_turn(
         self,
         turn: AgentTurnInput,
         assistant_message: str | None = None,
     ) -> AsyncIterator[tuple[str, str | AgentTurnResult]]:
+        # 兼容旧测试和手工调试路径。
+        # 当前正式工作台主链路已经切到 run_streaming_turn，不再由 ChatService 调用这条双段式流程。
         self.ensure_available()
+
+        applied_state_updates: dict[StateCategory, list[StateItem]] = {}
+        generated_artifacts: list[ArtifactRecord] = []
+        generated_versions: list[StateItem] = []
+        parsed_output: AgentStructuredOutput | None = None
+        raw_result_payload: dict | None = None
+        latest_assistant_text = ""
+        final_result_text = ""
 
         options = self._build_options(
             system_prompt="你是客户需求转译台的一期正式分析智能体。",
-            include_partial_messages=True,
-            output_format=_output_schema(),
+            include_partial_messages=False,
+            output_format=None,
+            mcp_servers=self._turn_mcp_servers(
+                project=turn.project,
+                state=turn.state,
+                default_selected_source_ids=turn.selected_source_ids,
+                evidence_results=[],
+                applied_state_updates=applied_state_updates,
+                generated_artifacts=generated_artifacts,
+                generated_versions=generated_versions,
+            ),
+            allowed_tools=[
+                "update_project_state",
+                "create_version_snapshot",
+                "generate_artifact",
+            ],
         )
 
         try:
@@ -894,8 +1651,7 @@ NotebookLM citations：
                 options=options,
             ):
                 if isinstance(message, AssistantMessage):
-                    # 结构化输出模式下，partial message 通常是中间 JSON 草稿，
-                    # 直接流给前端会污染聊天界面，所以这里主动忽略。
+                    latest_assistant_text = self._assistant_text_from_message(message).strip()
                     continue
                 elif isinstance(message, ResultMessage):
                     if message.is_error:
@@ -905,32 +1661,32 @@ NotebookLM citations：
                             message=errors or message.result or "Claude Agent SDK 返回错误。",
                         )
 
+                    final_result_text = (message.result or "").strip()
                     raw = message.structured_output
-                    if not raw and message.result:
-                        raw = _coerce_json_payload(message.result)
-                    output = AgentStructuredOutput.model_validate(
-                        _normalize_structured_output_payload(raw)
-                    )
-                    state_updates = {
-                        "current_understanding": output.current_understanding,
-                        "pending_items": output.pending_items,
-                        "confirmed_items": output.confirmed_items,
-                        "conflict_items": output.conflict_items,
-                        "mvp_items": output.mvp_items,
-                    }
-                    yield (
-                        "result",
-                        AgentTurnResult(
-                            assistant_message=assistant_message or output.assistant_message,
-                            citations=output.citations,
-                            state_updates=state_updates,
-                            version_summary=output.version_summary,
-                            request_artifacts=output.request_artifacts,
-                            raw_result=raw if isinstance(raw, dict) else None,
-                        ),
-                    )
+                    if raw:
+                        parsed_output = AgentStructuredOutput.model_validate(
+                            _normalize_structured_output_payload(raw)
+                        )
+                        raw_result_payload = raw if isinstance(raw, dict) else None
+                        continue
+
+                    if not final_result_text:
+                        continue
+
+                    try:
+                        raw = _coerce_json_payload(final_result_text)
+                        parsed_output = AgentStructuredOutput.model_validate(
+                            _normalize_structured_output_payload(raw)
+                        )
+                        raw_result_payload = raw if isinstance(raw, dict) else None
+                    except (json.JSONDecodeError, ValidationError, TypeError, ValueError):
+                        # 工具优先模式下，最终文本不一定是结构化 JSON。
+                        # 只要工具调用已经完成，就允许这一步保持为普通文本。
+                        continue
                 elif isinstance(message, StreamEvent):
-                    # 暂时不把 SDK 的内部事件直接暴露给前端，避免泄漏无关细节。
+                    tool_status = self._stream_event_tool_status(message)
+                    if tool_status:
+                        yield ("status", tool_status)
                     continue
         except CLINotFoundError as exc:
             raise ProviderIssue(
@@ -951,12 +1707,79 @@ NotebookLM citations：
                 ),
             ) from exc
 
+        fallback_state_updates: dict[StateCategory, list[SourceUpsert]] = {
+            "current_understanding": [],
+            "pending_items": [],
+            "confirmed_items": [],
+            "conflict_items": [],
+            "mvp_items": [],
+        }
+        request_artifacts: list[ArtifactType] = []
+        version_summary: str | None = None
+        citations = turn.evidence_citations
+
+        if parsed_output is not None:
+            fallback_state_updates = {
+                "current_understanding": parsed_output.current_understanding,
+                "pending_items": parsed_output.pending_items,
+                "confirmed_items": parsed_output.confirmed_items,
+                "conflict_items": parsed_output.conflict_items,
+                "mvp_items": parsed_output.mvp_items,
+            }
+            request_artifacts = parsed_output.request_artifacts
+            version_summary = parsed_output.version_summary
+            citations = parsed_output.citations or turn.evidence_citations
+
+        final_assistant_message = (
+            assistant_message
+            or (parsed_output.assistant_message if parsed_output is not None else "")
+            or latest_assistant_text
+            or final_result_text
+        ).strip()
+
+        requested_artifact_types = list(dict.fromkeys(request_artifacts))
+        inferred_artifact_types = self._infer_artifact_types_from_assistant_message(
+            final_assistant_message
+        )
+        artifact_commit_types = requested_artifact_types or inferred_artifact_types
+        if artifact_commit_types and not generated_artifacts:
+            generated_versions = [
+                version
+                for version in generated_versions
+                if version.title != "artifact_generated"
+            ]
+            committed_artifacts, committed_versions = await self.commit_artifacts(
+                project=turn.project,
+                state=self.project_state_service.get_project_state(turn.project.id),
+                artifact_types=artifact_commit_types,
+                assistant_message=final_assistant_message,
+            )
+            generated_artifacts.extend(committed_artifacts)
+            generated_versions.extend(committed_versions)
+            request_artifacts = []
+
+        yield (
+            "result",
+            AgentTurnResult(
+                assistant_message=final_assistant_message,
+                citations=citations,
+                state_updates=fallback_state_updates,
+                version_summary=version_summary,
+                request_artifacts=request_artifacts,
+                persisted_state_updates=applied_state_updates,
+                generated_artifacts=generated_artifacts,
+                generated_versions=generated_versions,
+                raw_result=raw_result_payload,
+            ),
+        )
+
     async def generate_artifact(
         self,
         *,
         project: ProjectSummary,
         state: ProjectState,
         artifact_type: ArtifactType,
+        additional_instruction: str | None = None,
     ) -> GeneratedArtifactOutput:
         self.ensure_available()
 
@@ -971,7 +1794,12 @@ NotebookLM citations：
                     output_format=output_format,
                 )
                 parse_error: Exception | None = None
-                prompt = self._artifact_prompt(project=project, state=state, artifact_type=artifact_type)
+                prompt = self._artifact_prompt(
+                    project=project,
+                    state=state,
+                    artifact_type=artifact_type,
+                    additional_instruction=additional_instruction,
+                )
                 if artifact_type != "document" and attempt > 0:
                     prompt = (
                         f"{prompt}\n\n补充要求：你上一轮没有按指定格式输出。"
@@ -1037,3 +1865,66 @@ NotebookLM citations：
             provider="CLAUDE_AGENT_SDK",
             message="Claude Agent SDK 未返回可用的 artifact 结果。",
         )
+
+    async def commit_artifacts(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        artifact_types: list[ArtifactType],
+        assistant_message: str | None = None,
+    ) -> tuple[list[ArtifactRecord], list[StateItem]]:
+        self.ensure_available()
+        deduped_types = list(dict.fromkeys(artifact_types))
+        if not deduped_types:
+            return [], []
+
+        generated_artifacts: list[ArtifactRecord] = []
+        generated_versions: list[StateItem] = []
+        options = self._build_options(
+            system_prompt="你是客户需求转译台的一期正式交付物落盘智能体。",
+            include_partial_messages=True,
+            mcp_servers=self._artifact_mcp_servers(
+                project=project,
+                state=state,
+                generated_artifacts=generated_artifacts,
+                generated_versions=generated_versions,
+            ),
+            allowed_tools=["generate_artifact"],
+        )
+
+        try:
+            async for message in query(
+                prompt=self._artifact_commit_prompt(
+                    project=project,
+                    state=state,
+                    artifact_types=deduped_types,
+                    assistant_message=assistant_message,
+                ),
+                options=options,
+            ):
+                if isinstance(message, ResultMessage):
+                    if message.is_error:
+                        errors = ", ".join(message.errors or [])
+                        raise ProviderIssue(
+                            provider="CLAUDE_AGENT_SDK",
+                            message=errors or message.result or "Claude Agent SDK 返回错误。",
+                        )
+        except CLINotFoundError as exc:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message=f"未找到 Claude Code CLI：{exc}",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message=f"Claude Agent SDK 运行失败：{exc}",
+            ) from exc
+
+        if not generated_artifacts:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message="Claude Agent SDK 本轮没有真实生成交付物。",
+            )
+
+        return generated_artifacts, generated_versions

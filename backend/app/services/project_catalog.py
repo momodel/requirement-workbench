@@ -374,6 +374,39 @@ class ProjectCatalog:
                 (timestamp, project_id),
             )
 
+    def append_state_items(
+        self,
+        project_id: str,
+        category: StateCategory,
+        items: list[StateItem],
+    ) -> None:
+        if not items:
+            return
+
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            for item in items:
+                connection.execute(
+                    """
+                    INSERT INTO state_items (id, project_id, category, title, body, status, source_ids_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        item.id,
+                        project_id,
+                        category,
+                        item.title,
+                        item.body,
+                        item.status,
+                        json.dumps(item.source_ids, ensure_ascii=False),
+                        item.updated_at or timestamp,
+                    ),
+                )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
     def list_state_items(self, project_id: str) -> dict[StateCategory, list[StateItem]]:
         grouped = {category: [] for category in STATE_CATEGORIES}
         with connection_scope(self.settings) as connection:

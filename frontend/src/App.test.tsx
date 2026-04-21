@@ -1304,6 +1304,19 @@ describe('App', () => {
             }, 30);
 
             setTimeout(() => {
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'event: message_chunk',
+                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:01+08:00","text":"第一段第二段","replace":true}',
+                    '',
+                    '',
+                  ].join('\n')
+                )
+              );
+            }, 45);
+
+            setTimeout(() => {
               chatCompleted = true;
               controller.enqueue(
                 encoder.encode(
@@ -1418,13 +1431,247 @@ describe('App', () => {
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
-    expect(await screen.findByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
     expect(await screen.findByText('第一段')).toBeInTheDocument();
     expect(screen.queryByText('第一段第二段')).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('第一段第二段')).toBeInTheDocument();
     });
+  });
+
+  it('does not show agent_started as a duplicated system action chip', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const encoder = new TextEncoder();
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: assistant_status',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:00+08:00","phase":"agent_started","label":"已接收问题，正在启动分析"}',
+                  '',
+                  '',
+                  'event: done',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:02+08:00","stream_group_id":"stream-1"}',
+                  '',
+                  '',
+                ].join('\n')
+              )
+            );
+            controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          notebooklm: {
+            provider: 'NOTEBOOKLM_PY',
+            status: 'ready',
+            summary: '当前项目已绑定专属 NotebookLM notebook。',
+            detail: 'Notebook ID: nb-stream-001',
+            action_label: null,
+          },
+          notebook_binding: {
+            project_id: 'seed-reconciliation',
+            notebook_id: 'nb-stream-001',
+            provider: 'NOTEBOOKLM_PY',
+            sync_status: 'bound',
+            last_synced_at: null,
+            source_url: 'https://notebooklm.google.com/notebook/nb-stream-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/notebook-library': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    await user.type(composer, '请开始分析');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.queryByText('系统行动')).not.toBeInTheDocument();
+    });
+  });
+
+  it('renders assistant action events for status, state, artifact and version patches', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const encoder = new TextEncoder();
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: assistant_status',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:00+08:00","phase":"evidence_query","label":"正在读取 NotebookLM 证据与引用"}',
+                  '',
+                  'event: message_chunk',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:01+08:00","text":"先整理一版。"}',
+                  '',
+                  'event: current_understanding_patch',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:02+08:00","items":[{"id":"cu-1","title":"当前理解","body":"先确认对账范围。","status":"active","category":"current_understanding","updated_at":"2026-04-16T00:00:02+08:00","source_ids":[]}]}',
+                  '',
+                  'event: artifact_patch',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:03+08:00","items":[{"id":"artifact-1","project_id":"seed-reconciliation","artifact_type":"interaction_flow","title":"交互稿 v1","summary":"流程草案","status":"generated","content_format":"html","storage_path":null,"preview_url":null,"body":null,"updated_at":"2026-04-16T00:00:03+08:00"}]}',
+                  '',
+                  'event: version_patch',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:04+08:00","items":[{"id":"version-1","title":"artifact_generated","body":"生成交互稿","status":"active","category":"versions","updated_at":"2026-04-16T00:00:04+08:00","source_ids":[]}]}',
+                  '',
+                  'event: done',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:05+08:00","stream_group_id":"stream-action-1"}',
+                  '',
+                ].join('\n')
+              )
+            );
+            controller.close();
+          },
+        });
+
+        return new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          notebooklm: {
+            provider: 'NOTEBOOKLM_PY',
+            status: 'ready',
+            summary: '当前项目已绑定专属 NotebookLM notebook。',
+            detail: 'Notebook ID: nb-action-001',
+            action_label: null,
+          },
+          notebook_binding: {
+            project_id: 'seed-reconciliation',
+            notebook_id: 'nb-action-001',
+            provider: 'NOTEBOOKLM_PY',
+            sync_status: 'bound',
+            last_synced_at: null,
+            source_url: 'https://notebooklm.google.com/notebook/nb-action-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/notebook-library': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    await user.type(composer, '请整理成交互稿');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('系统行动')).toBeInTheDocument();
+    expect(await screen.findByText('先整理一版。')).toBeInTheDocument();
+    expect(await screen.findByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
+    expect(await screen.findByText('已写入当前理解（1）')).toBeInTheDocument();
+    expect(await screen.findByText('已生成交付物：交互稿')).toBeInTheDocument();
+    expect(await screen.findByText('已生成版本快照（1）')).toBeInTheDocument();
   });
 
   it('renders markdown formatting in assistant messages', async () => {

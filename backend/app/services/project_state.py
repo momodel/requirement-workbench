@@ -44,6 +44,16 @@ class ProjectStateService:
         self.catalog.replace_state_items(project_id, category, items)
         return items
 
+    def append_category(
+        self,
+        *,
+        project_id: str,
+        category: StateCategory,
+        items: list[StateItem],
+    ) -> list[StateItem]:
+        self.catalog.append_state_items(project_id, category, items)
+        return items
+
     def snapshot_json(self, project_id: str) -> str:
         state = self.get_project_state(project_id)
         return state.model_dump_json()
