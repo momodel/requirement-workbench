@@ -163,7 +163,7 @@ NOTEBOOKLM_HOME=../data/notebooklm ./.venv/bin/notebooklm status
 ```bash
 cd backend
 source .venv/bin/activate
-./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 9300 --reload
 ```
 
 后端启动后会自动：
@@ -182,7 +182,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 打开：
 
 - 前端工作台：[http://127.0.0.1:4173](http://127.0.0.1:4173)
-- 后端健康检查：[http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
+- 后端健康检查：[http://127.0.0.1:9300/api/health](http://127.0.0.1:9300/api/health)
 
 ## 首次进入后怎么验证
 
