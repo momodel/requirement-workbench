@@ -84,6 +84,20 @@ export type MessageRecord = {
   stream_group_id: string | null;
   status_label?: string | null;
   status_phase?: string | null;
+  action_events?: MessageActionEvent[];
+};
+
+export type MessageActionEvent = {
+  id: string;
+  kind:
+    | 'status'
+    | 'tool_running'
+    | 'tool_completed'
+    | 'state'
+    | 'version'
+    | 'artifact'
+    | 'citation';
+  label: string;
 };
 
 export type StateItem = {

@@ -25,21 +25,24 @@ class ChatService:
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
 
-    async def _iterate_with_timeout(
-        self,
-        iterator,
-        *,
-        timeout_seconds: float,
-        provider: str,
-        timeout_message: str,
-    ):
-        while True:
-            try:
-                yield await asyncio.wait_for(iterator.__anext__(), timeout=timeout_seconds)
-            except StopAsyncIteration:
-                return
-            except asyncio.TimeoutError as exc:
-                raise ProviderIssue(provider=provider, message=timeout_message) from exc
+    def _stream_timeout_for_phase(self, phase: str | None) -> float:
+        base_timeout = self.catalog.settings.claude_stream_timeout_seconds
+        if not phase:
+            return base_timeout
+
+        if phase == "tool_running:generate_artifact":
+            return max(
+                base_timeout,
+                self.catalog.settings.claude_artifact_timeout_seconds + 15,
+            )
+
+        if phase == "tool_running:query_notebook_evidence":
+            return max(
+                base_timeout,
+                self.catalog.settings.notebooklm_query_timeout_seconds + 10,
+            )
+
+        return base_timeout
 
     async def stream_turn(self, project_id: str, payload: ChatStreamRequest):
         project = self.catalog.get_project(project_id)
@@ -74,14 +77,31 @@ class ChatService:
         assistant_saved = False
         final_assistant_message = ""
         final_citations: list[dict] = []
+        current_timeout = self.catalog.settings.claude_stream_timeout_seconds
 
         try:
-            async for event_type, value in self._iterate_with_timeout(
-                self.agent_runtime.run_streaming_turn(turn_input),
-                timeout_seconds=self.catalog.settings.claude_stream_timeout_seconds,
-                provider="CLAUDE_AGENT_SDK",
-                timeout_message="Claude 回复超时，当前轮对话已中止。请稍后重试。",
-            ):
+            iterator = self.agent_runtime.run_streaming_turn(turn_input)
+            while True:
+                try:
+                    event_type, value = await asyncio.wait_for(
+                        iterator.__anext__(),
+                        timeout=current_timeout,
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    raise ProviderIssue(
+                        provider="CLAUDE_AGENT_SDK",
+                        message="Claude 回复超时，当前轮对话已中止。请稍后重试。",
+                    ) from exc
+
+                if event_type == "assistant_status":
+                    current_timeout = self._stream_timeout_for_phase(
+                        str(value.get("phase") or "")
+                    )
+                else:
+                    current_timeout = self.catalog.settings.claude_stream_timeout_seconds
+
                 if event_type == "final_message":
                     final_assistant_message = str(value.get("text") or "").strip()
                     raw_citations = value.get("citations")

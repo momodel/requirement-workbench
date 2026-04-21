@@ -298,4 +298,7 @@ class AgentTurnResult:
     state_updates: dict[StateCategory, list[SourceUpsert]]
     version_summary: str | None
     request_artifacts: list[ArtifactType]
+    persisted_state_updates: dict[StateCategory, list[StateItem]] = field(default_factory=dict)
+    generated_artifacts: list[ArtifactRecord] = field(default_factory=list)
+    generated_versions: list[StateItem] = field(default_factory=list)
     raw_result: dict[str, Any] | None = None

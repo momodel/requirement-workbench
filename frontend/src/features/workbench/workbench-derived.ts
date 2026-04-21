@@ -57,13 +57,13 @@ const STAGE_INDEX = Object.fromEntries(
 ) as Record<WorkbenchStage, number>;
 
 const CATEGORY_STAGE_MAP: Record<string, WorkbenchStage> = {
+  versions: 'requirement_alignment',
+  artifacts: 'design_delivery',
   current_understanding: 'business_understanding',
   pending_items: 'requirement_alignment',
   confirmed_items: 'requirement_alignment',
   conflict_items: 'requirement_alignment',
   mvp_items: 'solution_definition',
-  versions: 'requirement_alignment',
-  artifacts: 'design_delivery',
 };
 
 function compareUpdatedAtDesc(
@@ -84,26 +84,6 @@ function getStateStageByCategory(category: string | null | undefined) {
   return CATEGORY_STAGE_MAP[category] ?? 'business_understanding';
 }
 
-function inferStageFromText(content: string) {
-  if (/设计交付|交付|页面方案|交互稿|原型|文档稿/i.test(content)) {
-    return 'design_delivery' as WorkbenchStage;
-  }
-  if (/方案定义|MVP|验收|能力包|能力拆分/i.test(content)) {
-    return 'solution_definition' as WorkbenchStage;
-  }
-  if (/需求收敛|待确认|边界|冲突|范围|口径/i.test(content)) {
-    return 'requirement_alignment' as WorkbenchStage;
-  }
-  if (/业务理解|流程|角色|映射|系统边界/i.test(content)) {
-    return 'business_understanding' as WorkbenchStage;
-  }
-  return 'intake' as WorkbenchStage;
-}
-
-function getVersionStage(item: StateItem) {
-  return inferStageFromText(`${item.title} ${item.body}`);
-}
-
 function getArtifactStage(_: ArtifactRecord) {
   return 'design_delivery' as WorkbenchStage;
 }
@@ -118,8 +98,7 @@ function buildStateOverviewItem(
   stageOverride?: WorkbenchStage
 ): StateOverviewItem {
   const inferredStage =
-    stageOverride ??
-    (item.category === 'versions' ? getVersionStage(item) : getStateStageByCategory(item.category));
+    stageOverride ?? getStateStageByCategory(item.category);
 
   return {
     id: item.id,
@@ -294,9 +273,7 @@ export function deriveStateOverviewSections(
       'versions',
       '版本快照',
       '关键轮次自动生成的状态快照。',
-      state.versions.map((item) =>
-        buildStateOverviewItem(item, recentInsightIds, getVersionStage(item))
-      )
+      state.versions.map((item) => buildStateOverviewItem(item, recentInsightIds))
     ),
   ];
 }

@@ -10,6 +10,7 @@ from app.models import (
     ChatCitation,
     CreateNotebookRequest,
     CreateProjectRequest,
+    ProviderReadiness,
 )
 from app.services.notebooklm_service import NotebookLMService
 
@@ -27,8 +28,20 @@ def make_settings(tmp_path: Path) -> AppSettings:
     )
 
 
+def make_mock_settings(tmp_path: Path) -> AppSettings:
+    settings = make_settings(tmp_path)
+    settings.notebooklm_mode = "mock"
+    return settings
+
+
 def make_service(tmp_path: Path) -> NotebookLMService:
     settings = make_settings(tmp_path)
+    init_db(settings)
+    return NotebookLMService(settings)
+
+
+def make_mock_service(tmp_path: Path) -> NotebookLMService:
+    settings = make_mock_settings(tmp_path)
     init_db(settings)
     return NotebookLMService(settings)
 
@@ -47,6 +60,36 @@ def test_global_readiness_requires_project_scoped_login(tmp_path: Path) -> None:
     assert readiness.status == "auth_required"
     assert "NOTEBOOKLM_HOME" in (readiness.detail or "")
     assert ".venv/bin/notebooklm login" in (readiness.detail or "")
+
+
+def test_mock_mode_global_readiness_is_explicit(tmp_path: Path) -> None:
+    service = make_mock_service(tmp_path)
+
+    readiness = service.get_global_readiness()
+
+    assert readiness.provider == "NOTEBOOKLM_PY"
+    assert readiness.status == "ready"
+    assert "mock 模式" in readiness.summary
+    assert "NOTEBOOKLM_MODE=real" in (readiness.detail or "")
+
+
+def test_mock_mode_project_readiness_does_not_require_binding(tmp_path: Path) -> None:
+    service = make_mock_service(tmp_path)
+    project = service.catalog.create_project(
+        CreateProjectRequest(
+            name="mock 项目",
+            scenario_type="general",
+            summary="测试项目级 mock readiness",
+        )
+    )
+
+    readiness = service.get_project_readiness(
+        project.id,
+        claude=ProviderReadiness(provider="CLAUDE_AGENT_SDK", status="ready", summary="ok"),
+    )
+
+    assert readiness.notebooklm.status == "ready"
+    assert "无需绑定真实 notebook" in readiness.notebooklm.summary
 
 
 def test_list_library_reads_notebooks_from_notebooklm_py(tmp_path: Path, monkeypatch) -> None:
@@ -207,6 +250,35 @@ def test_sync_source_uses_add_text_for_normalized_content(tmp_path: Path, monkey
     assert updated.sync_error is None
 
 
+def test_mock_mode_sync_source_marks_source_synced_without_remote_binding(tmp_path: Path) -> None:
+    service = make_mock_service(tmp_path)
+    project = service.catalog.create_project(
+        CreateProjectRequest(
+            name="mock 同步项目",
+            scenario_type="general",
+            summary="测试 mock source 同步",
+        )
+    )
+    source = service.catalog.create_source(
+        project_id=project.id,
+        name="访谈纪要.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="退款和冲销场景需要拆开处理。",
+        sync_status="pending_sync",
+        sync_error="old error",
+    )
+
+    updated = service.sync_source(source.id)
+
+    assert updated.sync_status == "synced"
+    assert updated.sync_error is None
+
+
 def test_query_returns_notebook_summary_and_citations(tmp_path: Path, monkeypatch) -> None:
     service = make_service(tmp_path)
     write_storage_state(service.settings)
@@ -273,3 +345,48 @@ def test_query_returns_notebook_summary_and_citations(tmp_path: Path, monkeypatc
             source_id=source.id,
         )
     ]
+
+
+def test_mock_mode_query_returns_fast_local_summary_and_citations(tmp_path: Path) -> None:
+    service = make_mock_service(tmp_path)
+    project = service.catalog.create_project(
+        CreateProjectRequest(
+            name="mock 查询项目",
+            scenario_type="general",
+            summary="测试 mock query",
+        )
+    )
+    source_a = service.catalog.create_source(
+        project_id=project.id,
+        name="订单字段说明.md",
+        source_kind="text",
+        upload_kind="seed",
+        storage_path=None,
+        normalized_path=None,
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="订单金额、税额和业务单号需要与财务科目逐笔映射。",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+    source_b = service.catalog.create_source(
+        project_id=project.id,
+        name="历史差异清单.md",
+        source_kind="text",
+        upload_kind="seed",
+        storage_path=None,
+        normalized_path=None,
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="退款冲销场景经常因为科目口径不一致产生差异。",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+
+    evidence = service.query(project.id, "当前订单和财务科目映射的核心冲突是什么？")
+
+    assert evidence.sync_status == "mock_queried"
+    assert "订单字段说明.md 提到" in evidence.summary
+    assert len(evidence.citations) == 2
+    assert evidence.citations[0].source_id == source_a.id
+    assert {citation.source_id for citation in evidence.citations} == {source_a.id, source_b.id}

@@ -21,6 +21,8 @@ def make_settings(tmp_path: Path) -> AppSettings:
         notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
         claude_stream_timeout_seconds=0.1,
+        claude_artifact_timeout_seconds=0.3,
+        notebooklm_query_timeout_seconds=0.2,
     )
 
 
@@ -104,6 +106,36 @@ class FailingAgentRuntime:
         raise ProviderIssue(provider="CLAUDE_AGENT_SDK", message="Claude 调用失败。")
         if False:
             yield ("done", {})
+
+
+class SlowArtifactRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        yield (
+            "assistant_status",
+            {
+                "phase": "tool_running:generate_artifact",
+                "label": "正在生成交互稿",
+            },
+        )
+        await asyncio.sleep(0.15)
+        yield (
+            "artifact_patch",
+            {
+                "op": "upsert",
+                "items": [],
+            },
+        )
+        yield (
+            "final_message",
+            {
+                "text": "交互稿已写入交付物区。",
+                "citations": [],
+            },
+        )
+        yield ("done", {})
 
 
 def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_message(
@@ -215,6 +247,41 @@ def test_chat_service_never_queries_notebooklm_directly(tmp_path: Path) -> None:
     events = asyncio.run(collect_events())
 
     assert any(event_type == "citations" for event_type, _ in events)
+
+
+def test_chat_service_extends_timeout_while_generating_artifact(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        notebooklm=StubEvidenceRuntime(),
+        agent_runtime=SlowArtifactRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="再来个交互稿", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "artifact_patch",
+        "message_chunk",
+        "done",
+    ]
+    assert events[0][1]["phase"] == "tool_running:generate_artifact"
+    assert events[2][1]["text"] == "交互稿已写入交付物区。"
 
 
 def test_project_state_append_category_keeps_existing_items(tmp_path: Path) -> None:

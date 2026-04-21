@@ -4,6 +4,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from '
 
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { WorkbenchPage } from './features/workbench/WorkbenchPage';
+import { getArtifactDisplayLabel } from './lib/artifact-display';
 import {
   bindProjectNotebook,
   createProject,
@@ -128,12 +129,7 @@ function buildPatchAction(
 }
 
 function buildArtifactAction(items: ArtifactRecord[], createdAt: string): MessageActionEvent {
-  const typeLabelMap: Record<string, string> = {
-    document: '文档稿',
-    page_solution: '页面方案',
-    interaction_flow: '交互稿',
-  };
-  const labels = items.map((item) => typeLabelMap[item.artifact_type] ?? item.title).slice(0, 3);
+  const labels = items.map((item) => getArtifactDisplayLabel(item)).slice(0, 3);
 
   return {
     id: `artifact:${createdAt}:${items.map((item) => item.id).join(',')}`,

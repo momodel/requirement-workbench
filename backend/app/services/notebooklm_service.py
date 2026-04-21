@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import threading
+import uuid
 from pathlib import Path
 from typing import Awaitable, Callable, TypeVar
 from urllib.parse import urlparse
@@ -25,6 +26,7 @@ from .project_catalog import ProjectCatalog
 
 NOTEBOOKLM_PROVIDER = "NOTEBOOKLM_PY"
 NOTEBOOK_BASE_URL = "https://notebooklm.google.com/notebook"
+NOTEBOOK_MOCK_BASE_URL = "mock://notebooklm"
 T = TypeVar("T")
 
 
@@ -41,6 +43,10 @@ class NotebookLMService:
     def storage_state_path(self) -> Path:
         return self.notebooklm_home_dir / "storage_state.json"
 
+    @property
+    def mock_enabled(self) -> bool:
+        return self.settings.notebooklm_mode == "mock"
+
     def _login_command(self) -> str:
         return (
             "cd backend && "
@@ -49,6 +55,8 @@ class NotebookLMService:
         )
 
     def _load_client_class(self):
+        if self.mock_enabled:
+            return None
         try:
             module = importlib.import_module("notebooklm.client")
         except ModuleNotFoundError as exc:
@@ -62,6 +70,9 @@ class NotebookLMService:
         return module.NotebookLMClient
 
     def ensure_available(self) -> Path:
+        if self.mock_enabled:
+            self.notebooklm_home_dir.mkdir(parents=True, exist_ok=True)
+            return self.notebooklm_home_dir
         self.notebooklm_home_dir.mkdir(parents=True, exist_ok=True)
         self._load_client_class()
         if not self.storage_state_path.exists():
@@ -139,6 +150,10 @@ class NotebookLMService:
         return f"{NOTEBOOK_BASE_URL}/{notebook_id}"
 
     @staticmethod
+    def _build_mock_notebook_url(notebook_id: str) -> str:
+        return f"{NOTEBOOK_MOCK_BASE_URL}/{notebook_id}"
+
+    @staticmethod
     def _extract_notebook_id_from_url(source_url: str) -> str:
         parsed = urlparse(source_url)
         parts = [part for part in parsed.path.split("/") if part]
@@ -171,6 +186,17 @@ class NotebookLMService:
         )
 
     def get_global_readiness(self) -> ProviderReadiness:
+        if self.mock_enabled:
+            return ProviderReadiness(
+                provider=NOTEBOOKLM_PROVIDER,
+                status="ready",
+                summary="NotebookLM mock 模式已启用，证据检索将走本地快速摘要。",
+                detail=(
+                    "当前不会访问真实 NotebookLM notebook。\n"
+                    "适合本地联调和提速验证；切回真实模式请设置 NOTEBOOKLM_MODE=real。"
+                ),
+            )
+
         try:
             self._load_client_class()
         except ProviderIssue as exc:
@@ -217,7 +243,14 @@ class NotebookLMService:
         notebook_global = self.get_global_readiness()
         binding = self.catalog.get_notebook_binding(project_id)
 
-        if notebook_global.status != "ready":
+        if self.mock_enabled:
+            notebook_status = ProviderReadiness(
+                provider=NOTEBOOKLM_PROVIDER,
+                status="ready",
+                summary="当前项目走 NotebookLM mock 证据模式，无需绑定真实 notebook。",
+                detail="项目资料会直接参与本地快速摘要与引用生成。",
+            )
+        elif notebook_global.status != "ready":
             notebook_status = notebook_global
         elif binding is None:
             notebook_status = ProviderReadiness(
@@ -243,6 +276,25 @@ class NotebookLMService:
         )
 
     def list_library(self) -> list[NotebookLibraryItem]:
+        if self.mock_enabled:
+            items: list[NotebookLibraryItem] = []
+            for project in self.catalog.list_projects():
+                binding = self.catalog.get_notebook_binding(project.id)
+                if not binding:
+                    continue
+                items.append(
+                    NotebookLibraryItem(
+                        id=binding.notebook_id,
+                        name=f"{project.name}（mock）",
+                        url=binding.source_url or self._build_mock_notebook_url(binding.notebook_id),
+                        description="本地 mock notebook 绑定，仅用于联调。",
+                        topics=[],
+                        use_count=0,
+                        last_used=binding.last_synced_at,
+                    )
+                )
+            return items
+
         async def load(client) -> list[NotebookLibraryItem]:
             notebooks = await client.notebooks.list()
             return [self._to_library_item(notebook) for notebook in notebooks]
@@ -257,6 +309,25 @@ class NotebookLMService:
         project = self.catalog.get_project(project_id)
         if not project:
             raise LookupError("Project not found")
+
+        if self.mock_enabled:
+            notebook_id = (
+                payload.notebook_id
+                or (
+                    self._extract_notebook_id_from_url(payload.source_url)
+                    if payload.source_url
+                    else f"mock-{project_id}"
+                )
+            )
+            binding = self.catalog.upsert_notebook_binding(
+                project_id=project_id,
+                notebook_id=notebook_id,
+                provider=NOTEBOOKLM_PROVIDER,
+                sync_status="bound",
+                source_url=payload.source_url or self._build_mock_notebook_url(notebook_id),
+            )
+            self.sync_project_sources(project_id)
+            return binding
 
         notebook_id = payload.notebook_id or self._extract_notebook_id_from_url(payload.source_url or "")
 
@@ -284,6 +355,27 @@ class NotebookLMService:
             raise LookupError("Project not found")
 
         notebook_name = payload.notebook_name or project.name
+
+        if self.mock_enabled:
+            notebook_id = f"mock-{project_id}-{uuid.uuid4().hex[:6]}"
+            notebook = NotebookLibraryItem(
+                id=notebook_id,
+                name=notebook_name,
+                url=self._build_mock_notebook_url(notebook_id),
+                description="本地 mock notebook，仅用于联调。",
+                topics=payload.topics,
+                use_count=0,
+                last_used=None,
+            )
+            binding = self.catalog.upsert_notebook_binding(
+                project_id=project_id,
+                notebook_id=notebook.id,
+                provider=NOTEBOOKLM_PROVIDER,
+                sync_status="bound",
+                source_url=notebook.url,
+            )
+            self.sync_project_sources(project_id)
+            return CreateNotebookBindingResponse(notebook=notebook, binding=binding)
 
         async def create(client):
             return await client.notebooks.create(notebook_name)
@@ -335,6 +427,13 @@ class NotebookLMService:
         source_record = self.catalog.get_source(source_id)
         if not source_record:
             raise LookupError("Source not found")
+
+        if self.mock_enabled:
+            return self.catalog.update_source_sync_status(
+                source_id=source_id,
+                sync_status="synced",
+                sync_error=None,
+            )
 
         binding = self.catalog.get_notebook_binding(source_record.project_id)
         if not binding:
@@ -419,7 +518,15 @@ class NotebookLMService:
 
         return self.catalog.delete_source(source_id)
 
-    def query(self, project_id: str, question: str) -> EvidenceResult:
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
+        if self.mock_enabled:
+            return self._query_in_mock_mode(project_id, question, selected_source_ids)
+
         binding = self.catalog.get_notebook_binding(project_id)
         if not binding:
             raise ProviderIssue(
@@ -477,4 +584,66 @@ class NotebookLMService:
             summary=cleaned_answer,
             citations=citations,
             sync_status="queried",
+        )
+
+    def _query_in_mock_mode(
+        self,
+        project_id: str,
+        question: str,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
+        sources = self.catalog.list_sources(project_id)
+        if selected_source_ids:
+            selected = set(selected_source_ids)
+            sources = [source for source in sources if source.id in selected] or sources
+        if not sources:
+            return EvidenceResult(
+                summary="当前项目还没有可用资料，暂时无法给出 grounded 证据摘要。",
+                citations=[],
+                sync_status="mock_queried",
+            )
+
+        def score_source(source) -> tuple[int, int]:
+            haystack = " ".join(
+                part
+                for part in [
+                    source.name,
+                    source.parse_summary or "",
+                    source.source_kind,
+                    source.upload_kind,
+                ]
+                if part
+            ).lower()
+            tokens = [token for token in question.lower().replace("？", " ").replace("，", " ").split() if token]
+            score = sum(1 for token in tokens if token and token in haystack)
+            if source.parse_summary:
+                score += 1
+            return score, len(source.parse_summary or "")
+
+        ranked_sources = sorted(
+            sources,
+            key=score_source,
+            reverse=True,
+        )
+        picked_sources = ranked_sources[: min(3, len(ranked_sources))]
+
+        summary_lines = []
+        citations: list[ChatCitation] = []
+        for source in picked_sources:
+            excerpt = (source.parse_summary or source.name or "").strip()
+            if excerpt:
+                summary_lines.append(f"{source.name} 提到：{excerpt}")
+            citations.append(
+                ChatCitation(
+                    title=source.name,
+                    snippet=excerpt or None,
+                    source_id=source.id,
+                )
+            )
+
+        summary = "；".join(summary_lines) if summary_lines else "当前资料里还没有可用摘要。"
+        return EvidenceResult(
+            summary=summary,
+            citations=citations,
+            sync_status="mock_queried",
         )

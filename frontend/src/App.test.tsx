@@ -1670,7 +1670,7 @@ describe('App', () => {
     expect(await screen.findByText('先整理一版。')).toBeInTheDocument();
     expect(await screen.findByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
     expect(await screen.findByText('已写入当前理解（1）')).toBeInTheDocument();
-    expect(await screen.findByText('已生成交付物：交互稿')).toBeInTheDocument();
+    expect(await screen.findByText('已生成交付物：交互稿（HTML 交互原型）')).toBeInTheDocument();
     expect(await screen.findByText('已生成版本快照（1）')).toBeInTheDocument();
   });
 
@@ -2070,6 +2070,12 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /交互稿 v2/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /文档稿 v2/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /页面方案 v1/ })).not.toBeInTheDocument();
+    expect(screen.getAllByText('页面方案').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('HTML 页面原型').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('已生成').length).toBeGreaterThan(0);
+    expect(screen.queryByText('page_solution')).not.toBeInTheDocument();
+    expect(screen.queryByText('interaction_flow')).not.toBeInTheDocument();
+    expect(screen.queryByText('document')).not.toBeInTheDocument();
   });
 
   it('marks freshly patched insights as new in the sidebar', async () => {

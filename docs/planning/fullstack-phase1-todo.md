@@ -26,7 +26,8 @@
 - 前端工作台已经接真实 API，不再靠纯前端阶段页驱动
 - NotebookLM 正式 provider 已切到 `notebooklm-py`
 - Claude 正式运行时已接 `claude-agent-sdk` 和 `claude` CLI
-- 后端运行时 skills 收口在 `backend/.claude/skills/`
+- 后端 CAS skills 收口在 `backend/.claude/skills/`
+- 后端 CAS project cwd 已固定为 `backend/`
 - `archive/legacy-demo/` 只作为视觉、交互和叙事基线
 
 ## 3. 已完成
@@ -35,8 +36,10 @@
 
 - [x] 主规格重写到“全栈一期”口径
 - [x] `AGENTS.md` 补充项目级基本规则
-- [x] 项目级方法论 skill 已建立并纳入后端运行时
+- [x] 项目级方法论 skill 已建立并纳入项目级运行时
 - [x] NotebookLM 工作流 skill 已迁到 `backend/.claude/skills/`
+- [x] 交付物生成约束 skill 已建立
+- [x] 后端 CAS 全局规则已迁到 `backend/CLAUDE.md`
 - [x] 旧 demo、旧文档、旧 HTML 原型已归档到 `archive/legacy-demo/`
 
 ### 3.2 前端主路径
@@ -80,18 +83,28 @@
 - [x] Notebook query 结果已映射回本地 source 引用
 - [x] 新项目和 seed project 都有项目级 notebook binding 模型
 
+### 3.5 CAS 风格主链路
+
+- [x] 后端聊天主链路已收成单 Agent SDK loop
+- [x] `ChatService` 已降为薄宿主，只负责持久化、SSE 转发和错误处理
+- [x] NotebookLM 查询已改成 agent 可调用工具，不再由宿主前置固定查询
+- [x] 状态写入、版本快照、artifact 生成都已收口到 runtime 工具
+- [x] 前后端已按统一 loop 事件协议对接 `assistant_status / message_chunk / citations / *_patch`
+- [x] 前端五步轨道已降级为弱语义投影，不再依赖正文关键词猜阶段
+- [x] `backend/CLAUDE.md` 已补全后端 CAS 全局硬规则
+
 ## 4. 进行中
 
 ### 4.1 聊天主链路加固
 
-- [ ] 优化 Claude 首 token 时间，让用户更早看到真实进度反馈
-- [ ] 把“聊天流式输出”和“结构化沉淀 patch”彻底拆开，避免互相阻塞
-- [ ] 把“正在检索证据 / 正在分析 / 正在写入沉淀”这些阶段状态前置到 UI
+- [ ] 继续压缩 Claude 首 token 时间和正文粒度，减少碎片化 chunk
+- [ ] 收短讨论轮正文，避免回答过长
+- [ ] 继续优化工具调用前后的状态展示和行动反馈
 - [ ] 继续压缩“发送问题后长时间停顿”的体感
 
 ### 4.2 NotebookLM 体验加固
 
-- [ ] 继续排查 `NotebookLM 查询超时` 的真实高频原因
+- [ ] 排查真实 NotebookLM 模式下 tool 调用失败或不可用的原因
 - [ ] 为 notebook library 和 readiness 补更清楚的 loading 态
 - [ ] 减少全页等待，把 NotebookLM 慢请求的影响限制在局部区域
 - [ ] 为新项目默认 notebook 绑定补更顺手的引导
@@ -114,9 +127,9 @@
 
 ### 5.2 状态沉淀和版本
 
-- [ ] 收敛哪些轮次必须做结构化沉淀，哪些轮次只保留聊天输出
-- [ ] 减少“每轮都写沉淀”带来的延迟
-- [ ] 版本快照只保留关键节点自动生成
+- [ ] 继续校准哪些讨论轮只聊天、不落盘
+- [ ] 继续减少“过度沉淀”导致的延迟和噪音
+- [ ] 版本快照触发条件再收紧一轮
 - [ ] 右栏版本区补齐时间、触发原因、摘要
 
 ### 5.3 Source 侧补强
@@ -195,3 +208,4 @@
 - [产品规格](../product/fullstack-phase1-spec.md)
 - [文档索引](../README.md)
 - [项目根 README](../../README.md)
+- [后端运行规则](../../backend/CLAUDE.md)

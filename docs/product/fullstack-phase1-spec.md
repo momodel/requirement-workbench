@@ -344,9 +344,9 @@
 
 ## 9. 项目级 Skills
 
-一期保留两个项目级 skill。
+一期保留三个后端 CAS project skills。
 
-后端运行时以 `backend/.claude/skills/` 为正式维护位置。
+后端 CAS skills 以 `backend/.claude/skills/` 为正式维护位置，并由 `Claude Agent SDK` 在 `backend/` 作用域自动发现。
 
 ### 9.1 requirement-analysis-methodology
 
@@ -388,6 +388,16 @@
 ### 9.3 notebooklm-py 与旧 skill 的边界
 
 可以参考旧的 [PleasePrompto/notebooklm-skill](https://github.com/PleasePrompto/notebooklm-skill) 设计思路，但它不再是本项目的一期正式运行时。
+
+### 9.4 artifact-generation-guidelines
+
+这个 skill 的定位是：
+
+- 约束何时应该把当前分析结果整理成交付物
+- 约束 `document / page_solution / interaction_flow` 的类型选择
+- 约束三类交付物的输出边界，避免跑偏
+
+它默认由主 agent 在统一回合里自己参考，不由宿主先做关键词分流。
 
 在本项目里，它的定位是：
 

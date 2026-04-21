@@ -44,7 +44,13 @@ class AppSettings:
     claude_artifact_timeout_seconds: float = 180.0
     notebooklm_query_timeout_seconds: float = 30.0
     notebooklm_default_notebook_id: str | None = None
+    notebooklm_mode: str = "real"
     default_timezone: str = "Asia/Shanghai"
+
+    @property
+    def cas_project_dir(self) -> Path:
+        candidate = self.root_dir / "backend"
+        return candidate if candidate.exists() else self.root_dir
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -88,6 +94,7 @@ class AppSettings:
                 os.getenv("NOTEBOOKLM_QUERY_TIMEOUT_SECONDS", "30")
             ),
             notebooklm_default_notebook_id=os.getenv("NOTEBOOKLM_DEFAULT_NOTEBOOK_ID"),
+            notebooklm_mode=os.getenv("NOTEBOOKLM_MODE", "real").strip().lower() or "real",
             default_timezone=os.getenv("REQUIREMENT_WORKBENCH_TIMEZONE", "Asia/Shanghai"),
         )
 

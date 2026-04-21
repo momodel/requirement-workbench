@@ -438,8 +438,8 @@ class ClaudeAgentRuntime:
         evidence_runtime: EvidenceRuntime | None = None,
     ):
         self.settings = settings
-        root = settings.root_dir
-        self.runtime_config_dir = root / "backend" / ".claude-runtime"
+        cas_project_dir = settings.cas_project_dir
+        self.runtime_config_dir = cas_project_dir / ".claude-runtime"
         self.catalog = ProjectCatalog(settings)
         self.project_state_service = ProjectStateService(self.catalog)
         self.artifact_generation_service = ArtifactGenerationService(settings)
@@ -455,8 +455,8 @@ class ClaudeAgentRuntime:
         allowed_tools: list[str] | None = None,
     ) -> ClaudeAgentOptions:
         # Claude CLI 默认会读取 ~/.claude 下的用户级设置、插件和历史。
-        # 这里强制收口到项目内运行时目录，并显式禁用 user setting source，
-        # 避免用户机器上的全局配置污染项目级对话行为。
+        # 这里把 CAS 的项目上下文收口到 backend/，并显式禁用 user setting source，
+        # 避免用户机器上的全局配置或仓库根目录的其他上下文污染后端运行时行为。
         self.runtime_config_dir.mkdir(parents=True, exist_ok=True)
         return ClaudeAgentOptions(
             system_prompt=system_prompt,
@@ -465,7 +465,7 @@ class ClaudeAgentRuntime:
             model=self.settings.claude_model,
             permission_mode="bypassPermissions" if mcp_servers else None,
             max_turns=self.settings.claude_max_turns,
-            cwd=str(self.settings.root_dir),
+            cwd=str(self.settings.cas_project_dir),
             cli_path=self.settings.claude_cli_path,
             include_partial_messages=include_partial_messages,
             output_format=output_format,
@@ -505,8 +505,9 @@ class ClaudeAgentRuntime:
 1. 只基于当前已沉淀的项目理解生成，不要把状态对象原样搬进结果。
 2. 优先把目标、范围、关键对象、核心流程和待确认边界翻译成用户能直接看的交付物。
 3. 信息不够时可以明确写“待确认”或“暂定”，不要用空壳页面或空洞流程凑数。
-4. 页面方案强调信息结构和页面分工，交互稿强调步骤、动作和页面衔接。
-5. 不要输出内部状态桶名，不要把方法论术语直接写进交付物。
+4. 页面方案固定是 HTML 页面原型，强调信息结构和页面分工；交互稿固定是 HTML 交互原型，强调步骤、动作和页面衔接。
+5. 交互稿必须是可点击的界面原型，至少要看得见操作入口、界面区块、状态反馈或流程切换，不接受纯说明文档的 HTML 包装。
+6. 不要输出内部状态桶名，不要把方法论术语直接写进交付物。
         """.strip()
 
     def _artifact_state_summary(self, state: ProjectState) -> str:
@@ -987,13 +988,17 @@ NotebookLM citations：
             )
         elif artifact_type == "page_solution":
             output_instruction = (
-                "输出单页 HTML 页面方案。必须包含 <!doctype html>、<title>、<main>、3 到 5 个页面/模块区块，"
-                "说明文字简短直接，整体尽量控制在 220 行内，不允许外链脚本，不允许引用外部样式资源。"
+                "输出单页 HTML 页面方案原型。标题用自然中文，能反映页面场景或页面任务，"
+                "不要写成泛化的“设计稿”。必须包含 <!doctype html>、<title>、<main>，"
+                "并覆盖主流程所需的关键页面区块、信息结构和页面分工。说明文字简短直接，整体尽量保持紧凑，"
+                "不允许外链脚本，不允许引用外部样式资源。"
             )
         else:
             output_instruction = (
-                "输出单页 HTML 交互稿。必须包含 <!doctype html>、<title>、<main>、4 到 6 个主流程步骤、"
-                "关键交互约束和页面衔接说明，说明文字简短直接，整体尽量控制在 220 行内，"
+                "输出单页 HTML 交互稿原型。标题用自然中文，能反映当前交互场景或任务，"
+                "不要写成“流程说明”或“说明文档”。必须包含 <!doctype html>、<title>、<main>、可见的操作区和结果区，"
+                "并覆盖主流程所需的关键交互入口、状态反馈和流程推进。"
+                "不要写成整页大段说明文档，也不要只列流程步骤。说明文字简短直接，整体尽量保持紧凑，"
                 "不允许外链脚本，不允许引用外部样式资源。"
             )
         output_contract = (
@@ -1032,6 +1037,7 @@ NotebookLM citations：
 4. 如果状态信息不足，也要明确写出待确认边界，不能用空壳内容搪塞。
 5. {output_contract}
 6. 不要把方法论名词硬写进最终交付物，除非用户明确要求展示分析方法。
+7. 如果任务类型是 `interaction_flow`，正文必须以界面和交互为主，要表现出操作入口、界面区块、状态变化和流程推进，不要生成整页说明文。
         """.strip()
 
     @staticmethod

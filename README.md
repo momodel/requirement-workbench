@@ -40,13 +40,16 @@
 - 存储：`SQLite + data/projects/`
 - 主智能体：`Claude Agent SDK`
 - 证据层：`NotebookLM`，当前 provider 为 `notebooklm-py`
-- 项目级方法论：`backend/.claude/skills/requirement-analysis-methodology/`
-- 项目级 NotebookLM 工作流：`backend/.claude/skills/notebooklm-evidence-workflow/`
+- 后端 CAS 全局规则：`backend/CLAUDE.md`
+- 后端方法论 skill：`backend/.claude/skills/requirement-analysis-methodology/`
+- 后端 NotebookLM 工作流：`backend/.claude/skills/notebooklm-evidence-workflow/`
+- 后端交付物约束：`backend/.claude/skills/artifact-generation-guidelines/`
 
 说明：
 
 - `Claude Agent SDK` 和 `NotebookLM` 都走真实 provider，不允许静默 fallback 成本地假实现
 - 失败就报失败，未配置就报未配置
+- `Claude Agent SDK` 在这个项目里以 `backend/` 作为 project cwd 运行，因此只读取 `backend/CLAUDE.md` 和 `backend/.claude/skills/**`
 - `archive/legacy-demo/` 是新版 UI 和交互的参考基线，不是当前主路径代码
 
 ## 目录结构
@@ -56,7 +59,9 @@
 ├── archive/
 │   └── legacy-demo/                # 旧 demo、HTML 原型、历史文档归档
 ├── backend/
-│   ├── .claude/skills/             # 后端运行时使用的项目级 skills
+│   ├── .claude/
+│   │   └── skills/                 # 后端 CAS skills，仅供 backend/ 作用域自动发现
+│   ├── CLAUDE.md                   # 后端 CAS 全局规则
 │   ├── app/                        # FastAPI 应用
 │   ├── requirements.txt
 │   └── .env.local.example
