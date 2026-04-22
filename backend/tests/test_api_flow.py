@@ -559,6 +559,57 @@ def test_file_upload_uses_docling_normalized_markdown_before_indexing(
         assert "Docling Output" in normalized_text
 
 
+def test_file_upload_reports_normalization_failure_without_collapsing_it_into_index_failure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.source_ingestion.docling_normalizer,
+        "normalize_to_markdown",
+        lambda source_path: (_ for _ in ()).throw(
+            ProviderIssue(
+                provider="DOCLING",
+                message="当前环境还没有可用的 PDF 转文本链路。",
+            )
+        ),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Docling 标准化失败测试",
+                "scenario_type": "general",
+                "summary": "验证标准化失败不会被误报成索引失败",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        init_response = client.post(f"/api/projects/{project_id}/knowledge-base/init")
+        assert init_response.status_code == 201
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "需求文档"},
+            files={"file": ("brief.pdf", b"%PDF-1.4 mock", "application/pdf")},
+        )
+
+        assert upload_response.status_code == 201
+        source = upload_response.json()
+        assert source["parse_status"] == "failed"
+        assert source["sync_status"] == "normalization_failed"
+        assert source["sync_status"] != "index_failed"
+        assert "尚未进入项目知识库" in source["sync_error"]
+        assert "PDF 转文本链路" in source["sync_error"]
+        assert app.state.services.catalog.list_source_chunks(
+            project_id=project_id,
+            source_id=source["id"],
+        ) == []
+
+
 def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
     tmp_path: Path,
     monkeypatch,
@@ -926,6 +977,65 @@ def test_delete_source_removes_local_and_notebook_records_even_when_evidence_cle
         assert sources_response.status_code == 200
         assert sources_response.json() == []
         assert source_registry == []
+
+
+def test_delete_source_still_succeeds_when_notebook_cleanup_is_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "delete_source",
+        lambda source_id: (_ for _ in ()).throw(
+            AssertionError("Task 8A delete path should not call notebooklm.delete_source")
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_with_client",
+        lambda callback: (_ for _ in ()).throw(
+            ProviderIssue(
+                provider="NOTEBOOKLM_PY",
+                message="NotebookLM 认证失效。",
+                status_code=503,
+            )
+        ),
+    )
+
+    with TestClient(app) as client:
+        app.state.services.catalog.upsert_notebook_binding(
+            project_id="seed-reconciliation",
+            notebook_id="abc123",
+            provider="NOTEBOOKLM_PY",
+            sync_status="bound",
+            source_url="https://notebooklm.google.com/notebook/abc123",
+        )
+        upload_response = client.post(
+            "/api/projects/seed-reconciliation/sources",
+            data={
+                "upload_kind": "text",
+                "name": "待删除资料",
+                "text_content": "NotebookLM 失效时，本地删除仍应成功。",
+            },
+        )
+        assert upload_response.status_code == 201
+        source = upload_response.json()
+        source_path = Path(source["storage_path"])
+        assert source_path.exists()
+
+        app.state.services.catalog.update_source_sync_status(
+            source_id=source["id"],
+            sync_status="synced",
+            sync_error=None,
+        )
+
+        delete_response = client.delete(f"/api/projects/seed-reconciliation/sources/{source['id']}")
+
+        assert delete_response.status_code == 200
+        assert delete_response.json()["deleted"] is True
+        assert app.state.services.catalog.get_source(source["id"]) is None
+        assert not source_path.exists()
 
 
 def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:

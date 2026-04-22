@@ -11,7 +11,8 @@ router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"]
 
 def _resolve_index_status(services, project_id: str, normalized) -> tuple[str, str | None]:
     if normalized.parse_status != "parsed":
-        return "index_failed", normalized.parse_summary
+        detail = normalized.parse_summary or "资料标准化失败。"
+        return "normalization_failed", f"资料标准化失败，尚未进入项目知识库。{detail}"
 
     try:
         evidence = services.evidence_runtime.get_global_readiness()
@@ -29,6 +30,30 @@ def _resolve_index_status(services, project_id: str, normalized) -> tuple[str, s
         return "knowledge_base_missing", "资料已标准化，但当前项目还没有初始化项目内知识库。"
 
     return "pending", "资料已标准化，正在写入项目知识库。"
+
+
+def _best_effort_delete_notebook_source(services, source) -> None:
+    binding = services.catalog.get_notebook_binding(source.project_id)
+    if binding is None or source.sync_status != "synced":
+        return
+
+    async def remove_remote_source(client):
+        notebook_sources = await client.sources.list(binding.notebook_id)
+        matched_sources = [
+            notebook_source
+            for notebook_source in notebook_sources
+            if getattr(notebook_source, "title", None) == source.name
+        ]
+        if len(matched_sources) != 1:
+            return
+        await client.sources.delete(binding.notebook_id, str(getattr(matched_sources[0], "id")))
+
+    try:
+        services.notebooklm._with_client(remove_remote_source)
+    except Exception:
+        # Task 8A 删除主链路已切到本地资料与 evidence cleanup；
+        # NotebookLM 远端删除只做 best-effort，不能再反向阻断本地删除。
+        pass
 
 
 def _create_source_record(services, project_id: str, upload_kind: str, name: str, storage_path, normalized):
@@ -180,17 +205,26 @@ def delete_source(project_id: str, source_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Source not found")
 
     try:
-        deleted = services.notebooklm.delete_source(source_id)
-    except ProviderIssue as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        services.evidence_runtime.delete_source(project_id, source_id)
+    except (ProviderIssue, LookupError, ValueError):
+        # 当前主链路不能因为 provider 清理失败而阻断本地删除。
+        pass
+
+    try:
+        services.catalog.replace_source_chunks(
+            project_id=project_id,
+            source_id=source_id,
+            chunks=[],
+        )
+    except (LookupError, ValueError):
+        pass
+
+    try:
+        deleted = services.catalog.delete_source(source_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    try:
-        services.evidence_runtime.delete_source(project_id, source_id)
-    except (ProviderIssue, LookupError, ValueError):
-        # Task 4 仍以 NotebookLM 为 live chat 主链路；evidence 清理只做 best-effort。
-        pass
+    _best_effort_delete_notebook_source(services, source)
 
     return {
         "id": deleted.id,
