@@ -157,7 +157,7 @@ def install_fake_evidence_runtime(app, monkeypatch) -> None:
 
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_evidence_runtime(app, monkeypatch)
+    install_fake_notebook_client(app, monkeypatch)
 
     with TestClient(app) as client:
         projects_response = client.get("/api/projects")
@@ -188,14 +188,12 @@ def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
         source = upload_response.json()
         assert source["name"] == "访谈纪要"
         assert source["parse_status"] in {"parsed", "queued"}
-        assert source["sync_status"] == "indexed"
 
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         sources = sources_response.json()
         assert len(sources) == 1
         assert sources[0]["id"] == source["id"]
-        assert sources[0]["sync_status"] == "indexed"
 
         state_response = client.get(f"/api/projects/{project_id}/state")
         assert state_response.status_code == 200
@@ -206,7 +204,7 @@ def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
 
 def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_evidence_runtime(app, monkeypatch)
+    install_fake_notebook_client(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -234,7 +232,6 @@ def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None
         assert isinstance(sources, list)
         assert len(sources) == 2
         assert {source["name"] for source in sources} == {"rules-a.md", "rules-b.md"}
-        assert {source["sync_status"] for source in sources} == {"indexed"}
 
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
@@ -281,26 +278,28 @@ def test_project_knowledge_base_init_and_get_flow(tmp_path: Path, monkeypatch) -
         assert after_init["indexed_chunk_count"] == 0
 
 
-def test_source_upload_records_index_failure(tmp_path: Path, monkeypatch) -> None:
+def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_evidence_runtime(app, monkeypatch)
-
-    def fake_index_source(project_id: str, source_id: str):
-        raise ProviderIssue(
-            provider="QDRANT_LLAMA_INDEX",
-            message="Qdrant collection 暂不可写。",
-            status_code=503,
-        )
-
-    monkeypatch.setattr(app.state.services.evidence_runtime, "index_source", fake_index_source)
+    install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "get_global_readiness",
+        lambda: ProviderReadiness(
+            provider="NOTEBOOKLM_PY",
+            status="error",
+            summary="NotebookLM provider 检查失败。",
+            detail="ConnectError",
+            action_label="检查 NotebookLM 配置",
+        ),
+    )
 
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "索引失败状态测试",
+                "name": "失败状态统一测试",
                 "scenario_type": "general",
-                "summary": "验证 source 索引失败状态统一成 index_failed",
+                "summary": "验证 source 同步失败状态统一成 sync_failed",
             },
         )
         assert create_response.status_code == 201
@@ -317,13 +316,19 @@ def test_source_upload_records_index_failure(tmp_path: Path, monkeypatch) -> Non
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["sync_status"] == "index_failed"
-        assert "Qdrant collection 暂不可写" in source["sync_error"]
+        assert source["sync_status"] == "sync_failed"
+        assert "ConnectError" in source["sync_error"]
 
 
 def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
+    install_fake_notebook_client(app, monkeypatch)
     install_fake_evidence_runtime(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_load_client_class",
+        lambda: SimpleNamespace(from_storage=None),
+    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -337,6 +342,12 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         assert create_response.status_code == 201
         project_id = create_response.json()["id"]
 
+        bind_response = client.post(
+            f"/api/projects/{project_id}/notebook-binding",
+            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
+        )
+        assert bind_response.status_code == 201
+
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
             data={
@@ -347,6 +358,7 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         )
         assert upload_response.status_code == 201
         source_id = upload_response.json()["id"]
+        assert upload_response.json()["sync_status"] == "synced"
 
         app.state.services.catalog.update_source_sync_status(
             source_id=source_id,
@@ -454,11 +466,15 @@ def test_bind_notebook_endpoint_persists_project_binding(
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
-    install_fake_evidence_runtime(app, monkeypatch)
     monkeypatch.setattr(
         app.state.services.notebooklm,
         "_load_client_class",
         lambda: SimpleNamespace(from_storage=None),
+    )
+    monkeypatch.setattr(
+        app.state.services.evidence_runtime,
+        "get_global_readiness",
+        lambda: (_ for _ in ()).throw(AssertionError("upload flow should not query evidence readiness")),
     )
 
     with TestClient(app) as client:
@@ -497,12 +513,87 @@ def test_bind_notebook_endpoint_persists_project_binding(
             },
         )
         assert upload_response.status_code == 201
-        assert upload_response.json()["sync_status"] == "indexed"
+        assert upload_response.json()["sync_status"] == "synced"
 
 
-def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkeypatch) -> None:
+def test_delete_source_removes_local_and_notebook_records_even_when_evidence_cleanup_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_evidence_runtime(app, monkeypatch)
+    write_storage_state(app.state.services.settings)
+
+    source_registry: list[SimpleNamespace] = []
+
+    fake_client = SimpleNamespace(
+        notebooks=SimpleNamespace(
+            list=lambda: asyncio.sleep(
+                0,
+                result=[SimpleNamespace(id="existing-notebook", title="项目专属 Notebook")],
+            ),
+            get=lambda notebook_id: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id=notebook_id, title="项目专属 Notebook"),
+            ),
+            create=lambda title: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="created-notebook", title=title),
+            ),
+        ),
+        sources=SimpleNamespace(
+            add_text=lambda notebook_id, title, content, wait: asyncio.sleep(
+                0,
+                result=source_registry.append(
+                    SimpleNamespace(id=f"nb-{len(source_registry)+1}", title=title)
+                )
+                or source_registry[-1],
+            ),
+            add_url=lambda notebook_id, url, wait: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="nb-source-url", title=url),
+            ),
+            add_file=lambda notebook_id, file_path, wait: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="nb-source-file", title=file_path),
+            ),
+            list=lambda notebook_id: asyncio.sleep(0, result=list(source_registry)),
+            delete=lambda notebook_id, source_id: asyncio.sleep(
+                0,
+                result=source_registry.__setitem__(
+                    slice(None),
+                    [source for source in source_registry if source.id != source_id],
+                )
+                or True,
+            ),
+        ),
+        chat=SimpleNamespace(
+            ask=lambda notebook_id, question, source_ids=None, conversation_id=None: asyncio.sleep(
+                0,
+                result=SimpleNamespace(answer="NotebookLM 回答", references=[]),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_with_client",
+        lambda callback: app.state.services.notebooklm._run_async(lambda: callback(fake_client)),
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_load_client_class",
+        lambda: SimpleNamespace(from_storage=None),
+    )
+    monkeypatch.setattr(
+        app.state.services.evidence_runtime,
+        "delete_source",
+        lambda project_id, source_id: (_ for _ in ()).throw(
+            ProviderIssue(
+                provider="QDRANT_LLAMA_INDEX",
+                message="Qdrant 暂不可用。",
+                status_code=503,
+            )
+        ),
+    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -515,6 +606,12 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
         )
         project_id = create_response.json()["id"]
 
+        bind_response = client.post(
+            f"/api/projects/{project_id}/notebook-binding",
+            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
+        )
+        assert bind_response.status_code == 201
+
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
             data={
@@ -525,7 +622,8 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
         )
         assert upload_response.status_code == 201
         source_id = upload_response.json()["id"]
-        assert app.state.services.catalog.list_source_chunks(project_id=project_id, source_id=source_id)
+        assert upload_response.json()["sync_status"] == "synced"
+        assert source_registry != []
 
         delete_response = client.delete(f"/api/projects/{project_id}/sources/{source_id}")
         assert delete_response.status_code == 200
@@ -533,7 +631,7 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         assert sources_response.json() == []
-        assert app.state.services.catalog.list_source_chunks(project_id=project_id, source_id=source_id) == []
+        assert source_registry == []
 
 
 def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:
