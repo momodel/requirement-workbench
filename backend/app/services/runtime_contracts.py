@@ -9,8 +9,11 @@ from ..models import (
     ArtifactType,
     EvidenceResult,
     GeneratedArtifactOutput,
+    KnowledgeBaseRecord,
     ProjectState,
     ProjectSummary,
+    ProviderReadiness,
+    SourceChunkRecord,
 )
 
 
@@ -40,4 +43,30 @@ class AgentRuntime(Protocol):
 class EvidenceRuntime(Protocol):
     def ensure_available(self) -> Path: ...
 
-    def query(self, project_id: str, question: str) -> EvidenceResult: ...
+    def get_global_readiness(self) -> ProviderReadiness: ...
+
+    def get_project_readiness(self, project_id: str) -> ProviderReadiness: ...
+
+    def ensure_project_knowledge_base(self, project_id: str) -> KnowledgeBaseRecord: ...
+
+    def index_source(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> list[SourceChunkRecord]: ...
+
+    def delete_source(self, project_id: str, source_id: str) -> None: ...
+
+    def reindex_source(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> list[SourceChunkRecord]: ...
+
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult: ...
