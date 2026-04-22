@@ -15,6 +15,19 @@ export type CreateProjectRequest = {
   summary: string;
 };
 
+export type KnowledgeBaseRecord = {
+  id: string;
+  project_id: string;
+  provider: string;
+  external_knowledge_base_id: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  status_error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type NotebookBindingRecord = {
   project_id: string;
   notebook_id: string;
@@ -49,14 +62,26 @@ export type ProviderReadiness = {
 
 export type GlobalReadiness = {
   claude: ProviderReadiness;
+  evidence: ProviderReadiness;
   notebooklm: ProviderReadiness;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
+  evidence: ProviderReadiness;
+  knowledge_base: KnowledgeBaseRecord | null;
   notebooklm: ProviderReadiness;
   notebook_binding: NotebookBindingRecord | null;
+};
+
+export type ProjectKnowledgeBase = {
+  project_id: string;
+  knowledge_base: KnowledgeBaseRecord | null;
+  readiness: ProviderReadiness;
+  source_count: number;
+  chunk_count: number;
+  indexed_chunk_count: number;
 };
 
 export type SourceRecord = {
@@ -67,6 +92,11 @@ export type SourceRecord = {
   upload_kind: string;
   storage_path: string | null;
   normalized_path: string | null;
+  index_input_mode: string | null;
+  normalize_status: string;
+  normalize_summary: string | null;
+  index_status: string;
+  index_error: string | null;
   notebook_import_mode: string | null;
   parse_status: string;
   parse_summary: string | null;

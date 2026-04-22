@@ -1,14 +1,11 @@
 import type {
   ArtifactRecord,
-  BindNotebookRequest,
   ChatStreamRequest,
   CreateProjectRequest,
-  CreateNotebookBindingResponse,
-  CreateNotebookRequest,
   GlobalReadiness,
+  KnowledgeBaseRecord,
   MessageRecord,
-  NotebookLibraryItem,
-  NotebookBindingRecord,
+  ProjectKnowledgeBase,
   ProjectState,
   ProjectReadiness,
   ProjectSummary,
@@ -40,6 +37,43 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function normalizeProviderReadiness<T extends GlobalReadiness | ProjectReadiness>(readiness: T): T {
+  const evidence = readiness.evidence ?? readiness.notebooklm;
+  return {
+    ...readiness,
+    evidence,
+    notebooklm: readiness.notebooklm ?? evidence,
+  };
+}
+
+function normalizeKnowledgeBaseRecord(
+  knowledgeBase: KnowledgeBaseRecord | null | undefined
+): KnowledgeBaseRecord | null {
+  return knowledgeBase ?? null;
+}
+
+function normalizeSourceRecord(source: SourceRecord): SourceRecord {
+  const indexInputMode = source.index_input_mode ?? source.notebook_import_mode ?? null;
+  const normalizeStatus = source.normalize_status ?? source.parse_status ?? 'pending';
+  const normalizeSummary = source.normalize_summary ?? source.parse_summary ?? null;
+  const indexStatus = source.index_status ?? source.sync_status ?? 'pending';
+  const indexError = source.index_error ?? source.sync_error ?? null;
+
+  return {
+    ...source,
+    index_input_mode: indexInputMode,
+    normalize_status: normalizeStatus,
+    normalize_summary: normalizeSummary,
+    index_status: indexStatus,
+    index_error: indexError,
+    notebook_import_mode: source.notebook_import_mode ?? indexInputMode,
+    parse_status: source.parse_status ?? normalizeStatus,
+    parse_summary: source.parse_summary ?? normalizeSummary,
+    sync_status: source.sync_status ?? indexStatus,
+    sync_error: source.sync_error ?? indexError,
+  };
+}
+
 export function listProjects() {
   return fetchJson<ProjectSummary[]>('/api/projects');
 }
@@ -53,7 +87,9 @@ export function createProject(payload: CreateProjectRequest) {
 }
 
 export function getGlobalReadiness() {
-  return fetchJson<GlobalReadiness>('/api/providers/readiness');
+  return fetchJson<GlobalReadiness>('/api/providers/readiness').then((payload) =>
+    normalizeProviderReadiness(payload)
+  );
 }
 
 export function getProject(projectId: string) {
@@ -61,15 +97,26 @@ export function getProject(projectId: string) {
 }
 
 export function getProjectReadiness(projectId: string) {
-  return fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`);
+  return fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`).then((payload) => ({
+    ...normalizeProviderReadiness(payload),
+    knowledge_base: normalizeKnowledgeBaseRecord(payload.knowledge_base),
+    notebook_binding: payload.notebook_binding ?? null,
+  }));
 }
 
-export function listProjectNotebookLibrary(projectId: string) {
-  return fetchJson<NotebookLibraryItem[]>(`/api/projects/${projectId}/notebook-library`);
+export function getProjectKnowledgeBase(projectId: string) {
+  return fetchJson<ProjectKnowledgeBase>(`/api/projects/${projectId}/knowledge-base`).then(
+    (payload) => ({
+      ...payload,
+      knowledge_base: normalizeKnowledgeBaseRecord(payload.knowledge_base),
+    })
+  );
 }
 
 export function listSources(projectId: string) {
-  return fetchJson<SourceRecord[]>(`/api/projects/${projectId}/sources`);
+  return fetchJson<SourceRecord[]>(`/api/projects/${projectId}/sources`).then((sources) =>
+    sources.map(normalizeSourceRecord)
+  );
 }
 
 export function listMessages(projectId: string) {
@@ -93,7 +140,7 @@ export async function uploadTextSource(projectId: string, payload: { name: strin
   return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
-  });
+  }).then(normalizeSourceRecord);
 }
 
 export async function uploadFileSources(projectId: string, files: File[]) {
@@ -107,7 +154,7 @@ export async function uploadFileSources(projectId: string, files: File[]) {
   return fetchJson<SourceRecord[]>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
-  });
+  }).then((sources) => sources.map(normalizeSourceRecord));
 }
 
 export function deleteProjectSource(projectId: string, sourceId: string) {
@@ -119,25 +166,15 @@ export function deleteProjectSource(projectId: string, sourceId: string) {
   );
 }
 
-export function retryProjectSourceSync(projectId: string, sourceId: string) {
-  return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/retry-sync`, {
+export function reindexProjectSource(projectId: string, sourceId: string) {
+  return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
     method: 'POST',
-  });
+  }).then(normalizeSourceRecord);
 }
 
-export function bindProjectNotebook(projectId: string, payload: BindNotebookRequest) {
-  return fetchJson<NotebookBindingRecord>(`/api/projects/${projectId}/notebook-binding`, {
+export function initializeProjectKnowledgeBase(projectId: string) {
+  return fetchJson<KnowledgeBaseRecord>(`/api/projects/${projectId}/knowledge-base/init`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function createAndBindProjectNotebook(projectId: string, payload: CreateNotebookRequest = {}) {
-  return fetchJson<CreateNotebookBindingResponse>(`/api/projects/${projectId}/notebook-create-and-bind`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
   });
 }
 
