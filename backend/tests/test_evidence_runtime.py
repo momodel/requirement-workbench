@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.config import AppSettings
 from app.db import init_db
-from app.models import ChatCitation, CreateProjectRequest
+from app.models import ChatCitation, CreateProjectRequest, ProviderIssue, ProviderReadiness
 from app.services.evidence_runtime import EVIDENCE_PROVIDER, QdrantLlamaIndexEvidenceRuntime
 from app.services.project_catalog import ProjectCatalog
 from app.services.vector_store import VectorDocument, VectorQueryHit
@@ -92,10 +94,25 @@ class FakeVectorStore:
         return hits[:top_k]
 
 
+class MissingDependencyVectorStore(FakeVectorStore):
+    def ensure_available(self) -> Path:
+        raise ProviderIssue(
+            provider=EVIDENCE_PROVIDER,
+            message="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先安装。",
+        )
+
+
 def _create_source_file(base_dir: Path, name: str, content: str) -> Path:
     base_dir.mkdir(parents=True, exist_ok=True)
     path = base_dir / name
     path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _create_binary_source_file(base_dir: Path, name: str, content: bytes) -> Path:
+    base_dir.mkdir(parents=True, exist_ok=True)
+    path = base_dir / name
+    path.write_bytes(content)
     return path
 
 
@@ -262,3 +279,113 @@ def test_query_shapes_citations_and_deduplicates_duplicate_hits(tmp_path: Path) 
     ]
     assert "已检索到 1 条相关证据" in result.summary
     assert "订单字段说明.md" in result.summary
+
+
+def test_index_source_rejects_binary_source_without_normalized_text(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="二进制项目",
+            scenario_type="general",
+            summary="测试二进制 source 索引边界",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    binary_path = _create_binary_source_file(source_dir, "spec.pdf", b"%PDF-1.4\x00\x81\x82binary")
+    source = catalog.create_source(
+        project_id=project.id,
+        name="需求说明.pdf",
+        source_kind="pdf",
+        upload_kind="file",
+        storage_path=str(binary_path),
+        normalized_path=None,
+        notebook_import_mode="file_upload",
+        parse_status="parsed",
+        parse_summary="这是 PDF 摘要，但还没有标准化文本。",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=FakeVectorStore(),
+    )
+
+    with pytest.raises(ProviderIssue, match="尚未完成可索引文本标准化"):
+        runtime.index_source(project.id, source.id)
+
+
+def test_preparation_failure_marks_knowledge_base_error_and_project_readiness(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="失败项目",
+            scenario_type="general",
+            summary="测试准备失败状态",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    binary_path = _create_binary_source_file(source_dir, "voice.wav", b"RIFF\x00\x00\x00\x00WAVEfmt ")
+    source = catalog.create_source(
+        project_id=project.id,
+        name="访谈录音.wav",
+        source_kind="audio",
+        upload_kind="file",
+        storage_path=str(binary_path),
+        normalized_path=None,
+        notebook_import_mode="file_upload",
+        parse_status="parsed",
+        parse_summary="录音摘要",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=FakeVectorStore(),
+    )
+
+    with pytest.raises(ProviderIssue, match="尚未完成可索引文本标准化"):
+        runtime.index_source(project.id, source.id)
+
+    knowledge_base = catalog.get_knowledge_base(project_id=project.id, provider=EVIDENCE_PROVIDER)
+    readiness = runtime.get_project_readiness(
+        project.id,
+        claude=ProviderReadiness(
+            provider="CLAUDE_AGENT_SDK",
+            status="ready",
+            summary="Claude ready",
+        ),
+    )
+
+    assert knowledge_base is not None
+    assert knowledge_base.status == "error"
+    assert knowledge_base.status_error is not None
+    assert "尚未完成可索引文本标准化" in knowledge_base.status_error
+    assert catalog.list_source_chunks(project_id=project.id, source_id=source.id) == []
+    assert readiness.status == "error"
+    assert "尚未完成可索引文本标准化" in (readiness.detail or "")
+
+
+def test_global_readiness_reports_missing_provider_dependency(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=ProjectCatalog(settings),
+        vector_store=MissingDependencyVectorStore(),
+    )
+
+    readiness = runtime.get_global_readiness()
+
+    assert readiness == ProviderReadiness(
+        provider=EVIDENCE_PROVIDER,
+        status="not_configured",
+        summary="项目内证据运行时未就绪。",
+        detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先安装。",
+        action_label="安装 Qdrant/LlamaIndex 依赖",
+    )

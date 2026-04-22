@@ -10,6 +10,7 @@ from ..models import (
     EvidenceResult,
     GeneratedArtifactOutput,
     KnowledgeBaseRecord,
+    ProjectReadiness,
     ProjectState,
     ProjectSummary,
     ProviderReadiness,
@@ -45,7 +46,11 @@ class EvidenceRuntime(Protocol):
 
     def get_global_readiness(self) -> ProviderReadiness: ...
 
-    def get_project_readiness(self, project_id: str) -> ProviderReadiness: ...
+    def get_project_readiness(
+        self,
+        project_id: str,
+        claude: ProviderReadiness | None = None,
+    ) -> ProviderReadiness | ProjectReadiness: ...
 
     def ensure_project_knowledge_base(self, project_id: str) -> KnowledgeBaseRecord: ...
 

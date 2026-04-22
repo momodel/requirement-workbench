@@ -76,7 +76,11 @@ class QdrantLlamaIndexEvidenceRuntime:
             detail=detail,
         )
 
-    def get_project_readiness(self, project_id: str) -> ProviderReadiness:
+    def _get_project_readiness(
+        self,
+        project_id: str,
+        claude: ProviderReadiness | None = None,
+    ) -> ProviderReadiness:
         project = self.catalog.get_project(project_id)
         if not project:
             return ProviderReadiness(
@@ -152,6 +156,14 @@ class QdrantLlamaIndexEvidenceRuntime:
             ),
         )
 
+    # 保留可选 claude 参数，兼容旧 readiness 调用链；当前证据运行时不消费它。
+    def get_project_readiness(
+        self,
+        project_id: str,
+        claude: ProviderReadiness | None = None,
+    ) -> ProviderReadiness:
+        return self._get_project_readiness(project_id, claude=claude)
+
     def _require_project(self, project_id: str):
         project = self.catalog.get_project(project_id)
         if not project:
@@ -206,6 +218,35 @@ class QdrantLlamaIndexEvidenceRuntime:
             chunks=rows,
         )
 
+    def _mark_source_index_failure(
+        self,
+        *,
+        project_id: str,
+        source_id: str,
+        knowledge_base: KnowledgeBaseRecord,
+        message: str,
+    ) -> None:
+        try:
+            self.vector_store.delete_source(project_id, source_id)
+        except Exception:
+            # 这里不能再伪装成成功，但也不能让清理失败覆盖主失败原因。
+            pass
+
+        self.catalog.replace_source_chunks(
+            project_id=project_id,
+            source_id=source_id,
+            chunks=[],
+        )
+        self.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider=EVIDENCE_PROVIDER,
+            external_knowledge_base_id=knowledge_base.external_knowledge_base_id,
+            display_name=knowledge_base.display_name,
+            description=knowledge_base.description,
+            status="error",
+            status_error=message,
+        )
+
     def index_source(
         self,
         project_id: str,
@@ -214,10 +255,25 @@ class QdrantLlamaIndexEvidenceRuntime:
         self.ensure_available()
         source = self._require_source(project_id, source_id)
         knowledge_base = self.ensure_project_knowledge_base(project_id)
-        prepared_chunks = prepare_source_chunks(
-            source=source,
-            knowledge_base_id=knowledge_base.id,
-        )
+        try:
+            prepared_chunks = prepare_source_chunks(
+                source=source,
+                knowledge_base_id=knowledge_base.id,
+            )
+        except Exception as exc:
+            provider_issue = exc
+            if not isinstance(exc, ProviderIssue):
+                provider_issue = ProviderIssue(
+                    provider=EVIDENCE_PROVIDER,
+                    message=f"准备 source 分块时失败：{exc}",
+                )
+            self._mark_source_index_failure(
+                project_id=project_id,
+                source_id=source_id,
+                knowledge_base=knowledge_base,
+                message=provider_issue.message,
+            )
+            raise provider_issue
         if not prepared_chunks:
             return self.catalog.replace_source_chunks(
                 project_id=project_id,

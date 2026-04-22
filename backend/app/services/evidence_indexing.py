@@ -11,6 +11,33 @@ from .vector_store import VectorDocument
 
 
 MAX_CHUNK_CHARS = 800
+TEXT_LIKE_SOURCE_KINDS = {
+    "text",
+    "markdown",
+    "md",
+    "txt",
+    "url",
+    "html",
+    "csv",
+    "tsv",
+    "json",
+    "xml",
+}
+TEXT_LIKE_UPLOAD_KINDS = {"text", "url", "seed"}
+TEXT_LIKE_SUFFIXES = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".xml",
+    ".html",
+    ".htm",
+    ".yaml",
+    ".yml",
+    ".log",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,22 +72,67 @@ class PreparedSourceChunk:
         )
 
 
-def _read_text_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
+def _normalized_not_indexable_issue(source: SourceRecord) -> ProviderIssue:
+    return ProviderIssue(
+        provider="QDRANT_LLAMA_INDEX",
+        message=(
+            f"source {source.name} 尚未完成可索引文本标准化。"
+            f"当前 source_kind={source.source_kind} 的原始资料不能直接按 UTF-8 文本索引，"
+            "请先生成 normalized text 后再重试。"
+        ),
+    )
+
+
+def _read_text_file(path: Path, *, source: SourceRecord, path_label: str) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ProviderIssue(
+            provider="QDRANT_LLAMA_INDEX",
+            message=(
+                f"source {source.name} 的{path_label}不是有效 UTF-8 文本。"
+                "请先完成文本标准化后再索引。"
+            ),
+        ) from exc
+
+
+def _is_safe_raw_text_fallback(source: SourceRecord) -> bool:
+    source_kind = source.source_kind.strip().lower()
+    upload_kind = source.upload_kind.strip().lower()
+    if source_kind in TEXT_LIKE_SOURCE_KINDS or upload_kind in TEXT_LIKE_UPLOAD_KINDS:
+        return True
+
+    candidate_path = source.storage_path or source.normalized_path or source.name
+    suffix = Path(candidate_path).suffix.lower()
+    return suffix in TEXT_LIKE_SUFFIXES
 
 
 def load_source_text(source: SourceRecord) -> str:
     normalized_path = Path(source.normalized_path) if source.normalized_path else None
+    raw_fallback_allowed = _is_safe_raw_text_fallback(source)
     if normalized_path and normalized_path.exists():
-        text = _read_text_file(normalized_path)
+        text = _read_text_file(
+            normalized_path,
+            source=source,
+            path_label="normalized_path",
+        )
+        if text.strip():
+            return text
+        if not raw_fallback_allowed:
+            raise _normalized_not_indexable_issue(source)
+
+    storage_path = Path(source.storage_path) if source.storage_path else None
+    if storage_path and storage_path.exists() and raw_fallback_allowed:
+        text = _read_text_file(
+            storage_path,
+            source=source,
+            path_label="storage_path",
+        )
         if text.strip():
             return text
 
-    storage_path = Path(source.storage_path) if source.storage_path else None
-    if storage_path and storage_path.exists():
-        text = _read_text_file(storage_path)
-        if text.strip():
-            return text
+    if not raw_fallback_allowed:
+        raise _normalized_not_indexable_issue(source)
 
     if source.parse_summary and source.parse_summary.strip():
         return source.parse_summary
