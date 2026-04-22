@@ -1300,7 +1300,7 @@ describe('App', () => {
                   ].join('\n')
                 )
               );
-            }, 30);
+            }, 120);
 
             setTimeout(() => {
               chatCompleted = true;
@@ -1315,7 +1315,7 @@ describe('App', () => {
                 )
               );
               controller.close();
-            }, 80);
+            }, 180);
           },
         });
 
@@ -1418,8 +1418,8 @@ describe('App', () => {
     await user.keyboard('{Enter}');
 
     expect(await screen.findByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
-    expect(await screen.findByText(/第一段/)).toBeInTheDocument();
-    expect(screen.getByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
+    expect(await screen.findByText('第一段')).toBeInTheDocument();
+    expect(screen.queryByText('第一段第二段')).not.toBeInTheDocument();
 
     await waitFor(() => {
       expect(screen.getByText('第一段第二段')).toBeInTheDocument();
