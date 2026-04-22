@@ -331,6 +331,7 @@ export function WorkbenchPage({
   state,
   artifacts,
   recentInsightIds,
+  notebookLibrary,
   notices,
   sending,
   uploading,
@@ -343,6 +344,7 @@ export function WorkbenchPage({
   onUploadFileSource,
   onDeleteSource,
   onRetrySourceSync,
+  onBindProjectNotebook,
   onCreateAndBindProjectNotebook,
   onGenerateArtifact,
 }: WorkbenchPageProps) {
@@ -352,6 +354,8 @@ export function WorkbenchPage({
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
+  const [knowledgeBaseUrl, setKnowledgeBaseUrl] = useState('');
+  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
@@ -413,8 +417,25 @@ export function WorkbenchPage({
     setIsImportDialogOpen(false);
   }
 
-  async function handleInitializeKnowledgeBase() {
+  async function handleBindKnowledgeBaseUrl() {
+    const sourceUrl = knowledgeBaseUrl.trim();
+    if (!sourceUrl) return;
+    await onBindProjectNotebook({ sourceUrl });
+    setKnowledgeBaseUrl('');
+    setIsBindingDialogOpen(false);
+  }
+
+  async function handleBindRegisteredKnowledgeBase() {
+    if (!selectedKnowledgeBaseId) return;
+    await onBindProjectNotebook({ notebookId: selectedKnowledgeBaseId });
+    setSelectedKnowledgeBaseId('');
+    setIsBindingDialogOpen(false);
+  }
+
+  async function handleCreateAndBindKnowledgeBase() {
     await onCreateAndBindProjectNotebook();
+    setSelectedKnowledgeBaseId('');
+    setKnowledgeBaseUrl('');
     setIsBindingDialogOpen(false);
   }
 
@@ -968,63 +989,86 @@ export function WorkbenchPage({
       <Dialog open={isBindingDialogOpen} onOpenChange={setIsBindingDialogOpen}>
         <DialogContent className="w-[min(640px,92vw)]">
           <DialogHeader>
-            <DialogTitle>项目知识库</DialogTitle>
+            <DialogTitle>绑定项目知识库</DialogTitle>
             <DialogDescription>
-              为当前项目初始化或修复项目级知识库。后续资料入库、证据检索和引用都走这里。
+              为当前项目绑定专属知识库入口。后续资料入库、证据检索和引用都走这个项目自己的知识库。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">当前知识库状态</div>
+              <div className="text-sm font-semibold text-ink">已登记的知识库</div>
               <div className="mt-3 grid gap-3">
-                {knowledgeBase ? (
-                  <div className="rounded-[18px] border border-line bg-slate-50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-ink">
-                          {knowledgeBase.display_name ?? `${project.name} 知识库`}
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-muted">
-                          {knowledgeBase.description ?? '当前项目知识库已经登记，可继续接收资料并参与证据检索。'}
-                        </p>
-                      </div>
-                      <Badge variant={statusVariant(knowledgeBase.status)}>
-                        {readinessStatusLabel(knowledgeBase.status)}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted">
-                      <span>{`Provider: ${knowledgeBase.provider}`}</span>
-                      <span>{`ID: ${knowledgeBase.external_knowledge_base_id}`}</span>
-                    </div>
+                {notebookLibrary.length === 0 ? (
+                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
+                    当前还没有可直接复用的已登记知识库。你可以粘贴知识库入口链接完成绑定，或者直接为当前项目创建一个专属知识库。
                   </div>
                 ) : (
-                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                    当前项目还没有初始化项目知识库。
-                  </div>
+                  notebookLibrary.map((notebook) => (
+                    <button
+                      key={notebook.id}
+                      type="button"
+                      className={cn(
+                        'rounded-[18px] border p-4 text-left transition',
+                        selectedKnowledgeBaseId === notebook.id
+                          ? 'border-accent bg-accentSoft'
+                          : 'border-line bg-slate-50 hover:border-accent/30 hover:bg-white'
+                      )}
+                      onClick={() => setSelectedKnowledgeBaseId(notebook.id)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-ink">{notebook.name}</div>
+                          <p className="mt-2 text-sm leading-6 text-muted">{notebook.description}</p>
+                        </div>
+                        <Badge variant={selectedKnowledgeBaseId === notebook.id ? 'accent' : 'default'}>
+                          {selectedKnowledgeBaseId === notebook.id ? '已选择' : `使用 ${notebook.use_count} 次`}
+                        </Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {notebook.topics.map((topic) => (
+                          <Badge key={`${notebook.id}-${topic}`}>{topic}</Badge>
+                        ))}
+                      </div>
+                    </button>
+                  ))
                 )}
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button onClick={handleBindRegisteredKnowledgeBase} disabled={bindingNotebook || !selectedKnowledgeBaseId}>
+                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  绑定已登记知识库
+                </Button>
               </div>
             </div>
             <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">初始化与修复</div>
+              <div className="text-sm font-semibold text-ink">为当前项目创建专属知识库</div>
               <p className="mt-2 text-sm leading-6 text-muted">
-                如果当前项目还没有知识库，或者索引状态需要重建，可以从这里直接初始化项目级知识库。
+                直接用当前项目名创建新的项目级知识库，并自动完成绑定。后续资料会沿用这条证据链路继续入库。
               </p>
-              {evidenceReadiness?.status === 'ready' ? (
-                <div className="mt-4 rounded-[16px] border border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                  当前项目知识库已经就绪，后续上传的资料会继续沿用这条证据链路。
-                </div>
-              ) : (
-                <div className="mt-4 flex justify-end">
-                  <Button onClick={handleInitializeKnowledgeBase} disabled={bindingNotebook}>
-                    {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    初始化项目知识库
-                  </Button>
-                </div>
-              )}
+              <div className="mt-4 flex justify-end">
+                <Button onClick={handleCreateAndBindKnowledgeBase} disabled={bindingNotebook}>
+                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  创建并绑定知识库
+                </Button>
+              </div>
+            </div>
+            <Input
+              id="knowledge-base-url"
+              name="knowledge-base-url"
+              value={knowledgeBaseUrl}
+              onChange={(event) => setKnowledgeBaseUrl(event.target.value)}
+              placeholder="粘贴知识库入口链接，例如 NotebookLM 链接"
+            />
+            <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+              这里绑定的是项目级知识库入口，不再把 NotebookLM notebook 之类的 provider 术语直接暴露成唯一产品对象。
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
                 取消
+              </Button>
+              <Button onClick={handleBindKnowledgeBaseUrl} disabled={bindingNotebook || !knowledgeBaseUrl.trim()}>
+                {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                绑定知识库入口
               </Button>
             </div>
           </div>

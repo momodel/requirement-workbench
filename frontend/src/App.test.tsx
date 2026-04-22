@@ -718,7 +718,7 @@ describe('App', () => {
     expect(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。')).toBeInTheDocument();
   });
 
-  it('opens the project knowledge base dialog with initialization actions', async () => {
+  it('opens the project knowledge base dialog with the existing binding controls and updated wording', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     installFetchMock({
@@ -785,9 +785,14 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '项目知识库' })).toBeInTheDocument();
-    expect(screen.getByText('当前项目还没有初始化项目知识库。')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '初始化项目知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '绑定项目知识库' })).toBeInTheDocument();
+    expect(screen.getByText('已登记的知识库')).toBeInTheDocument();
+    expect(screen.getByText('为当前项目创建专属知识库')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('粘贴知识库入口链接，例如 NotebookLM 链接')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绑定已登记知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建并绑定知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绑定知识库入口' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '初始化项目知识库' })).not.toBeInTheDocument();
   });
 
   it('can delete a source from the workbench', async () => {
@@ -1758,8 +1763,12 @@ describe('App', () => {
 
     await user.click(await screen.findByRole('button', { name: '运行状态' }));
     await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
-    expect(screen.getByText('Provider: QDRANT_LLAMAINDEX')).toBeInTheDocument();
-    expect(screen.getByText('ID: seed-reconciliation')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '绑定项目知识库' })).toBeInTheDocument();
+    expect(screen.getByText('已登记的知识库')).toBeInTheDocument();
+    expect(screen.getByText('为当前项目创建专属知识库')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绑定已登记知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '创建并绑定知识库' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '绑定知识库入口' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '初始化项目知识库' })).not.toBeInTheDocument();
   });
 
