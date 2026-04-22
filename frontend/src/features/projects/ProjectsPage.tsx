@@ -18,8 +18,27 @@ import type { GlobalReadiness, ProjectSummary } from '../../lib/types';
 
 function readinessVariant(status: string) {
   if (status === 'ready') return 'success' as const;
-  if (status.includes('required') || status.includes('not_configured')) return 'warning' as const;
+  if (status.includes('failed') || status.includes('error')) return 'danger' as const;
+  if (
+    status.includes('required') ||
+    status.includes('not_configured') ||
+    status.includes('missing') ||
+    status.includes('binding') ||
+    status.includes('auth')
+  ) {
+    return 'warning' as const;
+  }
   return 'default' as const;
+}
+
+function readinessStatusLabel(status: string) {
+  if (status === 'ready') return '已就绪';
+  if (status === 'knowledge_base_missing') return '待初始化';
+  if (status === 'auth_required') return '待认证';
+  if (status === 'binding_required') return '待绑定';
+  if (status === 'not_configured') return '未配置';
+  if (status.includes('failed') || status.includes('error')) return '异常';
+  return status;
 }
 
 export function ProjectsPage({
@@ -41,6 +60,7 @@ export function ProjectsPage({
   const [projectName, setProjectName] = useState('');
   const [scenarioType, setScenarioType] = useState('');
   const [projectSummary, setProjectSummary] = useState('');
+  const evidenceReadiness = readiness?.evidence ?? readiness?.notebooklm;
 
   async function handleCreateProject() {
     const name = projectName.trim();
@@ -82,7 +102,7 @@ export function ProjectsPage({
               <div className="flex flex-wrap gap-3">
                 <Badge variant="accent">Project-first</Badge>
                 <Badge>FastAPI + SQLite + SSE</Badge>
-                <Badge>Claude Agent SDK / notebooklm-py</Badge>
+                <Badge>Claude Agent SDK / Evidence Runtime</Badge>
               </div>
             </div>
 
@@ -113,22 +133,28 @@ export function ProjectsPage({
               {readiness ? (
                 <div className="grid gap-3 rounded-[22px] border border-line bg-white/80 p-4 text-sm">
                   <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted">
-                    Provider Readiness
+                    Runtime Readiness
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="font-medium text-ink">Claude Agent SDK</div>
                       <div className="mt-1 leading-6 text-muted">{readiness.claude.summary}</div>
                     </div>
-                    <Badge variant={readinessVariant(readiness.claude.status)}>{readiness.claude.status}</Badge>
+                    <Badge variant={readinessVariant(readiness.claude.status)}>
+                      {readinessStatusLabel(readiness.claude.status)}
+                    </Badge>
                   </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-ink">NotebookLM</div>
-                      <div className="mt-1 leading-6 text-muted">{readiness.notebooklm.summary}</div>
+                  {evidenceReadiness ? (
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="font-medium text-ink">Evidence Runtime</div>
+                        <div className="mt-1 leading-6 text-muted">{evidenceReadiness.summary}</div>
+                      </div>
+                      <Badge variant={readinessVariant(evidenceReadiness.status)}>
+                        {readinessStatusLabel(evidenceReadiness.status)}
+                      </Badge>
                     </div>
-                    <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
-                  </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>

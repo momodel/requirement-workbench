@@ -50,12 +50,12 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
-          status: 'auth_required',
-          summary: 'NotebookLM 还没有在项目内完成认证。',
-          detail: '需要先认证',
-          action_label: '完成项目内登录',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'knowledge_base_missing',
+          summary: '项目级证据运行时还没有初始化项目知识库。',
+          detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+          action_label: '初始化项目知识库',
         },
       },
     });
@@ -65,7 +65,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: '客户需求转译台' })).toBeInTheDocument();
     expect(await screen.findByText('集团业财逐笔对账')).toBeInTheDocument();
     expect(screen.getByText('选择一个项目进入工作台')).toBeInTheDocument();
-    expect(screen.getByText('Provider Readiness')).toBeInTheDocument();
+    expect(screen.getByText('Runtime Readiness')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '新建项目' })).toBeInTheDocument();
   });
 
@@ -275,7 +275,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '创建并进入工作台' }));
 
     expect(await screen.findByRole('heading', { name: '渠道对账需求分析' })).toBeInTheDocument();
-    expect(await screen.findByText('NotebookLM: ready')).toBeInTheDocument();
+    expect(await screen.findByText('Evidence: 已就绪')).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/projects',
       expect.objectContaining({
@@ -435,7 +435,7 @@ describe('App', () => {
       );
     });
 
-    expect(await screen.findByText('NotebookLM: ready')).toBeInTheDocument();
+    expect(await screen.findByText('Evidence: 已就绪')).toBeInTheDocument();
   });
 
   it('renders the workbench with project, sources, messages and state from the API payload', async () => {
@@ -591,10 +591,10 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
           status: 'ready',
-          summary: 'NotebookLM 已就绪。',
+          summary: '项目级证据运行时已就绪。',
           detail: null,
           action_label: null,
         },
@@ -718,7 +718,7 @@ describe('App', () => {
     expect(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。')).toBeInTheDocument();
   });
 
-  it('opens the legacy bind dialog without loading notebook library options', async () => {
+  it('opens the project knowledge base dialog with initialization actions', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     installFetchMock({
@@ -782,13 +782,12 @@ describe('App', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: '运行状态' }));
-    await user.click(screen.getByRole('button', { name: '绑定项目 Notebook' }));
+    await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('已登记的 Notebook')).toBeInTheDocument();
-    expect(screen.queryByText('集团业财逐笔对账 Notebook')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定已登记 Notebook' })).toBeDisabled();
-    expect(screen.getByPlaceholderText('https://notebooklm.google.com/notebook/...')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '项目知识库' })).toBeInTheDocument();
+    expect(screen.getByText('当前项目还没有初始化项目知识库。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '初始化项目知识库' })).toBeInTheDocument();
   });
 
   it('can delete a source from the workbench', async () => {
@@ -1010,12 +1009,12 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByText('同步失败')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '重试同步 财务口径说明' }));
+    expect(await screen.findByText('入库失败')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '重试入库 财务口径说明' }));
 
     await waitFor(() => {
       expect(retried).toBe(true);
-      expect(screen.getByText('已同步')).toBeInTheDocument();
+      expect(screen.getByText('已入库')).toBeInTheDocument();
     });
   });
 
@@ -1610,7 +1609,7 @@ describe('App', () => {
     expect(strong?.textContent).toBe('重点结论');
   });
 
-  it('can initialize the project knowledge base from the binding dialog entrypoint', async () => {
+  it('shows the ready project knowledge base details from the runtime entrypoint', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     let knowledgeBaseReady = false;
@@ -1753,16 +1752,15 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole('button', { name: '运行状态' }));
-    await user.click(screen.getByRole('button', { name: '绑定项目 Notebook' }));
-    await user.click(screen.getByRole('button', { name: '创建并绑定 Notebook' }));
-
     await waitFor(() => {
-      expect(screen.getByText('NotebookLM: ready')).toBeInTheDocument();
+      expect(screen.getByText('Evidence: 已就绪')).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: '运行状态' }));
-    expect(await screen.findByText('当前项目知识库可用于证据检索。')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: '运行状态' }));
+    await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
+    expect(screen.getByText('Provider: QDRANT_LLAMAINDEX')).toBeInTheDocument();
+    expect(screen.getByText('ID: seed-reconciliation')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '初始化项目知识库' })).not.toBeInTheDocument();
   });
 
   it('does not send chat when knowledge base initialization fails', async () => {
