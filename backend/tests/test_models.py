@@ -101,11 +101,11 @@ def test_source_record_serializes_neutral_index_fields() -> None:
     assert payload["normalize_summary"] == "流程拆解完成"
     assert payload["index_status"] == "pending_sync"
     assert payload["index_error"] == "Notebook 未绑定"
-    assert "notebook_import_mode" not in payload
-    assert "parse_status" not in payload
-    assert "parse_summary" not in payload
-    assert "sync_status" not in payload
-    assert "sync_error" not in payload
+    assert payload["notebook_import_mode"] == "normalized_markdown"
+    assert payload["parse_status"] == "parsed"
+    assert payload["parse_summary"] == "流程拆解完成"
+    assert payload["sync_status"] == "pending_sync"
+    assert payload["sync_error"] == "Notebook 未绑定"
 
 
 def test_source_record_accepts_legacy_fields_and_normalizes_to_neutral() -> None:
@@ -143,3 +143,32 @@ def test_source_record_accepts_legacy_fields_and_normalizes_to_neutral() -> None
     assert legacy_payload["parse_summary"] == "旧字段摘要"
     assert legacy_payload["sync_status"] == "synced"
     assert legacy_payload["sync_error"] is None
+
+
+def test_source_record_neutral_dump_excludes_legacy_keys() -> None:
+    record = SourceRecord(
+        id="source-4",
+        project_id="project-1",
+        name="中性输出",
+        source_kind="text",
+        upload_kind="text",
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="neutral only",
+        index_status="synced",
+        index_error=None,
+        created_at="2026-04-22T00:00:00Z",
+    )
+
+    neutral_payload = record.model_dump_neutral()
+
+    assert neutral_payload["index_input_mode"] == "direct_text"
+    assert neutral_payload["normalize_status"] == "parsed"
+    assert neutral_payload["normalize_summary"] == "neutral only"
+    assert neutral_payload["index_status"] == "synced"
+    assert neutral_payload["index_error"] is None
+    assert "notebook_import_mode" not in neutral_payload
+    assert "parse_status" not in neutral_payload
+    assert "parse_summary" not in neutral_payload
+    assert "sync_status" not in neutral_payload
+    assert "sync_error" not in neutral_payload
