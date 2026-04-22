@@ -468,8 +468,8 @@ def test_project_readiness_reports_knowledge_base_required_when_evidence_runtime
         assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
         assert readiness["evidence"]["status"] == "knowledge_base_missing"
         assert readiness["knowledge_base"] is None
-        assert readiness["notebook_binding"] is None
         assert "notebooklm" not in readiness
+        assert "notebook_binding" not in readiness
 
 
 def test_bind_notebook_endpoint_persists_project_binding(
@@ -510,8 +510,8 @@ def test_bind_notebook_endpoint_persists_project_binding(
         readiness = readiness_response.json()
         assert readiness["evidence"]["status"] == "knowledge_base_missing"
         assert readiness["knowledge_base"] is None
-        assert readiness["notebook_binding"]["notebook_id"] == "abc123"
         assert "notebooklm" not in readiness
+        assert "notebook_binding" not in readiness
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
@@ -530,6 +530,7 @@ def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
+    assert app.state.services.chat_service.evidence_runtime is app.state.services.evidence_runtime
 
     evidence_calls: list[dict[str, object]] = []
 
@@ -553,7 +554,7 @@ def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
         )
 
     monkeypatch.setattr(
-        app.state.services.chat_service.evidence_runtime,
+        app.state.services.evidence_runtime,
         "query",
         fake_evidence_query,
     )

@@ -34,13 +34,11 @@ def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness
         project_id=project_id,
         provider=evidence.provider,
     )
-    notebook_binding = services.catalog.get_notebook_binding(project_id)
     return ProjectReadiness(
         project_id=project_id,
         claude=claude,
         evidence=evidence,
         knowledge_base=knowledge_base,
-        notebook_binding=notebook_binding,
     )
 
 

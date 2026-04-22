@@ -143,7 +143,7 @@ class ProjectReadiness(BaseModel):
     evidence: ProviderReadiness | None = None
     notebooklm: ProviderReadiness | None = Field(default=None, exclude=True)
     knowledge_base: KnowledgeBaseRecord | None = None
-    notebook_binding: NotebookBindingRecord | None = None
+    notebook_binding: NotebookBindingRecord | None = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def normalize_evidence_readiness(self) -> "ProjectReadiness":

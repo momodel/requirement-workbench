@@ -10,6 +10,7 @@ from app.models import (
     ChatCitation,
     ChatStreamRequest,
     EvidenceResult,
+    ProviderIssue,
     ProjectState,
     ProjectSummary,
     SourceUpsert,
@@ -86,10 +87,14 @@ class EmptyPatchAgentRuntime:
 
 
 class ChunkThenPatchAgentRuntime:
+    def __init__(self) -> None:
+        self.turns: list[AgentTurnInput] = []
+
     def ensure_available(self) -> None:
         return None
 
     async def stream_assistant_text(self, turn: AgentTurnInput):
+        self.turns.append(turn)
         yield "先确认范围，"
         yield "再补沉淀。"
 
@@ -154,10 +159,14 @@ class SlowStructuredAgentRuntime:
 
 
 class StreamOnlyAgentRuntime:
+    def __init__(self) -> None:
+        self.turns: list[AgentTurnInput] = []
+
     def ensure_available(self) -> None:
         return None
 
     async def stream_assistant_text(self, turn: AgentTurnInput):
+        self.turns.append(turn)
         yield "这是普通追问回复。"
 
     async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
@@ -167,6 +176,23 @@ class StreamOnlyAgentRuntime:
 
     async def generate_artifact(self, **kwargs):
         raise AssertionError("this test should not generate artifacts")
+
+
+class FailingEvidenceRuntime:
+    def __init__(self, issue: ProviderIssue) -> None:
+        self.issue = issue
+
+    def ensure_available(self) -> Path:
+        return Path("/tmp/evidence-runtime")
+
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
+        raise self.issue
 
 
 def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
@@ -186,7 +212,7 @@ def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
         agent_runtime=EmptyPatchAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -220,11 +246,12 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
 
+    agent_runtime = ChunkThenPatchAgentRuntime()
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=ChunkThenPatchAgentRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=agent_runtime,
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -268,6 +295,8 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert assistant_messages
     assert any(message.content == "先确认范围，再补沉淀。" for message in assistant_messages)
+    assert agent_runtime.turns
+    assert agent_runtime.turns[0].evidence_summary == "stub evidence"
 
 
 def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> None:
@@ -278,11 +307,12 @@ def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> Non
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
 
+    agent_runtime = ChunkThenPatchAgentRuntime()
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=SlowEvidenceRuntime(),
-        agent_runtime=ChunkThenPatchAgentRuntime(),
+        evidence_runtime=SlowEvidenceRuntime(),
+        agent_runtime=agent_runtime,
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -305,10 +335,12 @@ def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> Non
     assert any(
         event_type == "assistant_status"
         and payload["phase"] == "drafting"
-        and "项目知识库" in payload["label"]
+        and "检索超时" in payload["label"]
         for event_type, payload in events
     )
     assert any(event_type == "message_chunk" for event_type, _ in events)
+    assert agent_runtime.turns
+    assert "检索超时" in agent_runtime.turns[0].evidence_summary
     assert events[-1][0] == "done"
 
 
@@ -323,7 +355,7 @@ def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> No
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
         agent_runtime=SlowStructuredAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -360,11 +392,12 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
 
+    agent_runtime = StreamOnlyAgentRuntime()
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=StreamOnlyAgentRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=agent_runtime,
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -388,6 +421,8 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
     messages = catalog.list_recent_messages("seed-reconciliation")
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
+    assert agent_runtime.turns
+    assert agent_runtime.turns[0].evidence_summary == "stub evidence"
 
 
 def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Path) -> None:
@@ -398,11 +433,12 @@ def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Pa
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
 
+    agent_runtime = StreamOnlyAgentRuntime()
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=StreamOnlyAgentRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=agent_runtime,
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -426,3 +462,47 @@ def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Pa
     messages = catalog.list_recent_messages("seed-reconciliation")
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
+    assert agent_runtime.turns
+    assert agent_runtime.turns[0].evidence_summary == "stub evidence"
+
+
+def test_chat_preserves_concrete_evidence_failure_reason_in_status_and_prompt(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+    issue = ProviderIssue(
+        provider="QDRANT_LLAMA_INDEX",
+        message="当前项目还没有初始化项目内知识库。",
+        status_code=503,
+    )
+    agent_runtime = StreamOnlyAgentRuntime()
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        evidence_runtime=FailingEvidenceRuntime(issue),
+        agent_runtime=agent_runtime,
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="退款口径怎么处理", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert any(
+        event_type == "assistant_status"
+        and payload["phase"] == "drafting"
+        and "当前项目还没有初始化项目内知识库" in payload["label"]
+        for event_type, payload in events
+    )
+    assert agent_runtime.turns
+    assert agent_runtime.turns[0].evidence_summary == "项目知识库证据检索失败：当前项目还没有初始化项目内知识库。"

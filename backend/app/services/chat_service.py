@@ -5,7 +5,6 @@ import uuid
 
 from ..models import AgentTurnInput, ChatStreamRequest, ProviderIssue, StateItem
 from .artifact_generation import ArtifactGenerationService
-from .evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
 from .runtime_contracts import AgentRuntime, EvidenceRuntime
@@ -52,23 +51,19 @@ class ChatService:
         self,
         catalog: ProjectCatalog,
         project_state: ProjectStateService,
-        notebooklm: EvidenceRuntime,
+        evidence_runtime: EvidenceRuntime,
         agent_runtime: AgentRuntime,
         artifact_generation: ArtifactGenerationService,
     ):
         self.catalog = catalog
         self.project_state = project_state
-        self.evidence_runtime = self._resolve_evidence_runtime(notebooklm)
+        self.evidence_runtime = evidence_runtime
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
 
-    def _resolve_evidence_runtime(self, runtime: object) -> EvidenceRuntime:
-        if hasattr(runtime, "list_library") and hasattr(runtime, "bind_project_notebook"):
-            return QdrantLlamaIndexEvidenceRuntime(
-                self.catalog.settings,
-                catalog=self.catalog,
-            )
-        return runtime
+    @staticmethod
+    def _evidence_failure_summary(issue: ProviderIssue) -> str:
+        return f"项目知识库证据检索失败：{issue.message}"
 
     async def _query_evidence_with_timeout(
         self,
@@ -92,6 +87,7 @@ class ChatService:
             raise ProviderIssue(
                 provider="QDRANT_LLAMA_INDEX",
                 message="项目知识库检索超时，已跳过本轮证据检索。请稍后重试或检查当前知识库状态。",
+                status_code=504,
             ) from exc
 
     async def _iterate_with_timeout(
@@ -191,12 +187,13 @@ class ChatService:
                     "label": "已拿到资料证据，正在组织回答",
                 },
             )
-        except ProviderIssue:
+        except ProviderIssue as exc:
+            evidence_summary = self._evidence_failure_summary(exc)
             yield (
                 "assistant_status",
                 {
                     "phase": "drafting",
-                    "label": "项目知识库暂未返回可用证据，正在基于当前项目状态继续分析",
+                    "label": f"{evidence_summary} 正在基于当前项目状态继续分析。",
                 },
             )
 

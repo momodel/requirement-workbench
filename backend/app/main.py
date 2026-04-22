@@ -53,7 +53,7 @@ def build_services(settings: AppSettings) -> ServiceContainer:
     chat_service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=notebooklm,
+        evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
     )
