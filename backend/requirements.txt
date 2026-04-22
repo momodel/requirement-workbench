@@ -6,6 +6,11 @@ python-multipart==0.0.20
 pypdf==6.1.1
 python-docx==1.2.0
 openpyxl==3.1.5
+qdrant-client==1.14.2
+llama-index-core==0.12.37
+llama-index-vector-stores-qdrant==0.6.1
+llama-index-embeddings-fastembed==0.3.3
+docling==2.34.0
 tzdata==2025.2
 pytest==8.4.2
 httpx==0.28.1

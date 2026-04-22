@@ -36,6 +36,13 @@ class AppSettings:
     sqlite_path: Path
     projects_dir: Path
     notebooklm_home_dir: Path
+    qdrant_path: Path | None = None
+    qdrant_url: str | None = None
+    qdrant_collection_prefix: str = "project"
+    evidence_backend: str = "qdrant_llamaindex"
+    embedder_backend: str = "fastembed"
+    evidence_query_timeout_seconds: float = 15.0
+    evidence_top_k: int = 6
     claude_cli_path: str | None = None
     claude_model: str | None = None
     claude_max_turns: int = 6
@@ -45,6 +52,10 @@ class AppSettings:
     notebooklm_query_timeout_seconds: float = 30.0
     notebooklm_default_notebook_id: str | None = None
     default_timezone: str = "Asia/Shanghai"
+
+    def __post_init__(self) -> None:
+        if self.qdrant_path is None:
+            self.qdrant_path = self.data_dir / "qdrant"
 
     @classmethod
     def from_env(cls) -> "AppSettings":
@@ -64,6 +75,7 @@ class AppSettings:
         notebooklm_home_dir = Path(
             os.getenv("NOTEBOOKLM_HOME", data_dir / "notebooklm")
         )
+        qdrant_path = Path(os.getenv("REQUIREMENT_WORKBENCH_QDRANT_PATH", data_dir / "qdrant"))
 
         return cls(
             root_dir=root_dir,
@@ -72,6 +84,23 @@ class AppSettings:
             sqlite_path=sqlite_path,
             projects_dir=projects_dir,
             notebooklm_home_dir=notebooklm_home_dir,
+            qdrant_path=qdrant_path,
+            qdrant_url=os.getenv("REQUIREMENT_WORKBENCH_QDRANT_URL"),
+            qdrant_collection_prefix=os.getenv("REQUIREMENT_WORKBENCH_QDRANT_COLLECTION_PREFIX", "project"),
+            evidence_backend=os.getenv("REQUIREMENT_WORKBENCH_EVIDENCE_BACKEND", "qdrant_llamaindex"),
+            embedder_backend=os.getenv("REQUIREMENT_WORKBENCH_EMBEDDER_BACKEND", "fastembed"),
+            evidence_query_timeout_seconds=float(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS",
+                    os.getenv("EVIDENCE_QUERY_TIMEOUT_SECONDS", "15"),
+                )
+            ),
+            evidence_top_k=int(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_EVIDENCE_TOP_K",
+                    os.getenv("EVIDENCE_TOP_K", "6"),
+                )
+            ),
             claude_cli_path=os.getenv("CLAUDE_CODE_CLI_PATH"),
             claude_model=os.getenv("CLAUDE_MODEL"),
             claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "6")),
