@@ -350,7 +350,10 @@ function WorkbenchRoute() {
 
   async function handleSendMessage(message: string) {
     if (readiness?.evidence.status === 'knowledge_base_missing') {
-      await ensureProjectKnowledgeBase();
+      const ready = await ensureProjectKnowledgeBase();
+      if (!ready) {
+        return;
+      }
     }
 
     setSending(true);

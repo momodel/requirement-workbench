@@ -1765,6 +1765,109 @@ describe('App', () => {
     expect(await screen.findByText('当前项目知识库可用于证据检索。')).toBeInTheDocument();
   });
 
+  it('does not send chat when knowledge base initialization fails', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    let knowledgeBaseInitCalls = 0;
+    let chatStreamCalls = 0;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/knowledge-base/init' && method === 'POST') {
+        knowledgeBaseInitCalls += 1;
+        return new Response('knowledge base init failed', { status: 500 });
+      }
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        chatStreamCalls += 1;
+        return new Response('should not be called', { status: 500 });
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/knowledge-base': {
+          project_id: 'seed-reconciliation',
+          knowledge_base: null,
+          readiness: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'knowledge_base_missing',
+            summary: '当前项目还没有初始化项目内知识库。',
+            detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+            action_label: '初始化知识库',
+          },
+          source_count: 0,
+          chunk_count: 0,
+          indexed_chunk_count: 0,
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'knowledge_base_missing',
+            summary: '当前项目还没有初始化项目内知识库。',
+            detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+            action_label: '初始化知识库',
+          },
+          knowledge_base: null,
+        },
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    await user.type(composer, '请给我结论');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(knowledgeBaseInitCalls).toBeGreaterThan(0);
+    });
+    expect(chatStreamCalls).toBe(0);
+    expect((await screen.findAllByText('项目知识库自动初始化失败')).length).toBeGreaterThan(0);
+  });
+
   it('sanitizes dirty state text and only shows the latest artifact per type in the sidebar', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
