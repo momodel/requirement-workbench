@@ -84,7 +84,7 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
           source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-          knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+          knowledge_base_id TEXT,
           chunk_order INTEGER NOT NULL,
           modality TEXT NOT NULL,
           content TEXT NOT NULL,

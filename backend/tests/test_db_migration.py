@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from app.config import AppSettings
 from app.db import init_db
 from app.models import CreateProjectRequest
@@ -111,12 +113,13 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert "indexed_at" in source_chunk_columns
 
 
-def test_init_db_migrates_legacy_source_chunks_table_shape(tmp_path: Path) -> None:
+def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bases_table(
+    tmp_path: Path,
+) -> None:
     settings = make_settings(tmp_path)
     settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
 
     connection = sqlite3.connect(settings.sqlite_path)
-    connection.execute("PRAGMA foreign_keys = ON")
     connection.executescript(
         """
         CREATE TABLE projects (
@@ -146,24 +149,11 @@ def test_init_db_migrates_legacy_source_chunks_table_shape(tmp_path: Path) -> No
           created_at TEXT NOT NULL
         );
 
-        CREATE TABLE knowledge_bases (
-          id TEXT PRIMARY KEY,
-          project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-          provider TEXT NOT NULL,
-          external_knowledge_base_id TEXT NOT NULL,
-          display_name TEXT,
-          description TEXT,
-          status TEXT NOT NULL,
-          status_error TEXT,
-          created_at TEXT NOT NULL,
-          updated_at TEXT NOT NULL
-        );
-
         CREATE TABLE source_chunks (
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
           source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-          knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+          knowledge_base_id TEXT,
           chunk_index INTEGER NOT NULL,
           chunk_text TEXT NOT NULL,
           metadata_json TEXT,
@@ -194,18 +184,6 @@ def test_init_db_migrates_legacy_source_chunks_table_shape(tmp_path: Path) -> No
     )
     connection.execute(
         """
-        INSERT INTO knowledge_bases (
-          id, project_id, provider, external_knowledge_base_id, display_name, description,
-          status, status_error, created_at, updated_at
-        )
-        VALUES (
-          'kb-1', 'project-1', 'NOTEBOOKLM_PY', 'kb-ext-1', 'KB', 'desc',
-          'ready', NULL, '2026-04-22T10:00:00+08:00', '2026-04-22T10:00:00+08:00'
-        )
-        """
-    )
-    connection.execute(
-        """
         INSERT INTO source_chunks (
           id, project_id, source_id, knowledge_base_id, chunk_index, chunk_text, metadata_json,
           index_status, index_error, created_at, updated_at
@@ -226,6 +204,12 @@ def test_init_db_migrates_legacy_source_chunks_table_shape(tmp_path: Path) -> No
 
     migrated = sqlite3.connect(settings.sqlite_path)
     try:
+        tables = {
+            row[0]
+            for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
         source_chunk_columns = {
             row[1]
             for row in migrated.execute("PRAGMA table_info(source_chunks)").fetchall()
@@ -233,6 +217,7 @@ def test_init_db_migrates_legacy_source_chunks_table_shape(tmp_path: Path) -> No
     finally:
         migrated.close()
 
+    assert "knowledge_bases" in tables
     assert "chunk_index" not in source_chunk_columns
     assert "chunk_text" not in source_chunk_columns
     assert "metadata_json" not in source_chunk_columns
@@ -363,3 +348,116 @@ def test_project_catalog_persists_knowledge_bases_and_source_chunks(tmp_path: Pa
     assert [chunk.content for chunk in catalog.list_source_chunks(project_id=project.id, source_id=source.id)] == [
         "重建后的唯一分块"
     ]
+
+
+def test_replace_source_chunks_rejects_cross_project_ownership(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    project_a = catalog.create_project(
+        CreateProjectRequest(
+            name="项目 A",
+            scenario_type="general",
+            summary="A",
+        )
+    )
+    project_b = catalog.create_project(
+        CreateProjectRequest(
+            name="项目 B",
+            scenario_type="general",
+            summary="B",
+        )
+    )
+    source_a = catalog.create_source(
+        project_id=project_a.id,
+        name="A.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="A",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+    source_b = catalog.create_source(
+        project_id=project_b.id,
+        name="B.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="B",
+        sync_status="pending_sync",
+        sync_error=None,
+    )
+    knowledge_base_b = catalog.upsert_knowledge_base(
+        project_id=project_b.id,
+        provider="NOTEBOOKLM_PY",
+        external_knowledge_base_id="kb-b",
+        display_name="项目 B KB",
+        description=None,
+        status="ready",
+        status_error=None,
+    )
+
+    with pytest.raises(ValueError, match="source_id does not belong"):
+        catalog.replace_source_chunks(
+            project_id=project_a.id,
+            source_id=source_b.id,
+            chunks=[
+                {
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": "wrong source owner",
+                }
+            ],
+        )
+
+    with pytest.raises(ValueError, match="knowledge_base_id does not belong"):
+        catalog.replace_source_chunks(
+            project_id=project_a.id,
+            source_id=source_a.id,
+            chunks=[
+                {
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": "wrong kb owner",
+                    "knowledge_base_id": knowledge_base_b.id,
+                }
+            ],
+        )
+
+    with pytest.raises(ValueError, match="chunk project_id does not match"):
+        catalog.replace_source_chunks(
+            project_id=project_a.id,
+            source_id=source_a.id,
+            chunks=[
+                {
+                    "project_id": project_b.id,
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": "wrong explicit project",
+                }
+            ],
+        )
+
+    with pytest.raises(ValueError, match="chunk source_id does not match"):
+        catalog.replace_source_chunks(
+            project_id=project_a.id,
+            source_id=source_a.id,
+            chunks=[
+                {
+                    "source_id": source_b.id,
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": "wrong explicit source",
+                }
+            ],
+        )
+
+    assert catalog.list_source_chunks(project_id=project_a.id, source_id=source_a.id) == []

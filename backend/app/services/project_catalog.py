@@ -48,6 +48,66 @@ class ProjectCatalog:
     def _source_chunk_from_row(row: dict) -> SourceChunkRecord:
         return SourceChunkRecord.model_validate(dict(row))
 
+    @staticmethod
+    def _validate_source_chunk_ownership(
+        *,
+        connection,
+        project_id: str,
+        source_id: str,
+        chunks: list[dict],
+    ) -> None:
+        source_row = connection.execute(
+            """
+            SELECT project_id
+            FROM sources
+            WHERE id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+        if not source_row:
+            raise LookupError("Source not found")
+        if source_row["project_id"] != project_id:
+            raise ValueError("source_id does not belong to the provided project_id")
+
+        knowledge_base_ids = {
+            knowledge_base_id
+            for chunk in chunks
+            if (knowledge_base_id := chunk.get("knowledge_base_id")) is not None
+        }
+        knowledge_base_projects = {}
+        if knowledge_base_ids:
+            rows = connection.execute(
+                f"""
+                SELECT id, project_id
+                FROM knowledge_bases
+                WHERE id IN ({",".join("?" for _ in knowledge_base_ids)})
+                """,
+                tuple(knowledge_base_ids),
+            ).fetchall()
+            knowledge_base_projects = {
+                row["id"]: row["project_id"] for row in rows
+            }
+
+        for chunk in chunks:
+            chunk_project_id = chunk.get("project_id")
+            if chunk_project_id is not None and chunk_project_id != project_id:
+                raise ValueError("chunk project_id does not match the provided project_id")
+
+            chunk_source_id = chunk.get("source_id")
+            if chunk_source_id is not None and chunk_source_id != source_id:
+                raise ValueError("chunk source_id does not match the provided source_id")
+
+            knowledge_base_id = chunk.get("knowledge_base_id")
+            if knowledge_base_id is None:
+                continue
+            knowledge_base_project_id = knowledge_base_projects.get(knowledge_base_id)
+            if knowledge_base_project_id is None:
+                raise LookupError("Knowledge base not found")
+            if knowledge_base_project_id != project_id:
+                raise ValueError(
+                    "knowledge_base_id does not belong to the provided project_id"
+                )
+
     def list_projects(self) -> list[ProjectSummary]:
         with connection_scope(self.settings) as connection:
             rows = connection.execute(
@@ -425,6 +485,12 @@ class ProjectCatalog:
             )
 
         with connection_scope(self.settings) as connection:
+            self._validate_source_chunk_ownership(
+                connection=connection,
+                project_id=project_id,
+                source_id=source_id,
+                chunks=chunks,
+            )
             connection.execute(
                 """
                 DELETE FROM source_chunks
