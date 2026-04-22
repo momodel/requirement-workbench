@@ -214,6 +214,9 @@ def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bas
             row[1]
             for row in migrated.execute("PRAGMA table_info(source_chunks)").fetchall()
         }
+        source_chunk_foreign_keys = migrated.execute(
+            "PRAGMA foreign_key_list(source_chunks)"
+        ).fetchall()
     finally:
         migrated.close()
 
@@ -224,7 +227,7 @@ def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bas
     assert "index_status" not in source_chunk_columns
     assert len(chunks) == 1
     assert chunks[0].id == "chunk-legacy-1"
-    assert chunks[0].knowledge_base_id == "kb-1"
+    assert chunks[0].knowledge_base_id is None
     assert chunks[0].chunk_order == 3
     assert chunks[0].modality == "text"
     assert chunks[0].content == "旧分块内容"
@@ -232,6 +235,39 @@ def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bas
     assert chunks[0].embedding_status == "indexed"
     assert chunks[0].content_hash
     assert chunks[0].indexed_at is None
+    assert any(
+        row[2] == "knowledge_bases"
+        and row[3] == "knowledge_base_id"
+        and row[4] == "id"
+        and row[6].upper() == "SET NULL"
+        for row in source_chunk_foreign_keys
+    )
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute(
+        """
+        INSERT INTO knowledge_bases (
+          id, project_id, provider, external_knowledge_base_id, display_name, description,
+          status, status_error, created_at, updated_at
+        )
+        VALUES (
+          'kb-2', 'project-1', 'NOTEBOOKLM_PY', 'kb-ext-2', 'KB 2', NULL,
+          'ready', NULL, '2026-04-22T10:01:00+08:00', '2026-04-22T10:01:00+08:00'
+        )
+        """
+    )
+    connection.execute(
+        "UPDATE source_chunks SET knowledge_base_id = 'kb-2' WHERE id = 'chunk-legacy-1'"
+    )
+    connection.execute("DELETE FROM knowledge_bases WHERE id = 'kb-2'")
+    knowledge_base_id = connection.execute(
+        "SELECT knowledge_base_id FROM source_chunks WHERE id = 'chunk-legacy-1'"
+    ).fetchone()[0]
+    connection.commit()
+    connection.close()
+
+    assert knowledge_base_id is None
 
 
 def test_project_catalog_persists_knowledge_bases_and_source_chunks(tmp_path: Path) -> None:

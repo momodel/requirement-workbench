@@ -43,6 +43,15 @@ SOURCE_CHUNKS_EXPECTED_COLUMNS = {
     "updated_at",
 }
 
+SOURCE_CHUNKS_INDEX_STATEMENTS = (
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_project_id ON source_chunks(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON source_chunks(source_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_knowledge_base_id ON source_chunks(knowledge_base_id)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_embedding_status ON source_chunks(embedding_status)",
+    "CREATE INDEX IF NOT EXISTS idx_source_chunks_content_hash ON source_chunks(content_hash)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_source_chunks_source_chunk_order ON source_chunks(source_id, chunk_order)",
+)
+
 
 def _existing_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
@@ -63,14 +72,22 @@ def _source_chunk_content_hash(content: str, locator_json: str | None) -> str:
     ).hexdigest()
 
 
-def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
-    if not _table_exists(connection, "source_chunks"):
-        return
+def _source_chunks_has_knowledge_base_fk(connection: sqlite3.Connection) -> bool:
+    foreign_keys = connection.execute("PRAGMA foreign_key_list(source_chunks)").fetchall()
+    return any(
+        foreign_key[2] == "knowledge_bases"
+        and foreign_key[3] == "knowledge_base_id"
+        and foreign_key[4] == "id"
+        and foreign_key[6].upper() == "SET NULL"
+        for foreign_key in foreign_keys
+    )
 
-    existing_columns = _existing_columns(connection, "source_chunks")
-    if SOURCE_CHUNKS_EXPECTED_COLUMNS.issubset(existing_columns):
-        return
 
+def _rebuild_source_chunks_table(
+    connection: sqlite3.Connection,
+    *,
+    include_knowledge_base_fk: bool,
+) -> None:
     rows = [
         dict(row)
         for row in connection.execute(
@@ -78,13 +95,27 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
         ).fetchall()
     ]
 
+    knowledge_base_constraint = "knowledge_base_id TEXT"
+    valid_knowledge_base_ids: set[str] = set()
+    if include_knowledge_base_fk:
+        knowledge_base_constraint = (
+            "knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL"
+        )
+        if _table_exists(connection, "knowledge_bases"):
+            valid_knowledge_base_ids = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM knowledge_bases"
+                ).fetchall()
+            }
+
     connection.execute(
-        """
+        f"""
         CREATE TABLE source_chunks__migrated (
           id TEXT PRIMARY KEY,
           project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
           source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
-          knowledge_base_id TEXT,
+          {knowledge_base_constraint},
           chunk_order INTEGER NOT NULL,
           modality TEXT NOT NULL,
           content TEXT NOT NULL,
@@ -119,6 +150,9 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
         locator_json = row.get("locator_json")
         if locator_json is None:
             locator_json = row.get("metadata_json")
+        knowledge_base_id = row.get("knowledge_base_id")
+        if include_knowledge_base_fk and knowledge_base_id not in valid_knowledge_base_ids:
+            knowledge_base_id = None
 
         connection.execute(
             """
@@ -133,7 +167,7 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
                 row["id"],
                 row["project_id"],
                 row["source_id"],
-                row.get("knowledge_base_id"),
+                knowledge_base_id,
                 int(chunk_order),
                 row.get("modality") or "text",
                 content,
@@ -149,6 +183,34 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
 
     connection.execute("DROP TABLE source_chunks")
     connection.execute("ALTER TABLE source_chunks__migrated RENAME TO source_chunks")
+    for statement in SOURCE_CHUNKS_INDEX_STATEMENTS:
+        connection.execute(statement)
+
+
+def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "source_chunks"):
+        return
+
+    existing_columns = _existing_columns(connection, "source_chunks")
+    if SOURCE_CHUNKS_EXPECTED_COLUMNS.issubset(existing_columns):
+        return
+
+    _rebuild_source_chunks_table(connection, include_knowledge_base_fk=False)
+
+
+def _ensure_source_chunks_schema(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "source_chunks"):
+        return
+
+    existing_columns = _existing_columns(connection, "source_chunks")
+    needs_rebuild = (
+        not SOURCE_CHUNKS_EXPECTED_COLUMNS.issubset(existing_columns)
+        or not _source_chunks_has_knowledge_base_fk(connection)
+    )
+    if not needs_rebuild:
+        return
+
+    _rebuild_source_chunks_table(connection, include_knowledge_base_fk=True)
 
 
 def _apply_column_migrations(connection: sqlite3.Connection) -> None:
@@ -172,6 +234,7 @@ def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
         _migrate_source_chunks_table(connection)
         schema_path = Path(__file__).with_name("schema.sql")
         connection.executescript(schema_path.read_text(encoding="utf-8"))
+        _ensure_source_chunks_schema(connection)
         _apply_column_migrations(connection)
         connection.commit()
     finally:
