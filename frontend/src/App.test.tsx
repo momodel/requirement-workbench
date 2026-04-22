@@ -788,7 +788,7 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '绑定项目知识库' })).toBeInTheDocument();
     expect(screen.getByText('已登记的知识库')).toBeInTheDocument();
     expect(screen.getByText('为当前项目创建专属知识库')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('粘贴知识库入口链接，例如 NotebookLM 链接')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('粘贴知识库入口链接，例如项目知识库地址')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '绑定已登记知识库' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '创建并绑定知识库' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '绑定知识库入口' })).toBeInTheDocument();

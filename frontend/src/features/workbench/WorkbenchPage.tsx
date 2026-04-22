@@ -1057,10 +1057,10 @@ export function WorkbenchPage({
               name="knowledge-base-url"
               value={knowledgeBaseUrl}
               onChange={(event) => setKnowledgeBaseUrl(event.target.value)}
-              placeholder="粘贴知识库入口链接，例如 NotebookLM 链接"
+              placeholder="粘贴知识库入口链接，例如项目知识库地址"
             />
             <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
-              这里绑定的是项目级知识库入口，不再把 NotebookLM notebook 之类的 provider 术语直接暴露成唯一产品对象。
+              这里绑定的是项目级知识库入口，不把具体 provider 名称直接当成唯一产品对象暴露给用户。
             </div>
             <div className="flex justify-end gap-3">
               <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
