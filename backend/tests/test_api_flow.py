@@ -278,6 +278,20 @@ def test_project_knowledge_base_init_and_get_flow(tmp_path: Path, monkeypatch) -
         assert after_init["indexed_chunk_count"] == 0
 
 
+def test_global_readiness_payload_uses_evidence_semantics_only(tmp_path: Path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+
+    with TestClient(app) as client:
+        readiness_response = client.get("/api/providers/readiness")
+
+    assert readiness_response.status_code == 200
+    readiness = readiness_response.json()
+    assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
+    assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
+    assert "notebooklm" not in readiness
+
+
 def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
@@ -455,6 +469,7 @@ def test_project_readiness_reports_knowledge_base_required_when_evidence_runtime
         assert readiness["evidence"]["status"] == "knowledge_base_missing"
         assert readiness["knowledge_base"] is None
         assert readiness["notebook_binding"] is None
+        assert "notebooklm" not in readiness
 
 
 def test_bind_notebook_endpoint_persists_project_binding(
@@ -496,6 +511,7 @@ def test_bind_notebook_endpoint_persists_project_binding(
         assert readiness["evidence"]["status"] == "knowledge_base_missing"
         assert readiness["knowledge_base"] is None
         assert readiness["notebook_binding"]["notebook_id"] == "abc123"
+        assert "notebooklm" not in readiness
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",

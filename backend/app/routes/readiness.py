@@ -21,8 +21,8 @@ def get_global_readiness(request: Request) -> GlobalReadiness:
     return GlobalReadiness(claude=claude, evidence=evidence)
 
 
-@router.get("/api/projects/{project_id}/readiness")
-def get_project_readiness(project_id: str, request: Request):
+@router.get("/api/projects/{project_id}/readiness", response_model=ProjectReadiness)
+def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness:
     services = request.app.state.services
     project = services.catalog.get_project(project_id)
     if not project:

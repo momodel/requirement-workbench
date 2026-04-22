@@ -153,14 +153,6 @@ class ProjectReadiness(BaseModel):
             self.notebooklm = self.evidence
         return self
 
-    @model_serializer(mode="wrap")
-    def serialize_with_legacy_evidence_alias(self, serializer: Any) -> dict[str, Any]:
-        payload = serializer(self)
-        if self.evidence is not None:
-            payload["notebooklm"] = self.evidence.model_dump()
-        return payload
-
-
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
     evidence: ProviderReadiness | None = None
@@ -173,14 +165,6 @@ class GlobalReadiness(BaseModel):
         if self.notebooklm is None and self.evidence is not None:
             self.notebooklm = self.evidence
         return self
-
-    @model_serializer(mode="wrap")
-    def serialize_with_legacy_global_alias(self, serializer: Any) -> dict[str, Any]:
-        payload = serializer(self)
-        if self.evidence is not None:
-            payload["notebooklm"] = self.evidence.model_dump()
-        return payload
-
 
 class SourceRecord(BaseModel):
     id: str
