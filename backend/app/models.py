@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 
 STATE_CATEGORIES = (
@@ -54,6 +54,41 @@ class NotebookBindingRecord(BaseModel):
     sync_status: str
     last_synced_at: str | None = None
     source_url: str | None = None
+
+
+class KnowledgeBaseRecord(BaseModel):
+    id: str
+    project_id: str
+    provider: str
+    external_knowledge_base_id: str
+    display_name: str | None = None
+    description: str | None = None
+    status: str
+    status_error: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class SourceChunkRecord(BaseModel):
+    id: str
+    project_id: str
+    source_id: str
+    knowledge_base_id: str | None = None
+    chunk_index: int
+    chunk_text: str
+    metadata_json: str | None = None
+    index_status: str = "pending"
+    index_error: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class EvidenceHit(BaseModel):
+    source_id: str | None = None
+    source_chunk_id: str | None = None
+    citation_title: str | None = None
+    snippet: str
+    score: float | None = None
 
 
 class NotebookLibraryItem(BaseModel):
@@ -119,12 +154,61 @@ class SourceRecord(BaseModel):
     upload_kind: str
     storage_path: str | None = None
     normalized_path: str | None = None
-    notebook_import_mode: str | None = None
-    parse_status: str
-    parse_summary: str | None = None
-    sync_status: str = "pending"
-    sync_error: str | None = None
+    index_input_mode: str | None = None
+    normalize_status: str
+    normalize_summary: str | None = None
+    index_status: str = "pending"
+    index_error: str | None = None
     created_at: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_legacy_source_fields(cls, value: Any) -> Any:
+        if not isinstance(value, dict):
+            return value
+
+        normalized = dict(value)
+        legacy_to_neutral = {
+            "notebook_import_mode": "index_input_mode",
+            "parse_status": "normalize_status",
+            "parse_summary": "normalize_summary",
+            "sync_status": "index_status",
+            "sync_error": "index_error",
+        }
+        for legacy_name, neutral_name in legacy_to_neutral.items():
+            if neutral_name not in normalized and legacy_name in normalized:
+                normalized[neutral_name] = normalized[legacy_name]
+        return normalized
+
+    @model_serializer(mode="wrap")
+    def serialize_with_legacy_source_fields(self, serializer: Any) -> dict[str, Any]:
+        payload = serializer(self)
+        payload["notebook_import_mode"] = self.index_input_mode
+        payload["parse_status"] = self.normalize_status
+        payload["parse_summary"] = self.normalize_summary
+        payload["sync_status"] = self.index_status
+        payload["sync_error"] = self.index_error
+        return payload
+
+    @property
+    def notebook_import_mode(self) -> str | None:
+        return self.index_input_mode
+
+    @property
+    def parse_status(self) -> str:
+        return self.normalize_status
+
+    @property
+    def parse_summary(self) -> str | None:
+        return self.normalize_summary
+
+    @property
+    def sync_status(self) -> str:
+        return self.index_status
+
+    @property
+    def sync_error(self) -> str | None:
+        return self.index_error
 
 
 class MessageRecord(BaseModel):

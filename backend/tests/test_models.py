@@ -1,4 +1,4 @@
-from app.models import AgentStructuredOutput, GeneratedArtifactOutput
+from app.models import AgentStructuredOutput, GeneratedArtifactOutput, SourceRecord
 
 
 def test_agent_structured_output_normalizes_nullable_lists() -> None:
@@ -55,3 +55,49 @@ def test_generated_artifact_output_uses_body_as_summary_when_summary_missing() -
 
     assert output.summary == "# 正文 这里是详细内容。"
     assert output.body == "# 正文\n这里是详细内容。"
+
+
+def test_source_record_accepts_neutral_index_fields() -> None:
+    record = SourceRecord(
+        id="source-1",
+        project_id="project-1",
+        name="需求说明",
+        source_kind="text",
+        upload_kind="text",
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="摘要",
+        index_status="synced",
+        index_error=None,
+        created_at="2026-04-22T00:00:00Z",
+    )
+
+    assert record.index_input_mode == "direct_text"
+    assert record.normalize_status == "parsed"
+    assert record.normalize_summary == "摘要"
+    assert record.index_status == "synced"
+    assert record.index_error is None
+
+
+def test_source_record_serializes_neutral_index_fields() -> None:
+    record = SourceRecord(
+        id="source-2",
+        project_id="project-1",
+        name="流程图",
+        source_kind="file",
+        upload_kind="file",
+        index_input_mode="normalized_markdown",
+        normalize_status="parsed",
+        normalize_summary="流程拆解完成",
+        index_status="pending_sync",
+        index_error="Notebook 未绑定",
+        created_at="2026-04-22T00:00:00Z",
+    )
+
+    payload = record.model_dump()
+
+    assert payload["index_input_mode"] == "normalized_markdown"
+    assert payload["normalize_status"] == "parsed"
+    assert payload["normalize_summary"] == "流程拆解完成"
+    assert payload["index_status"] == "pending_sync"
+    assert payload["index_error"] == "Notebook 未绑定"

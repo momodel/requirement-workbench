@@ -74,6 +74,12 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
             row[1]
             for row in migrated.execute("PRAGMA table_info(sources)").fetchall()
         }
+        tables = {
+            row[0]
+            for row in migrated.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
         bindings_columns = {
             row[1]
             for row in migrated.execute("PRAGMA table_info(notebook_bindings)").fetchall()
@@ -88,3 +94,5 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert "sync_error" in sources_columns
     assert "source_url" in bindings_columns
     assert "body" in artifact_columns
+    assert "knowledge_bases" in tables
+    assert "source_chunks" in tables
