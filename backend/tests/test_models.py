@@ -101,3 +101,45 @@ def test_source_record_serializes_neutral_index_fields() -> None:
     assert payload["normalize_summary"] == "流程拆解完成"
     assert payload["index_status"] == "pending_sync"
     assert payload["index_error"] == "Notebook 未绑定"
+    assert "notebook_import_mode" not in payload
+    assert "parse_status" not in payload
+    assert "parse_summary" not in payload
+    assert "sync_status" not in payload
+    assert "sync_error" not in payload
+
+
+def test_source_record_accepts_legacy_fields_and_normalizes_to_neutral() -> None:
+    record = SourceRecord.model_validate(
+        {
+            "id": "source-3",
+            "project_id": "project-1",
+            "name": "历史资料",
+            "source_kind": "text",
+            "upload_kind": "text",
+            "notebook_import_mode": "direct_text",
+            "parse_status": "parsed",
+            "parse_summary": "旧字段摘要",
+            "sync_status": "synced",
+            "sync_error": None,
+            "created_at": "2026-04-22T00:00:00Z",
+        }
+    )
+
+    assert record.index_input_mode == "direct_text"
+    assert record.normalize_status == "parsed"
+    assert record.normalize_summary == "旧字段摘要"
+    assert record.index_status == "synced"
+    assert record.index_error is None
+
+    legacy_payload = record.model_dump_legacy()
+
+    assert legacy_payload["index_input_mode"] == "direct_text"
+    assert legacy_payload["normalize_status"] == "parsed"
+    assert legacy_payload["normalize_summary"] == "旧字段摘要"
+    assert legacy_payload["index_status"] == "synced"
+    assert legacy_payload["index_error"] is None
+    assert legacy_payload["notebook_import_mode"] == "direct_text"
+    assert legacy_payload["parse_status"] == "parsed"
+    assert legacy_payload["parse_summary"] == "旧字段摘要"
+    assert legacy_payload["sync_status"] == "synced"
+    assert legacy_payload["sync_error"] is None

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 
 STATE_CATEGORIES = (
@@ -74,11 +74,14 @@ class SourceChunkRecord(BaseModel):
     project_id: str
     source_id: str
     knowledge_base_id: str | None = None
-    chunk_index: int
-    chunk_text: str
-    metadata_json: str | None = None
-    index_status: str = "pending"
+    chunk_order: int
+    modality: str
+    content: str
+    locator_json: str | None = None
+    content_hash: str
+    embedding_status: str = "pending"
     index_error: str | None = None
+    indexed_at: str | None = None
     created_at: str
     updated_at: str
 
@@ -180,9 +183,8 @@ class SourceRecord(BaseModel):
                 normalized[neutral_name] = normalized[legacy_name]
         return normalized
 
-    @model_serializer(mode="wrap")
-    def serialize_with_legacy_source_fields(self, serializer: Any) -> dict[str, Any]:
-        payload = serializer(self)
+    def model_dump_legacy(self) -> dict[str, Any]:
+        payload = self.model_dump()
         payload["notebook_import_mode"] = self.index_input_mode
         payload["parse_status"] = self.normalize_status
         payload["parse_summary"] = self.normalize_summary

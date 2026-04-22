@@ -84,11 +84,14 @@ CREATE TABLE IF NOT EXISTS source_chunks (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
   knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
-  chunk_index INTEGER NOT NULL,
-  chunk_text TEXT NOT NULL,
-  metadata_json TEXT,
-  index_status TEXT NOT NULL DEFAULT 'pending',
+  chunk_order INTEGER NOT NULL,
+  modality TEXT NOT NULL,
+  content TEXT NOT NULL,
+  locator_json TEXT,
+  content_hash TEXT NOT NULL,
+  embedding_status TEXT NOT NULL DEFAULT 'pending',
   index_error TEXT,
+  indexed_at TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -120,5 +123,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bases_project_provider ON knowle
 CREATE INDEX IF NOT EXISTS idx_source_chunks_project_id ON source_chunks(project_id);
 CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON source_chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_source_chunks_knowledge_base_id ON source_chunks(knowledge_base_id);
-CREATE INDEX IF NOT EXISTS idx_source_chunks_index_status ON source_chunks(index_status);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_source_chunks_source_chunk_index ON source_chunks(source_id, chunk_index);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_embedding_status ON source_chunks(embedding_status);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_content_hash ON source_chunks(content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_chunks_source_chunk_order ON source_chunks(source_id, chunk_order);

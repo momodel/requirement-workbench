@@ -88,6 +88,10 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
             row[1]
             for row in migrated.execute("PRAGMA table_info(demo_artifacts)").fetchall()
         }
+        source_chunk_columns = {
+            row[1]
+            for row in migrated.execute("PRAGMA table_info(source_chunks)").fetchall()
+        }
     finally:
         migrated.close()
 
@@ -96,3 +100,10 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert "body" in artifact_columns
     assert "knowledge_bases" in tables
     assert "source_chunks" in tables
+    assert "chunk_order" in source_chunk_columns
+    assert "modality" in source_chunk_columns
+    assert "content" in source_chunk_columns
+    assert "locator_json" in source_chunk_columns
+    assert "content_hash" in source_chunk_columns
+    assert "embedding_status" in source_chunk_columns
+    assert "indexed_at" in source_chunk_columns
