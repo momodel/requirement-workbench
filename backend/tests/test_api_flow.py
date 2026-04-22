@@ -294,6 +294,11 @@ def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_load_client_class",
+        lambda: SimpleNamespace(from_storage=None),
+    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -322,6 +327,11 @@ def test_bind_notebook_endpoint_persists_project_binding(
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_load_client_class",
+        lambda: SimpleNamespace(from_storage=None),
+    )
 
     with TestClient(app) as client:
         create_response = client.post(

@@ -38,8 +38,13 @@ def write_storage_state(settings: AppSettings) -> None:
     (settings.notebooklm_home_dir / "storage_state.json").write_text("{}", encoding="utf-8")
 
 
-def test_global_readiness_requires_project_scoped_login(tmp_path: Path) -> None:
+def install_fake_client_class(service: NotebookLMService, monkeypatch) -> None:
+    monkeypatch.setattr(service, "_load_client_class", lambda: SimpleNamespace(from_storage=None))
+
+
+def test_global_readiness_requires_project_scoped_login(tmp_path: Path, monkeypatch) -> None:
     service = make_service(tmp_path)
+    install_fake_client_class(service, monkeypatch)
 
     readiness = service.get_global_readiness()
 
