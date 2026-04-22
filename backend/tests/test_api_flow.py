@@ -157,7 +157,6 @@ def install_fake_evidence_runtime(app, monkeypatch) -> None:
 
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
 
     with TestClient(app) as client:
         projects_response = client.get("/api/projects")
@@ -187,7 +186,9 @@ def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
         assert upload_response.status_code == 201
         source = upload_response.json()
         assert source["name"] == "访谈纪要"
-        assert source["parse_status"] in {"parsed", "queued"}
+        assert source["parse_status"] == "parsed"
+        assert source["sync_status"] == "not_configured"
+        assert "安装" in source["sync_error"]
 
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
@@ -292,18 +293,17 @@ def test_global_readiness_payload_uses_evidence_semantics_only(tmp_path: Path, m
     assert "notebooklm" not in readiness
 
 
-def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, monkeypatch) -> None:
+def test_source_upload_uses_evidence_readiness_for_provider_errors(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
     monkeypatch.setattr(
-        app.state.services.notebooklm,
+        app.state.services.evidence_runtime,
         "get_global_readiness",
         lambda: ProviderReadiness(
-            provider="NOTEBOOKLM_PY",
+            provider="QDRANT_LLAMA_INDEX",
             status="error",
-            summary="NotebookLM provider 检查失败。",
+            summary="Evidence runtime 检查失败。",
             detail="ConnectError",
-            action_label="检查 NotebookLM 配置",
+            action_label="检查 Qdrant/LlamaIndex 配置",
         ),
     )
 
@@ -330,19 +330,13 @@ def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, 
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["sync_status"] == "sync_failed"
+        assert source["sync_status"] == "error"
         assert "ConnectError" in source["sync_error"]
 
 
 def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
     install_fake_evidence_runtime(app, monkeypatch)
-    monkeypatch.setattr(
-        app.state.services.notebooklm,
-        "_load_client_class",
-        lambda: SimpleNamespace(from_storage=None),
-    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -356,11 +350,8 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         assert create_response.status_code == 201
         project_id = create_response.json()["id"]
 
-        bind_response = client.post(
-            f"/api/projects/{project_id}/notebook-binding",
-            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
-        )
-        assert bind_response.status_code == 201
+        init_response = client.post(f"/api/projects/{project_id}/knowledge-base/init")
+        assert init_response.status_code == 201
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
@@ -372,7 +363,7 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         )
         assert upload_response.status_code == 201
         source_id = upload_response.json()["id"]
-        assert upload_response.json()["sync_status"] == "synced"
+        assert upload_response.json()["sync_status"] == "indexed"
 
         app.state.services.catalog.update_source_sync_status(
             source_id=source_id,
@@ -522,7 +513,50 @@ def test_bind_notebook_endpoint_persists_project_binding(
             },
         )
         assert upload_response.status_code == 201
-        assert upload_response.json()["sync_status"] == "synced"
+        assert upload_response.json()["sync_status"] == "knowledge_base_missing"
+
+
+def test_file_upload_uses_docling_normalized_markdown_before_indexing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.source_ingestion.docling_normalizer,
+        "normalize_to_markdown",
+        lambda source_path: "# Docling Output\n项目资料已经转换成 Markdown 文本。",
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Docling 文件上传测试",
+                "scenario_type": "general",
+                "summary": "验证文件上传主线先走 Docling 再入知识库",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        init_response = client.post(f"/api/projects/{project_id}/knowledge-base/init")
+        assert init_response.status_code == 201
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "需求文档"},
+            files={"file": ("brief.pdf", b"%PDF-1.4 mock", "application/pdf")},
+        )
+
+        assert upload_response.status_code == 201
+        source = upload_response.json()
+        assert source["name"] == "brief.pdf"
+        assert source["parse_status"] == "parsed"
+        assert source["sync_status"] == "indexed"
+        assert source["normalized_path"].endswith(".normalized.md")
+        normalized_text = Path(source["normalized_path"]).read_text(encoding="utf-8")
+        assert "Docling Output" in normalized_text
 
 
 def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
@@ -744,7 +778,12 @@ def test_reindex_preserves_synced_delete_compatibility(tmp_path: Path, monkeypat
         )
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["sync_status"] == "synced"
+        app.state.services.catalog.update_source_sync_status(
+            source_id=source["id"],
+            sync_status="synced",
+            sync_error=None,
+        )
+        source_registry.append(SimpleNamespace(id="nb-1", title=source["name"]))
         assert len(source_registry) == 1
 
         reindex_response = client.post(
@@ -872,7 +911,12 @@ def test_delete_source_removes_local_and_notebook_records_even_when_evidence_cle
         )
         assert upload_response.status_code == 201
         source_id = upload_response.json()["id"]
-        assert upload_response.json()["sync_status"] == "synced"
+        app.state.services.catalog.update_source_sync_status(
+            source_id=source_id,
+            sync_status="synced",
+            sync_error=None,
+        )
+        source_registry.append(SimpleNamespace(id="nb-1", title="待删除资料"))
         assert source_registry != []
 
         delete_response = client.delete(f"/api/projects/{project_id}/sources/{source_id}")

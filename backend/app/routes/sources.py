@@ -9,27 +9,30 @@ from ..models import ProviderIssue
 router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"])
 
 
-def _resolve_sync_status(services, project_id: str) -> tuple[str, str]:
-    sync_status = "not_configured"
-    sync_error = "NOTEBOOKLM_PY 未配置或项目未绑定 notebook。"
+def _resolve_index_status(services, project_id: str, normalized) -> tuple[str, str | None]:
+    if normalized.parse_status != "parsed":
+        return "index_failed", normalized.parse_summary
+
     try:
-        notebook_global = services.notebooklm.get_global_readiness()
-        binding = services.catalog.get_notebook_binding(project_id)
-        if notebook_global.status == "ready" and binding:
-            return "pending_sync", "资料已入库，正在同步到项目 NotebookLM notebook。"
-        if notebook_global.status == "error":
-            return "sync_failed", notebook_global.detail or notebook_global.summary
-        sync_status = notebook_global.status if notebook_global.status != "ready" else "binding_required"
-        sync_error = notebook_global.detail or notebook_global.summary
-        if notebook_global.status == "ready" and not binding:
-            sync_error = "当前项目还没有绑定专属 NotebookLM notebook。"
+        evidence = services.evidence_runtime.get_global_readiness()
     except ProviderIssue as exc:
-        return "sync_failed", str(exc)
-    return sync_status, sync_error
+        return "error", exc.message
+
+    if evidence.status != "ready":
+        return evidence.status, evidence.detail or evidence.summary
+
+    knowledge_base = services.catalog.get_knowledge_base(
+        project_id=project_id,
+        provider=evidence.provider,
+    )
+    if knowledge_base is None:
+        return "knowledge_base_missing", "资料已标准化，但当前项目还没有初始化项目内知识库。"
+
+    return "pending", "资料已标准化，正在写入项目知识库。"
 
 
 def _create_source_record(services, project_id: str, upload_kind: str, name: str, storage_path, normalized):
-    sync_status, sync_error = _resolve_sync_status(services, project_id)
+    sync_status, sync_error = _resolve_index_status(services, project_id, normalized)
     source_record = services.catalog.create_source(
         project_id=project_id,
         name=name,
@@ -43,8 +46,14 @@ def _create_source_record(services, project_id: str, upload_kind: str, name: str
         sync_status=sync_status,
         sync_error=sync_error,
     )
-    if sync_status == "pending_sync":
-        source_record = services.notebooklm.sync_source(source_record.id)
+    if sync_status == "pending":
+        source_record = _run_source_index_operation(
+            services,
+            project_id=project_id,
+            source_id=source_record.id,
+            operation="index",
+            raise_on_error=False,
+        )
     return source_record
 
 
