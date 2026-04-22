@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime
@@ -11,10 +12,12 @@ from ..db import connection_scope
 from ..models import (
     ArtifactRecord,
     CreateProjectRequest,
+    KnowledgeBaseRecord,
     MessageRecord,
     NotebookBindingRecord,
     ProjectSummary,
     SourceRecord,
+    SourceChunkRecord,
     StateCategory,
     StateItem,
     STATE_CATEGORIES,
@@ -25,9 +28,25 @@ def now_iso(settings: AppSettings = DEFAULT_SETTINGS) -> str:
     return datetime.now(ZoneInfo(settings.default_timezone)).isoformat()
 
 
+def source_chunk_content_hash(content: str, locator_json: str | None) -> str:
+    return hashlib.sha256(
+        f"{content}\n{locator_json or ''}".encode("utf-8")
+    ).hexdigest()
+
+
 class ProjectCatalog:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
+
+    @staticmethod
+    def _knowledge_base_from_row(row: dict | None) -> KnowledgeBaseRecord | None:
+        if not row:
+            return None
+        return KnowledgeBaseRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _source_chunk_from_row(row: dict) -> SourceChunkRecord:
+        return SourceChunkRecord.model_validate(dict(row))
 
     def list_projects(self) -> list[ProjectSummary]:
         with connection_scope(self.settings) as connection:
@@ -280,6 +299,204 @@ class ProjectCatalog:
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
                 (timestamp, project_id),
             )
+
+    def upsert_knowledge_base(
+        self,
+        *,
+        project_id: str,
+        provider: str,
+        external_knowledge_base_id: str,
+        display_name: str | None,
+        description: str | None,
+        status: str,
+        status_error: str | None,
+    ) -> KnowledgeBaseRecord:
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            existing = connection.execute(
+                """
+                SELECT id, created_at
+                FROM knowledge_bases
+                WHERE project_id = ? AND provider = ?
+                """,
+                (project_id, provider),
+            ).fetchone()
+
+            record_id = existing["id"] if existing else f"kb-{uuid.uuid4().hex[:10]}"
+            created_at = existing["created_at"] if existing else timestamp
+
+            connection.execute(
+                """
+                INSERT INTO knowledge_bases (
+                  id, project_id, provider, external_knowledge_base_id, display_name,
+                  description, status, status_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  project_id = excluded.project_id,
+                  provider = excluded.provider,
+                  external_knowledge_base_id = excluded.external_knowledge_base_id,
+                  display_name = excluded.display_name,
+                  description = excluded.description,
+                  status = excluded.status,
+                  status_error = excluded.status_error,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    record_id,
+                    project_id,
+                    provider,
+                    external_knowledge_base_id,
+                    display_name,
+                    description,
+                    status,
+                    status_error,
+                    created_at,
+                    timestamp,
+                ),
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
+        return KnowledgeBaseRecord(
+            id=record_id,
+            project_id=project_id,
+            provider=provider,
+            external_knowledge_base_id=external_knowledge_base_id,
+            display_name=display_name,
+            description=description,
+            status=status,
+            status_error=status_error,
+            created_at=created_at,
+            updated_at=timestamp,
+        )
+
+    def get_knowledge_base(
+        self,
+        *,
+        project_id: str,
+        provider: str,
+    ) -> KnowledgeBaseRecord | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, provider, external_knowledge_base_id, display_name,
+                       description, status, status_error, created_at, updated_at
+                FROM knowledge_bases
+                WHERE project_id = ? AND provider = ?
+                """,
+                (project_id, provider),
+            ).fetchone()
+        return self._knowledge_base_from_row(row)
+
+    def replace_source_chunks(
+        self,
+        *,
+        project_id: str,
+        source_id: str,
+        chunks: list[dict],
+    ) -> list[SourceChunkRecord]:
+        timestamp = now_iso(self.settings)
+        records: list[SourceChunkRecord] = []
+
+        for chunk in chunks:
+            content = chunk["content"]
+            locator_json = chunk.get("locator_json")
+            records.append(
+                SourceChunkRecord(
+                    id=chunk.get("id") or f"chunk-{uuid.uuid4().hex[:10]}",
+                    project_id=project_id,
+                    source_id=source_id,
+                    knowledge_base_id=chunk.get("knowledge_base_id"),
+                    chunk_order=int(chunk["chunk_order"]),
+                    modality=chunk.get("modality") or "text",
+                    content=content,
+                    locator_json=locator_json,
+                    content_hash=chunk.get("content_hash")
+                    or source_chunk_content_hash(content, locator_json),
+                    embedding_status=chunk.get("embedding_status") or "pending",
+                    index_error=chunk.get("index_error"),
+                    indexed_at=chunk.get("indexed_at"),
+                    created_at=chunk.get("created_at") or timestamp,
+                    updated_at=chunk.get("updated_at") or timestamp,
+                )
+            )
+
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                """
+                DELETE FROM source_chunks
+                WHERE project_id = ? AND source_id = ?
+                """,
+                (project_id, source_id),
+            )
+            for record in records:
+                connection.execute(
+                    """
+                    INSERT INTO source_chunks (
+                      id, project_id, source_id, knowledge_base_id, chunk_order, modality,
+                      content, locator_json, content_hash, embedding_status, index_error,
+                      indexed_at, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.id,
+                        record.project_id,
+                        record.source_id,
+                        record.knowledge_base_id,
+                        record.chunk_order,
+                        record.modality,
+                        record.content,
+                        record.locator_json,
+                        record.content_hash,
+                        record.embedding_status,
+                        record.index_error,
+                        record.indexed_at,
+                        record.created_at,
+                        record.updated_at,
+                    ),
+                )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
+        return records
+
+    def list_source_chunks(
+        self,
+        *,
+        project_id: str,
+        source_id: str | None = None,
+        knowledge_base_id: str | None = None,
+    ) -> list[SourceChunkRecord]:
+        where_clauses = ["project_id = ?"]
+        parameters: list[str] = [project_id]
+
+        if source_id is not None:
+            where_clauses.append("source_id = ?")
+            parameters.append(source_id)
+        if knowledge_base_id is not None:
+            where_clauses.append("knowledge_base_id = ?")
+            parameters.append(knowledge_base_id)
+
+        with connection_scope(self.settings) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, project_id, source_id, knowledge_base_id, chunk_order, modality,
+                       content, locator_json, content_hash, embedding_status, index_error,
+                       indexed_at, created_at, updated_at
+                FROM source_chunks
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY chunk_order ASC, datetime(created_at) ASC, id ASC
+                """,
+                tuple(parameters),
+            ).fetchall()
+
+        return [self._source_chunk_from_row(dict(row)) for row in rows]
 
     def create_message(
         self,
