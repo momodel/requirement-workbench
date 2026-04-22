@@ -6,6 +6,7 @@ from ..models import (
     BindNotebookRequest,
     CreateNotebookRequest,
     GlobalReadiness,
+    ProjectReadiness,
     ProviderIssue,
 )
 
@@ -16,18 +17,31 @@ router = APIRouter(tags=["readiness"])
 @router.get("/api/providers/readiness", response_model=GlobalReadiness)
 def get_global_readiness(request: Request) -> GlobalReadiness:
     claude = request.app.state.services.agent_runtime.get_readiness()
-    notebooklm = request.app.state.services.notebooklm.get_global_readiness()
-    return GlobalReadiness(claude=claude, notebooklm=notebooklm)
+    evidence = request.app.state.services.evidence_runtime.get_global_readiness()
+    return GlobalReadiness(claude=claude, evidence=evidence)
 
 
 @router.get("/api/projects/{project_id}/readiness")
 def get_project_readiness(project_id: str, request: Request):
-    project = request.app.state.services.catalog.get_project(project_id)
+    services = request.app.state.services
+    project = services.catalog.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    claude = request.app.state.services.agent_runtime.get_readiness()
-    return request.app.state.services.notebooklm.get_project_readiness(project_id, claude)
+    claude = services.agent_runtime.get_readiness()
+    evidence = services.evidence_runtime.get_project_readiness(project_id, claude)
+    knowledge_base = services.catalog.get_knowledge_base(
+        project_id=project_id,
+        provider=evidence.provider,
+    )
+    notebook_binding = services.catalog.get_notebook_binding(project_id)
+    return ProjectReadiness(
+        project_id=project_id,
+        claude=claude,
+        evidence=evidence,
+        knowledge_base=knowledge_base,
+        notebook_binding=notebook_binding,
+    )
 
 
 @router.get("/api/projects/{project_id}/notebook-binding")

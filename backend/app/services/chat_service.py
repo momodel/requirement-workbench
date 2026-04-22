@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 
 from ..models import AgentTurnInput, ChatStreamRequest, ProviderIssue, StateItem
-from .agent_runtime import ClaudeAgentRuntime
 from .artifact_generation import ArtifactGenerationService
+from .evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
 from .runtime_contracts import AgentRuntime, EvidenceRuntime
@@ -59,21 +58,40 @@ class ChatService:
     ):
         self.catalog = catalog
         self.project_state = project_state
-        self.notebooklm = notebooklm
+        self.evidence_runtime = self._resolve_evidence_runtime(notebooklm)
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
 
-    async def _query_evidence_with_timeout(self, project_id: str, message: str):
-        timeout_seconds = self.catalog.settings.notebooklm_query_timeout_seconds
+    def _resolve_evidence_runtime(self, runtime: object) -> EvidenceRuntime:
+        if hasattr(runtime, "list_library") and hasattr(runtime, "bind_project_notebook"):
+            return QdrantLlamaIndexEvidenceRuntime(
+                self.catalog.settings,
+                catalog=self.catalog,
+            )
+        return runtime
+
+    async def _query_evidence_with_timeout(
+        self,
+        project_id: str,
+        message: str,
+        *,
+        selected_source_ids: list[str],
+    ):
+        timeout_seconds = self.catalog.settings.evidence_query_timeout_seconds
         try:
             return await asyncio.wait_for(
-                asyncio.to_thread(self.notebooklm.query, project_id, message),
+                asyncio.to_thread(
+                    self.evidence_runtime.query,
+                    project_id,
+                    message,
+                    selected_source_ids=selected_source_ids or None,
+                ),
                 timeout=timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
             raise ProviderIssue(
-                provider="NOTEBOOKLM_PY",
-                message="NotebookLM 查询超时，已跳过本轮证据检索。请稍后重试或检查当前 notebook 状态。",
+                provider="QDRANT_LLAMA_INDEX",
+                message="项目知识库检索超时，已跳过本轮证据检索。请稍后重试或检查当前知识库状态。",
             ) from exc
 
     async def _iterate_with_timeout(
@@ -148,19 +166,20 @@ class ChatService:
             },
         )
 
-        evidence_summary = "当前未查询 NotebookLM。"
+        evidence_summary = "当前未执行项目知识库证据检索。"
         evidence_citations = []
         try:
             yield (
                 "assistant_status",
                 {
                     "phase": "evidence_query",
-                    "label": "正在读取 NotebookLM 证据与引用",
+                    "label": "正在检索项目知识库证据与引用",
                 },
             )
             evidence = await self._query_evidence_with_timeout(
                 project_id,
                 payload.message,
+                selected_source_ids=payload.selected_source_ids,
             )
             evidence_summary = evidence.summary
             evidence_citations = evidence.citations
@@ -172,12 +191,12 @@ class ChatService:
                     "label": "已拿到资料证据，正在组织回答",
                 },
             )
-        except ProviderIssue as exc:
+        except ProviderIssue:
             yield (
                 "assistant_status",
                 {
                     "phase": "drafting",
-                    "label": "NotebookLM 暂未返回可用证据，正在基于当前项目状态继续分析",
+                    "label": "项目知识库暂未返回可用证据，正在基于当前项目状态继续分析",
                 },
             )
 

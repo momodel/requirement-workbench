@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
-from app.models import ProviderIssue, ProviderReadiness
+from app.models import EvidenceResult, ProviderIssue, ProviderReadiness
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -427,25 +427,21 @@ def test_chat_stream_reports_provider_not_configured(tmp_path: Path) -> None:
         assert f"\"project_id\": \"{project_id}\"" in body
 
 
-def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
+def test_project_readiness_reports_knowledge_base_required_when_evidence_runtime_is_ready(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
-    monkeypatch.setattr(
-        app.state.services.notebooklm,
-        "_load_client_class",
-        lambda: SimpleNamespace(from_storage=None),
-    )
+    install_fake_evidence_runtime(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "Notebook 绑定测试",
+                "name": "知识库 readiness 测试",
                 "scenario_type": "general",
-                "summary": "验证 provider readiness 和项目 notebook 绑定状态",
+                "summary": "验证 provider readiness 切到 evidence/knowledge-base 语义",
             },
         )
         project_id = create_response.json()["id"]
@@ -455,8 +451,9 @@ def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
         assert readiness_response.status_code == 200
         readiness = readiness_response.json()
         assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
-        assert readiness["notebooklm"]["provider"] == "NOTEBOOKLM_PY"
-        assert readiness["notebooklm"]["status"] == "binding_required"
+        assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
+        assert readiness["evidence"]["status"] == "knowledge_base_missing"
+        assert readiness["knowledge_base"] is None
         assert readiness["notebook_binding"] is None
 
 
@@ -466,17 +463,12 @@ def test_bind_notebook_endpoint_persists_project_binding(
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
+    install_fake_evidence_runtime(app, monkeypatch)
     monkeypatch.setattr(
         app.state.services.notebooklm,
         "_load_client_class",
         lambda: SimpleNamespace(from_storage=None),
     )
-    monkeypatch.setattr(
-        app.state.services.evidence_runtime,
-        "get_global_readiness",
-        lambda: (_ for _ in ()).throw(AssertionError("upload flow should not query evidence readiness")),
-    )
-
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
@@ -501,7 +493,8 @@ def test_bind_notebook_endpoint_persists_project_binding(
 
         readiness_response = client.get(f"/api/projects/{project_id}/readiness")
         readiness = readiness_response.json()
-        assert readiness["notebooklm"]["status"] == "ready"
+        assert readiness["evidence"]["status"] == "knowledge_base_missing"
+        assert readiness["knowledge_base"] is None
         assert readiness["notebook_binding"]["notebook_id"] == "abc123"
 
         upload_response = client.post(
@@ -514,6 +507,99 @@ def test_bind_notebook_endpoint_persists_project_binding(
         )
         assert upload_response.status_code == 201
         assert upload_response.json()["sync_status"] == "synced"
+
+
+def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    evidence_calls: list[dict[str, object]] = []
+
+    def fake_evidence_query(
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
+        evidence_calls.append(
+            {
+                "project_id": project_id,
+                "question": question,
+                "selected_source_ids": selected_source_ids,
+            }
+        )
+        return EvidenceResult(
+            summary="已检索到 1 条相关证据。",
+            citations=[],
+            sync_status="queried",
+        )
+
+    monkeypatch.setattr(
+        app.state.services.chat_service.evidence_runtime,
+        "query",
+        fake_evidence_query,
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "query",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("chat path should not call NotebookLM query in Task 5")
+        ),
+        raising=False,
+    )
+    monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
+
+    async def fake_stream_assistant_text(turn):
+        yield "基于项目知识库先给出一轮判断。"
+
+    async def fake_run_turn(turn, assistant_message: str | None = None):
+        if False:
+            yield ("result", None)
+
+    monkeypatch.setattr(
+        app.state.services.agent_runtime,
+        "stream_assistant_text",
+        fake_stream_assistant_text,
+    )
+    monkeypatch.setattr(
+        app.state.services.agent_runtime,
+        "run_turn",
+        fake_run_turn,
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "聊天证据切换测试",
+                "scenario_type": "general",
+                "summary": "验证聊天主链路改为 evidence runtime。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        response = client.post(
+            f"/api/projects/{project_id}/chat/stream",
+            json={
+                "message": "请基于当前资料给出判断。",
+                "selected_source_ids": ["src-1", "src-2"],
+                "request_artifact_types": [],
+            },
+        )
+
+    assert response.status_code == 200
+    assert evidence_calls == [
+        {
+            "project_id": project_id,
+            "question": "请基于当前资料给出判断。",
+            "selected_source_ids": ["src-1", "src-2"],
+        }
+    ]
+    assert "正在检索项目知识库证据与引用" in response.text
+    assert "基于项目知识库先给出一轮判断。" in response.text
 
 
 def test_reindex_preserves_synced_delete_compatibility(tmp_path: Path, monkeypatch) -> None:

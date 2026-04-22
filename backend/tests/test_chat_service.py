@@ -32,15 +32,21 @@ def make_settings(tmp_path: Path) -> AppSettings:
         claude_cli_path=str(tmp_path / "missing-claude"),
         claude_stream_timeout_seconds=0.05,
         claude_structured_timeout_seconds=0.05,
-        notebooklm_query_timeout_seconds=0.05,
+        evidence_query_timeout_seconds=0.05,
     )
 
 
 class StubEvidenceRuntime:
     def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
+        return Path("/tmp/evidence-runtime")
 
-    def query(self, project_id: str, question: str) -> EvidenceResult:
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
         return EvidenceResult(summary="stub evidence", citations=[])
 
 
@@ -118,9 +124,15 @@ class ChunkThenPatchAgentRuntime:
 
 class SlowEvidenceRuntime:
     def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
+        return Path("/tmp/evidence-runtime")
 
-    def query(self, project_id: str, question: str) -> EvidenceResult:
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
         time.sleep(0.2)
         return EvidenceResult(summary="slow evidence", citations=[])
 
@@ -240,6 +252,10 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
 
     assert status_events, "status events should be emitted before assistant text"
     assert status_events[0]["phase"] == "source_scan"
+    assert any(
+        payload["phase"] == "evidence_query" and "项目知识库证据" in payload["label"]
+        for payload in status_events
+    )
     assert [payload["text"] for payload in message_chunks] == ["先确认范围，", "再补沉淀。"]
     assert all("replace" not in payload for payload in message_chunks)
     assert first_status_index < first_chunk_index
@@ -254,7 +270,7 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     assert any(message.content == "先确认范围，再补沉淀。" for message in assistant_messages)
 
 
-def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> None:
+def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
@@ -284,6 +300,12 @@ def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> Non
     assert not any(event_type == "error" for event_type, _ in events)
     assert any(
         event_type == "assistant_status" and payload["phase"] == "drafting"
+        for event_type, payload in events
+    )
+    assert any(
+        event_type == "assistant_status"
+        and payload["phase"] == "drafting"
+        and "项目知识库" in payload["label"]
         for event_type, payload in events
     )
     assert any(event_type == "message_chunk" for event_type, _ in events)

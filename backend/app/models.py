@@ -140,13 +140,46 @@ class ProviderReadiness(BaseModel):
 class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
+    evidence: ProviderReadiness | None = None
+    notebooklm: ProviderReadiness | None = Field(default=None, exclude=True)
+    knowledge_base: KnowledgeBaseRecord | None = None
     notebook_binding: NotebookBindingRecord | None = None
+
+    @model_validator(mode="after")
+    def normalize_evidence_readiness(self) -> "ProjectReadiness":
+        if self.evidence is None and self.notebooklm is not None:
+            self.evidence = self.notebooklm
+        if self.notebooklm is None and self.evidence is not None:
+            self.notebooklm = self.evidence
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_with_legacy_evidence_alias(self, serializer: Any) -> dict[str, Any]:
+        payload = serializer(self)
+        if self.evidence is not None:
+            payload["notebooklm"] = self.evidence.model_dump()
+        return payload
 
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
+    evidence: ProviderReadiness | None = None
+    notebooklm: ProviderReadiness | None = Field(default=None, exclude=True)
+
+    @model_validator(mode="after")
+    def normalize_global_evidence_readiness(self) -> "GlobalReadiness":
+        if self.evidence is None and self.notebooklm is not None:
+            self.evidence = self.notebooklm
+        if self.notebooklm is None and self.evidence is not None:
+            self.notebooklm = self.evidence
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_with_legacy_global_alias(self, serializer: Any) -> dict[str, Any]:
+        payload = serializer(self)
+        if self.evidence is not None:
+            payload["notebooklm"] = self.evidence.model_dump()
+        return payload
 
 
 class SourceRecord(BaseModel):

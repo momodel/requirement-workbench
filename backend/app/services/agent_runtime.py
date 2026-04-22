@@ -603,10 +603,10 @@ class ClaudeAgentRuntime:
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+项目知识库证据摘要：
 {turn.evidence_summary}
 
-NotebookLM citations：
+项目知识库命中引用：
 {citations_json}
 
 需求分析方法参考：
@@ -615,7 +615,7 @@ NotebookLM citations：
 方法论执行提醒：
 {self._methodology_execution_notes()}
 
-资料理解工作流参考：
+证据接入工作流参考：
 {self.evidence_skill}
 
 请直接输出面向用户的自然中文回复，不要输出 JSON，不要输出 markdown 标题。
@@ -624,7 +624,7 @@ NotebookLM citations：
 2. 语言自然、专业、直接，不要说空话，不要炫耀方法论术语。
 3. 先说清楚为什么现在要问这个或判断这个，让用户看得见你是在推进分析，不是在直接吐结论。
 4. 如果本轮已经足够形成沉淀，要顺手说明你准备写入什么，但不要直接说内部状态桶名字。
-5. 如果证据不足，要明确指出还需要确认什么。
+5. 如果当前知识库证据不足，要明确指出还需要确认什么。
 6. 尽量把回复控制在 2 到 4 段，便于前端流式展示。
 7. 不要生成交付物，不要描述内部状态桶名字。
         """.strip()
@@ -665,10 +665,10 @@ NotebookLM citations：
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+项目知识库证据摘要：
 {turn.evidence_summary}
 
-NotebookLM citations：
+项目知识库命中引用：
 {citations_json}
 
 刚刚已经流式发送给用户的助手回复：
@@ -680,7 +680,7 @@ NotebookLM citations：
 方法论执行提醒：
 {self._methodology_execution_notes()}
 
-资料理解工作流参考：
+证据接入工作流参考：
 {self.evidence_skill}
 
 请输出结构化 JSON，不要输出额外解释。
@@ -689,9 +689,9 @@ NotebookLM citations：
 1a. 如果上面已经提供了“刚刚已经流式发送给用户的助手回复”，assistant_message 必须与那段正文保持一致，不要改写。
 2. 优先推进真实需求理解，不要空泛鼓励。
 3. 每个状态桶只放当前轮最值得沉淀的内容。
-4. 如果证据不足，不要把内容塞进 confirmed_items。
+4. 如果当前知识库证据不足，不要把内容塞进 confirmed_items。
 5. request_artifacts 仅在用户本轮明确要求交付物时再填。
-6. citations 只整理当前 grounding 已提供的内容，不要编造。
+6. citations 只整理当前证据检索已提供的内容，不要编造。
 7. 不要向用户炫耀方法论名词，要把分析结果翻译成自然业务语言。
         """.strip()
 
