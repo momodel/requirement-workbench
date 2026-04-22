@@ -516,6 +516,153 @@ def test_bind_notebook_endpoint_persists_project_binding(
         assert upload_response.json()["sync_status"] == "synced"
 
 
+def test_reindex_preserves_synced_delete_compatibility(tmp_path: Path, monkeypatch) -> None:
+    app = create_app(make_settings(tmp_path))
+    write_storage_state(app.state.services.settings)
+    install_fake_evidence_runtime(app, monkeypatch)
+
+    source_registry: list[SimpleNamespace] = []
+
+    fake_client = SimpleNamespace(
+        notebooks=SimpleNamespace(
+            list=lambda: asyncio.sleep(
+                0,
+                result=[SimpleNamespace(id="existing-notebook", title="项目专属 Notebook")],
+            ),
+            get=lambda notebook_id: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id=notebook_id, title="项目专属 Notebook"),
+            ),
+            create=lambda title: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="created-notebook", title=title),
+            ),
+        ),
+        sources=SimpleNamespace(
+            add_text=lambda notebook_id, title, content, wait: asyncio.sleep(
+                0,
+                result=source_registry.append(
+                    SimpleNamespace(id=f"nb-{len(source_registry)+1}", title=title)
+                )
+                or source_registry[-1],
+            ),
+            add_url=lambda notebook_id, url, wait: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="nb-source-url", title=url),
+            ),
+            add_file=lambda notebook_id, file_path, wait: asyncio.sleep(
+                0,
+                result=SimpleNamespace(id="nb-source-file", title=file_path),
+            ),
+            list=lambda notebook_id: asyncio.sleep(0, result=list(source_registry)),
+            delete=lambda notebook_id, source_id: asyncio.sleep(
+                0,
+                result=source_registry.__setitem__(
+                    slice(None),
+                    [source for source in source_registry if source.id != source_id],
+                )
+                or True,
+            ),
+        ),
+        chat=SimpleNamespace(
+            ask=lambda notebook_id, question, source_ids=None, conversation_id=None: asyncio.sleep(
+                0,
+                result=SimpleNamespace(answer="NotebookLM 回答", references=[]),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_with_client",
+        lambda callback: app.state.services.notebooklm._run_async(lambda: callback(fake_client)),
+    )
+    monkeypatch.setattr(
+        app.state.services.notebooklm,
+        "_load_client_class",
+        lambda: SimpleNamespace(from_storage=None),
+    )
+
+    def fake_reindex_source(project_id: str, source_id: str):
+        source = app.state.services.catalog.get_source(source_id)
+        assert source is not None
+        knowledge_base = app.state.services.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider="QDRANT_LLAMA_INDEX",
+            external_knowledge_base_id=f"kb-{project_id}",
+            display_name="Evidence KB",
+            description="test",
+            status="ready",
+            status_error=None,
+        )
+        return app.state.services.catalog.replace_source_chunks(
+            project_id=project_id,
+            source_id=source_id,
+            chunks=[
+                {
+                    "knowledge_base_id": knowledge_base.id,
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": f"{source.name} reindexed chunk",
+                    "embedding_status": "indexed",
+                    "index_error": None,
+                    "indexed_at": "2026-04-22T00:00:00+08:00",
+                }
+            ],
+        )
+
+    monkeypatch.setattr(app.state.services.evidence_runtime, "reindex_source", fake_reindex_source)
+    monkeypatch.setattr(app.state.services.evidence_runtime, "delete_source", lambda project_id, source_id: None)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "重建索引兼容性测试",
+                "scenario_type": "general",
+                "summary": "验证 synced source reindex 后仍可删除 NotebookLM 远端资料",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        bind_response = client.post(
+            f"/api/projects/{project_id}/notebook-binding",
+            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
+        )
+        assert bind_response.status_code == 201
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={
+                "upload_kind": "text",
+                "name": "兼容性资料",
+                "text_content": "这条资料会经历 synced -> reindex -> delete。",
+            },
+        )
+        assert upload_response.status_code == 201
+        source = upload_response.json()
+        assert source["sync_status"] == "synced"
+        assert len(source_registry) == 1
+
+        reindex_response = client.post(
+            f"/api/projects/{project_id}/sources/{source['id']}/reindex",
+        )
+        assert reindex_response.status_code == 200
+        reindexed_source = reindex_response.json()
+        assert reindexed_source["id"] == source["id"]
+        assert reindexed_source["sync_status"] == "synced"
+        assert len(source_registry) == 1
+
+        delete_response = client.delete(f"/api/projects/{project_id}/sources/{source['id']}")
+        assert delete_response.status_code == 200
+        assert delete_response.json()["deleted"] is True
+
+        sources_response = client.get(f"/api/projects/{project_id}/sources")
+        assert sources_response.status_code == 200
+        assert sources_response.json() == []
+        assert source_registry == []
+
+
 def test_delete_source_removes_local_and_notebook_records_even_when_evidence_cleanup_fails(
     tmp_path: Path,
     monkeypatch,

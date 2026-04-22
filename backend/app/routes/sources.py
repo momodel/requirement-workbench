@@ -56,17 +56,31 @@ def _run_source_index_operation(
     operation: str,
     raise_on_error: bool,
 ):
-    services.catalog.update_source_sync_status(
-        source_id=source_id,
-        sync_status="indexing",
-        sync_error=None,
-    )
+    source = services.catalog.get_source(source_id)
+    if not source:
+        raise LookupError("Source not found")
+
+    preserve_notebook_sync_lifecycle = source.sync_status == "synced"
+
+    if not preserve_notebook_sync_lifecycle:
+        services.catalog.update_source_sync_status(
+            source_id=source_id,
+            sync_status="indexing",
+            sync_error=None,
+        )
     try:
         if operation == "reindex":
             services.evidence_runtime.reindex_source(project_id, source_id)
         else:
             services.evidence_runtime.index_source(project_id, source_id)
     except ProviderIssue as exc:
+        if preserve_notebook_sync_lifecycle:
+            if raise_on_error:
+                raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+            current_source = services.catalog.get_source(source_id)
+            if not current_source:
+                raise LookupError("Source not found")
+            return current_source
         failed_source = services.catalog.update_source_sync_status(
             source_id=source_id,
             sync_status="index_failed",
@@ -75,6 +89,12 @@ def _run_source_index_operation(
         if raise_on_error:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return failed_source
+
+    if preserve_notebook_sync_lifecycle:
+        current_source = services.catalog.get_source(source_id)
+        if not current_source:
+            raise LookupError("Source not found")
+        return current_source
 
     return services.catalog.update_source_sync_status(
         source_id=source_id,
@@ -190,5 +210,7 @@ def reindex_source(project_id: str, source_id: str, request: Request):
             operation="reindex",
             raise_on_error=True,
         )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
