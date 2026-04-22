@@ -368,7 +368,10 @@ export function WorkbenchPage({
     state.mvp_items.length;
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ block: 'end' });
+    const chatBottom = chatBottomRef.current;
+    if (chatBottom && typeof chatBottom.scrollIntoView === 'function') {
+      chatBottom.scrollIntoView({ block: 'end' });
+    }
   }, [lastMessageContent, messages.length, notices.length, sending]);
 
   async function handleSend() {
