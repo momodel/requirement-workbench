@@ -16,7 +16,6 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "normalize_summary": "ALTER TABLE sources ADD COLUMN normalize_summary TEXT",
         "index_status": "ALTER TABLE sources ADD COLUMN index_status TEXT",
         "index_error": "ALTER TABLE sources ADD COLUMN index_error TEXT",
-        "sync_error": "ALTER TABLE sources ADD COLUMN sync_error TEXT",
     },
     "knowledge_bases": {
         "display_name": "ALTER TABLE knowledge_bases ADD COLUMN display_name TEXT",
@@ -28,53 +27,13 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
     },
 }
 
-SOURCES_NEUTRAL_BACKFILL = (
-    (
-        "index_input_mode",
-        "notebook_import_mode",
-        """
-        UPDATE sources
-        SET index_input_mode = notebook_import_mode
-        WHERE index_input_mode IS NULL AND notebook_import_mode IS NOT NULL
-        """,
-    ),
-    (
-        "normalize_status",
-        "parse_status",
-        """
-        UPDATE sources
-        SET normalize_status = parse_status
-        WHERE normalize_status IS NULL AND parse_status IS NOT NULL
-        """,
-    ),
-    (
-        "normalize_summary",
-        "parse_summary",
-        """
-        UPDATE sources
-        SET normalize_summary = parse_summary
-        WHERE normalize_summary IS NULL AND parse_summary IS NOT NULL
-        """,
-    ),
-    (
-        "index_status",
-        "sync_status",
-        """
-        UPDATE sources
-        SET index_status = sync_status
-        WHERE index_status IS NULL AND sync_status IS NOT NULL
-        """,
-    ),
-    (
-        "index_error",
-        "sync_error",
-        """
-        UPDATE sources
-        SET index_error = sync_error
-        WHERE index_error IS NULL AND sync_error IS NOT NULL
-        """,
-    ),
-)
+SOURCE_LEGACY_TO_NEUTRAL_COLUMNS = {
+    "notebook_import_mode": "index_input_mode",
+    "parse_status": "normalize_status",
+    "parse_summary": "normalize_summary",
+    "sync_status": "index_status",
+    "sync_error": "index_error",
+}
 
 SOURCE_CHUNKS_EXPECTED_COLUMNS = {
     "id",
@@ -116,13 +75,11 @@ def _sources_table_needs_rebuild(connection: sqlite3.Connection) -> bool:
     if not _table_exists(connection, "sources"):
         return False
 
-    column_info = _column_info(connection, "sources")
-    parse_status = column_info.get("parse_status")
-    sync_status = column_info.get("sync_status")
-    if parse_status is None or sync_status is None:
-        return False
-
-    return bool(parse_status[3]) or bool(sync_status[3]) or sync_status[4] is not None
+    existing_columns = _existing_columns(connection, "sources")
+    return any(
+        legacy_column in existing_columns
+        for legacy_column in SOURCE_LEGACY_TO_NEUTRAL_COLUMNS
+    )
 
 
 def _rebuild_sources_table(connection: sqlite3.Connection) -> None:
@@ -130,7 +87,6 @@ def _rebuild_sources_table(connection: sqlite3.Connection) -> None:
         dict(row)
         for row in connection.execute("SELECT * FROM sources ORDER BY created_at, id").fetchall()
     ]
-    existing_columns = _existing_columns(connection, "sources")
     project_constraint = "project_id TEXT NOT NULL"
     if _table_exists(connection, "projects"):
         project_constraint = (
@@ -153,30 +109,44 @@ def _rebuild_sources_table(connection: sqlite3.Connection) -> None:
               storage_path TEXT,
               normalized_path TEXT,
               index_input_mode TEXT,
-              notebook_import_mode TEXT,
               normalize_status TEXT,
-              parse_status TEXT,
               normalize_summary TEXT,
-              parse_summary TEXT,
               index_status TEXT,
-              sync_status TEXT,
               index_error TEXT,
-              sync_error TEXT,
               created_at TEXT NOT NULL
             )
             """
         )
 
         for row in rows:
+            index_input_mode = row.get("index_input_mode")
+            if index_input_mode is None:
+                index_input_mode = row.get("notebook_import_mode")
+
+            normalize_status = row.get("normalize_status")
+            if normalize_status is None:
+                normalize_status = row.get("parse_status")
+
+            normalize_summary = row.get("normalize_summary")
+            if normalize_summary is None:
+                normalize_summary = row.get("parse_summary")
+
+            index_status = row.get("index_status")
+            if index_status is None:
+                index_status = row.get("sync_status")
+
+            index_error = row.get("index_error")
+            if index_error is None:
+                index_error = row.get("sync_error")
+
             connection.execute(
                 """
                 INSERT INTO sources__migrated (
                   id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                  index_input_mode, notebook_import_mode, normalize_status, parse_status,
-                  normalize_summary, parse_summary, index_status, sync_status, index_error,
-                  sync_error, created_at
+                  index_input_mode, normalize_status, normalize_summary, index_status,
+                  index_error, created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row["id"],
@@ -186,16 +156,11 @@ def _rebuild_sources_table(connection: sqlite3.Connection) -> None:
                     row["upload_kind"],
                     row.get("storage_path"),
                     row.get("normalized_path"),
-                    row.get("index_input_mode") if "index_input_mode" in existing_columns else None,
-                    row.get("notebook_import_mode") if "notebook_import_mode" in existing_columns else None,
-                    row.get("normalize_status") if "normalize_status" in existing_columns else None,
-                    row.get("parse_status") if "parse_status" in existing_columns else None,
-                    row.get("normalize_summary") if "normalize_summary" in existing_columns else None,
-                    row.get("parse_summary") if "parse_summary" in existing_columns else None,
-                    row.get("index_status") if "index_status" in existing_columns else None,
-                    row.get("sync_status") if "sync_status" in existing_columns else None,
-                    row.get("index_error") if "index_error" in existing_columns else None,
-                    row.get("sync_error") if "sync_error" in existing_columns else None,
+                    index_input_mode,
+                    normalize_status,
+                    normalize_summary,
+                    index_status,
+                    index_error,
                     row["created_at"],
                 ),
             )
@@ -380,16 +345,6 @@ def _apply_column_migrations(connection: sqlite3.Connection) -> None:
                 connection.execute(statement)
 
 
-def _backfill_sources_neutral_columns(connection: sqlite3.Connection) -> None:
-    if not _table_exists(connection, "sources"):
-        return
-
-    existing_columns = _existing_columns(connection, "sources")
-    for neutral_column, legacy_column, statement in SOURCES_NEUTRAL_BACKFILL:
-        if neutral_column in existing_columns and legacy_column in existing_columns:
-            connection.execute(statement)
-
-
 def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
     settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -404,7 +359,6 @@ def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
         connection.executescript(schema_path.read_text(encoding="utf-8"))
         _ensure_source_chunks_schema(connection)
         _apply_column_migrations(connection)
-        _backfill_sources_neutral_columns(connection)
         connection.commit()
     finally:
         connection.close()

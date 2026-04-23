@@ -9,22 +9,15 @@ from app.models import CreateProjectRequest
 from app.services.project_catalog import ProjectCatalog
 
 SOURCE_WRITE_STORAGE_COLUMNS = (
-    "notebook_import_mode",
     "index_input_mode",
-    "parse_status",
     "normalize_status",
-    "parse_summary",
     "normalize_summary",
-    "sync_status",
     "index_status",
-    "sync_error",
     "index_error",
 )
 
 SOURCE_STATUS_STORAGE_COLUMNS = (
-    "sync_status",
     "index_status",
-    "sync_error",
     "index_error",
 )
 
@@ -75,11 +68,6 @@ def assert_source_neutral_write_storage(
     assert stored["normalize_summary"] == normalize_summary
     assert stored["index_status"] == index_status
     assert stored["index_error"] == index_error
-    assert stored["notebook_import_mode"] is None
-    assert stored["parse_status"] is None
-    assert stored["parse_summary"] is None
-    assert stored["sync_status"] is None
-    assert stored["sync_error"] is None
 
 
 def assert_source_status_neutral_write_storage(
@@ -90,8 +78,6 @@ def assert_source_status_neutral_write_storage(
 ) -> None:
     assert stored["index_status"] == index_status
     assert stored["index_error"] == index_error
-    assert stored["sync_status"] is None
-    assert stored["sync_error"] is None
 
 
 def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> None:
@@ -170,11 +156,6 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
         migrated_source_row = migrated.execute(
             """
             SELECT
-              notebook_import_mode,
-              parse_status,
-              parse_summary,
-              sync_status,
-              sync_error,
               index_input_mode,
               normalize_status,
               normalize_summary,
@@ -192,11 +173,11 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert "normalize_summary" in sources_columns
     assert "index_status" in sources_columns
     assert "index_error" in sources_columns
-    assert "notebook_import_mode" in sources_columns
-    assert "parse_status" in sources_columns
-    assert "parse_summary" in sources_columns
-    assert "sync_status" in sources_columns
-    assert "sync_error" in sources_columns
+    assert "notebook_import_mode" not in sources_columns
+    assert "parse_status" not in sources_columns
+    assert "parse_summary" not in sources_columns
+    assert "sync_status" not in sources_columns
+    assert "sync_error" not in sources_columns
     assert "body" in artifact_columns
     assert "knowledge_bases" in tables
     assert "source_chunks" in tables
@@ -213,18 +194,9 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert migrated_source_row[2] == "迁移摘要"
     assert migrated_source_row[3] == "synced"
     assert migrated_source_row[4] == "legacy sync error"
-    assert migrated_source_row[5] == "direct_text"
-    assert migrated_source_row[6] == "parsed"
-    assert migrated_source_row[7] == "迁移摘要"
-    assert migrated_source_row[8] == "synced"
-    assert migrated_source_row[9] == "legacy sync error"
-    assert sources_table_info["parse_status"][3] == 0
-    assert sources_table_info["parse_status"][4] is None
-    assert sources_table_info["sync_status"][3] == 0
-    assert sources_table_info["sync_status"][4] is None
 
 
-def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
+def test_init_db_creates_sources_table_with_neutral_source_columns_only(
     tmp_path: Path,
 ) -> None:
     settings = make_settings(tmp_path)
@@ -240,21 +212,17 @@ def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
 
     expected_columns = {
         "index_input_mode",
-        "notebook_import_mode",
         "normalize_status",
-        "parse_status",
         "normalize_summary",
-        "parse_summary",
         "index_status",
-        "sync_status",
         "index_error",
-        "sync_error",
     }
     assert expected_columns.issubset(sources_columns)
-    assert sources_table_info["parse_status"][3] == 0
-    assert sources_table_info["parse_status"][4] is None
-    assert sources_table_info["sync_status"][3] == 0
-    assert sources_table_info["sync_status"][4] is None
+    assert "notebook_import_mode" not in sources_columns
+    assert "parse_status" not in sources_columns
+    assert "parse_summary" not in sources_columns
+    assert "sync_status" not in sources_columns
+    assert "sync_error" not in sources_columns
 
 
 def test_init_db_allows_neutral_only_source_insert_on_fresh_schema(tmp_path: Path) -> None:
@@ -848,14 +816,10 @@ def test_project_catalog_source_reads_prefer_neutral_columns_over_legacy_columns
         """
         INSERT INTO sources (
           id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-          notebook_import_mode, index_input_mode,
-          parse_status, normalize_status,
-          parse_summary, normalize_summary,
-          sync_status, index_status,
-          sync_error, index_error,
+          index_input_mode, normalize_status, normalize_summary, index_status, index_error,
           created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             "source-neutral-1",
@@ -865,15 +829,10 @@ def test_project_catalog_source_reads_prefer_neutral_columns_over_legacy_columns
             "text",
             None,
             None,
-            "legacy_text",
             "neutral_text",
-            "legacy_parsed",
             "neutral_parsed",
-            "legacy 摘要",
             "neutral 摘要",
-            "legacy_synced",
             "neutral_synced",
-            "legacy error",
             "neutral error",
             "2026-04-22T00:00:00Z",
         ),
@@ -915,7 +874,7 @@ def test_project_catalog_source_reads_prefer_neutral_columns_over_legacy_columns
         assert "sync_error" not in payload
 
 
-def test_project_catalog_source_reads_fallback_to_legacy_columns_when_neutral_is_null(
+def test_project_catalog_source_reads_only_neutral_storage_columns(
     tmp_path: Path,
 ) -> None:
     settings = make_settings(tmp_path)
@@ -931,55 +890,21 @@ def test_project_catalog_source_reads_fallback_to_legacy_columns_when_neutral_is
     )
 
     connection = sqlite3.connect(settings.sqlite_path)
-    connection.execute(
-        """
-        INSERT INTO sources (
-          id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-          notebook_import_mode, index_input_mode,
-          parse_status, normalize_status,
-          parse_summary, normalize_summary,
-          sync_status, index_status,
-          sync_error, index_error,
-          created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            "source-fallback-1",
-            project.id,
-            "source.txt",
-            "text",
-            "text",
-            None,
-            None,
-            "legacy_text",
-            None,
-            "legacy_parsed",
-            None,
-            "legacy 摘要",
-            None,
-            "legacy_synced",
-            None,
-            "legacy error",
-            None,
-            "2026-04-22T00:00:00Z",
-        ),
-    )
-    connection.commit()
-    connection.close()
+    try:
+        source_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(sources)").fetchall()
+        }
+    finally:
+        connection.close()
 
-    listed = catalog.list_sources(project.id)
-    fetched = catalog.get_source("source-fallback-1")
-
-    assert len(listed) == 1
-    assert listed[0].index_input_mode == "legacy_text"
-    assert listed[0].normalize_status == "legacy_parsed"
-    assert listed[0].normalize_summary == "legacy 摘要"
-    assert listed[0].index_status == "legacy_synced"
-    assert listed[0].index_error == "legacy error"
-    assert fetched is not None
-    assert fetched.index_input_mode == "legacy_text"
-    assert fetched.normalize_status == "legacy_parsed"
-    assert fetched.normalize_summary == "legacy 摘要"
-    assert fetched.index_status == "legacy_synced"
-    assert fetched.index_error == "legacy error"
+    assert "index_input_mode" in source_columns
+    assert "normalize_status" in source_columns
+    assert "normalize_summary" in source_columns
+    assert "index_status" in source_columns
+    assert "index_error" in source_columns
+    assert "notebook_import_mode" not in source_columns
+    assert "parse_status" not in source_columns
+    assert "parse_summary" not in source_columns
+    assert "sync_status" not in source_columns
+    assert "sync_error" not in source_columns

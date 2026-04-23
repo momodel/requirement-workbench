@@ -22,15 +22,10 @@ MINIMAL_NEUTRAL_SOURCE_FIELDS = {
 }
 
 SOURCE_WRITE_STORAGE_COLUMNS = (
-    "notebook_import_mode",
     "index_input_mode",
-    "parse_status",
     "normalize_status",
-    "parse_summary",
     "normalize_summary",
-    "sync_status",
     "index_status",
-    "sync_error",
     "index_error",
 )
 
@@ -69,11 +64,6 @@ def assert_source_neutral_write_storage(
     assert stored["normalize_summary"] == normalize_summary
     assert stored["index_status"] == index_status
     assert index_error_predicate(stored["index_error"])
-    assert stored["notebook_import_mode"] is None
-    assert stored["parse_status"] is None
-    assert stored["parse_summary"] is None
-    assert stored["sync_status"] is None
-    assert stored["sync_error"] is None
 
 
 def make_settings(tmp_path: Path) -> AppSettings:

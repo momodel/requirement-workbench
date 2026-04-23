@@ -20,15 +20,10 @@ CREATE TABLE IF NOT EXISTS sources (
   storage_path TEXT,
   normalized_path TEXT,
   index_input_mode TEXT,
-  notebook_import_mode TEXT,
   normalize_status TEXT,
-  parse_status TEXT,
   normalize_summary TEXT,
-  parse_summary TEXT,
   index_status TEXT,
-  sync_status TEXT,
   index_error TEXT,
-  sync_error TEXT,
   created_at TEXT NOT NULL
 );
 
