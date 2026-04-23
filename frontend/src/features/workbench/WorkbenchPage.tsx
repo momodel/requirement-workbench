@@ -167,6 +167,78 @@ function indexStatusLabel(status: string) {
   return status;
 }
 
+function sourceSummaryText(source: SourceRecord) {
+  const summary = source.normalize_summary?.trim();
+  if (summary) return summary;
+  if (source.upload_kind === 'url') {
+    if (source.normalize_status === 'failed' || source.normalize_status === 'error') {
+      return '网页正文抓取失败，当前没有可展示的标准化摘要。';
+    }
+    if (source.normalize_status === 'parsed') {
+      return '网页正文已抓取，但当前还没有可展示的标准化摘要。';
+    }
+    return '网页链接已登记，等待抓取正文后再进入标准化。';
+  }
+  return '当前还没有标准化摘要。';
+}
+
+function sourceStatusNote(source: SourceRecord, options?: { retrying?: boolean }) {
+  if (options?.retrying) {
+    return {
+      tone: 'info' as const,
+      text: '正在重新入库，完成后会自动刷新当前状态。',
+    };
+  }
+  if (source.index_status === 'index_failed' || source.index_status === 'error') {
+    return {
+      tone: 'danger' as const,
+      text: source.index_error ?? '当前入库失败，请稍后重试。',
+    };
+  }
+  if (source.index_status === 'not_configured') {
+    return {
+      tone: 'warning' as const,
+      text: source.index_error ?? '当前环境还没有完成入库配置。',
+    };
+  }
+  if (source.index_status === 'knowledge_base_missing') {
+    return {
+      tone: 'warning' as const,
+      text: source.index_error ?? '资料已标准化，等待初始化项目知识库后继续入库。',
+    };
+  }
+  if (
+    source.index_status === 'pending' ||
+    source.index_status === 'queued' ||
+    source.index_status === 'indexing' ||
+    source.index_status === 'normalization_pending'
+  ) {
+    return {
+      tone: 'info' as const,
+      text: source.index_error ?? '资料已进入入库流程，状态会自动刷新。',
+    };
+  }
+  if (source.index_status === 'normalization_failed') {
+    return {
+      tone: 'danger' as const,
+      text: source.index_error ?? '标准化失败，当前还不能进入项目知识库。',
+    };
+  }
+  if (source.normalize_status === 'pending') {
+    return {
+      tone: 'info' as const,
+      text: '资料已登记，等待标准化结果。',
+    };
+  }
+  if (source.normalize_status === 'failed' || source.normalize_status === 'error') {
+    return {
+      tone: 'danger' as const,
+      text: source.index_error ?? '标准化失败，当前还不能进入项目知识库。',
+    };
+  }
+  return null;
+}
+
 function sanitizeStateBody(title: string, body: string) {
   if (!body) return '';
 
@@ -211,6 +283,7 @@ function SourcePreview({
   position: { top: number; left: number };
   onClose: () => void;
 }) {
+  const statusNote = sourceStatusNote(source);
   return createPortal(
     <div
       className="fixed z-50 w-[360px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
@@ -232,10 +305,17 @@ function SourcePreview({
           <Badge variant={statusVariant(source.index_status)}>{`入库：${indexStatusLabel(source.index_status)}`}</Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{source.normalize_summary ?? '当前还没有标准化摘要。'}</p>
-        {source.index_error ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            {source.index_error}
+        <p>{sourceSummaryText(source)}</p>
+        {statusNote ? (
+          <div
+            className={cn(
+              'rounded-2xl border p-3',
+              statusNote.tone === 'danger' && 'border-amber-200 bg-amber-50 text-amber-800',
+              statusNote.tone === 'warning' && 'border-sky-200 bg-sky-50 text-sky-800',
+              statusNote.tone === 'info' && 'border-slate-200 bg-slate-50 text-slate-700'
+            )}
+          >
+            {statusNote.text}
           </div>
         ) : null}
       </div>
@@ -510,8 +590,16 @@ export function WorkbenchPage({
           <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base">项目知识库</CardTitle>
-                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已入库 · ${pendingSourceCount} 待处理`}</div>
+                <div className="space-y-1">
+                  <CardTitle className="text-base">项目知识库</CardTitle>
+                  <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已入库 · ${pendingSourceCount} 待处理`}</div>
+                </div>
+                {uploading ? (
+                  <Badge variant="accent">
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    资料导入中
+                  </Badge>
+                ) : null}
               </div>
             </CardHeader>
             <CardContent
@@ -548,6 +636,9 @@ export function WorkbenchPage({
                 <div className="grid gap-2.5">
                   {sources.map((source) => {
                     const canRetryIndex = source.index_status === 'index_failed' || source.index_status === 'error';
+                    const statusNote = sourceStatusNote(source, {
+                      retrying: retryingSourceId === source.id,
+                    });
 
                     return (
                       <div
@@ -619,6 +710,21 @@ export function WorkbenchPage({
                           <Badge variant={statusVariant(source.index_status)}>
                             {indexStatusLabel(source.index_status)}
                           </Badge>
+                        </div>
+                        <div className="mt-2.5 space-y-1.5">
+                          <p className="line-clamp-2 text-xs leading-5 text-muted">{sourceSummaryText(source)}</p>
+                          {statusNote ? (
+                            <p
+                              className={cn(
+                                'text-[11px] leading-5',
+                                statusNote.tone === 'danger' && 'text-amber-700',
+                                statusNote.tone === 'warning' && 'text-sky-700',
+                                statusNote.tone === 'info' && 'text-slate-600'
+                              )}
+                            >
+                              {statusNote.text}
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     );

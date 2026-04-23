@@ -1025,11 +1025,100 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByText('入库失败')).toBeInTheDocument();
+    expect(screen.getByText('当前仍然需要重新入库。')).toBeInTheDocument();
+    expect(screen.getByText('首次入库失败')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '重试入库 旧资料' }));
 
     expect(await screen.findByText('重建索引失败')).toBeInTheDocument();
     expect(screen.getByText('入库失败')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '重试入库 旧资料' })).toBeInTheDocument();
+  });
+
+  it('keeps URL source pending and failure copy aligned with canonical status', async () => {
+    window.history.replaceState({}, '', '/projects/url-source-status/workbench');
+
+    installFetchMock({
+      '/api/projects': [],
+      '/api/projects/url-source-status': {
+        id: 'url-source-status',
+        name: 'URL Source Status',
+        scenario_type: 'general',
+        summary: '验证 URL source 的待处理和失败文案不会互相混淆。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: null,
+      },
+      '/api/projects/url-source-status/sources': [
+        {
+          id: 'src-url-pending',
+          project_id: 'url-source-status',
+          name: '退款规则链接',
+          source_kind: 'url',
+          upload_kind: 'url',
+          storage_path: null,
+          normalized_path: null,
+          index_input_mode: null,
+          normalize_status: 'pending',
+          normalize_summary: null,
+          index_status: 'normalization_pending',
+          index_error: '还没有抓取到页面正文，不会进入项目知识库。',
+          created_at: '2026-04-16T00:00:00+08:00',
+        },
+        {
+          id: 'src-url-failed',
+          project_id: 'url-source-status',
+          name: '帮助中心链接',
+          source_kind: 'url',
+          upload_kind: 'url',
+          storage_path: null,
+          normalized_path: null,
+          index_input_mode: null,
+          normalize_status: 'failed',
+          normalize_summary: null,
+          index_status: 'normalization_failed',
+          index_error: '抓取目标网页失败。',
+          created_at: '2026-04-16T00:00:00+08:00',
+        },
+      ],
+      '/api/projects/url-source-status/messages': [],
+      '/api/projects/url-source-status/state': {
+        current_understanding: [],
+        pending_items: [],
+        confirmed_items: [],
+        conflict_items: [],
+        mvp_items: [],
+        versions: [],
+        artifacts: [],
+      },
+      '/api/projects/url-source-status/readiness': {
+        project_id: 'url-source-status',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'ready',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: url-source-status; indexed chunks: 0',
+          action_label: null,
+        },
+      },
+      '/api/projects/url-source-status/artifacts': [],
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: 'URL Source Status' })).toBeInTheDocument();
+    expect(screen.getByText('网页链接已登记，等待抓取正文后再进入标准化。')).toBeInTheDocument();
+    const pendingNote = screen.getByText('还没有抓取到页面正文，不会进入项目知识库。');
+    expect(pendingNote.className).toContain('text-slate-600');
+    expect(screen.getByText('网页正文抓取失败，当前没有可展示的标准化摘要。')).toBeInTheDocument();
+    expect(screen.getByText('抓取目标网页失败。').className).toContain('text-amber-700');
   });
 
   it('navigates back to the projects list from the workbench header', async () => {
