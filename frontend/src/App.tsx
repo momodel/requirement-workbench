@@ -205,6 +205,7 @@ function WorkbenchRoute() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoInitAttemptedProjectId = useRef<string | null>(null);
+  const currentProjectIdRef = useRef(projectId);
   const recentInsightTimerRef = useRef<number | null>(null);
   const evidenceStatus = readiness?.evidence?.status ?? null;
 
@@ -301,8 +302,10 @@ function WorkbenchRoute() {
   }
 
   useEffect(() => {
+    currentProjectIdRef.current = projectId;
     autoInitAttemptedProjectId.current = null;
     setRecentInsightIds([]);
+    setGeneratingArtifactType(null);
     setArtifactError(null);
     void loadWorkbench();
   }, [projectId]);
@@ -629,12 +632,19 @@ function WorkbenchRoute() {
   }
 
   async function handleGenerateArtifact(artifactType: 'document' | 'page_solution' | 'interaction_flow') {
+    const artifactProjectId = projectId;
     setArtifactError(null);
     setGeneratingArtifactType(artifactType);
     try {
-      await generateArtifact(projectId, artifactType);
+      await generateArtifact(artifactProjectId, artifactType);
+      if (currentProjectIdRef.current !== artifactProjectId) {
+        return;
+      }
       await loadWorkbench({ silent: true });
     } catch (error) {
+      if (currentProjectIdRef.current !== artifactProjectId) {
+        return;
+      }
       const message = error instanceof Error ? error.message : '交付物生成失败。';
       setArtifactError(`${message} 当前已有交付物不受影响。`);
       setNotices((current) => [
@@ -647,6 +657,9 @@ function WorkbenchRoute() {
         ...current,
       ]);
     } finally {
+      if (currentProjectIdRef.current !== artifactProjectId) {
+        return;
+      }
       setGeneratingArtifactType(null);
     }
   }
