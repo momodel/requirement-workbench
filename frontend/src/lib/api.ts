@@ -15,22 +15,6 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
-type LegacySourceRecord = Omit<
-  SourceRecord,
-  'index_input_mode' | 'normalize_status' | 'normalize_summary' | 'index_status' | 'index_error'
-> & {
-  index_input_mode?: string | null;
-  normalize_status?: string;
-  normalize_summary?: string | null;
-  index_status?: string;
-  index_error?: string | null;
-  notebook_import_mode?: string | null;
-  parse_status?: string;
-  parse_summary?: string | null;
-  sync_status?: string;
-  sync_error?: string | null;
-};
-
 type LegacyReadinessProvider = {
   provider: string;
   status: string;
@@ -45,8 +29,7 @@ type LegacyReadinessPayload = {
   notebooklm?: LegacyReadinessProvider;
 };
 
-// Keep notebook-era field compatibility at the transport edge only.
-// UI components should consume the normalized SourceRecord shape exclusively.
+type JsonObject = Record<string, unknown>;
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
@@ -74,14 +57,6 @@ function normalizeReadinessStatus(status: string): string {
   if (status === 'binding_required') {
     return 'knowledge_base_missing';
   }
-  return status;
-}
-
-function normalizeIndexStatus(status: string): string {
-  if (status === 'synced') return 'indexed';
-  if (status === 'pending_sync') return 'pending';
-  if (status === 'sync_failed') return 'index_failed';
-  if (status === 'binding_required') return 'knowledge_base_missing';
   return status;
 }
 
@@ -114,28 +89,59 @@ function normalizeKnowledgeBaseRecord(
   return knowledgeBase ?? null;
 }
 
-function normalizeSourceRecord(source: LegacySourceRecord): SourceRecord {
-  const indexInputMode = source.index_input_mode ?? source.notebook_import_mode ?? null;
-  const normalizeStatus = source.normalize_status ?? source.parse_status ?? 'pending';
-  const normalizeSummary = source.normalize_summary ?? source.parse_summary ?? null;
-  const indexStatus = normalizeIndexStatus(source.index_status ?? source.sync_status ?? 'pending');
-  const indexError = source.index_error ?? source.sync_error ?? null;
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null;
+}
 
-  return {
-    id: source.id,
-    project_id: source.project_id,
-    name: source.name,
-    source_kind: source.source_kind,
-    upload_kind: source.upload_kind,
-    storage_path: source.storage_path,
-    normalized_path: source.normalized_path,
-    index_input_mode: indexInputMode,
-    normalize_status: normalizeStatus,
-    normalize_summary: normalizeSummary,
-    index_status: indexStatus,
-    index_error: indexError,
-    created_at: source.created_at,
-  };
+function hasNullableStringField(record: JsonObject, fieldName: string): boolean {
+  return fieldName in record && (record[fieldName] === null || typeof record[fieldName] === 'string');
+}
+
+function assertSourceRecord(value: unknown, context: string): asserts value is SourceRecord {
+  if (!isJsonObject(value)) {
+    throw new Error(`${context} returned an invalid source payload: expected an object.`);
+  }
+
+  const requiredStringFields = [
+    'id',
+    'project_id',
+    'name',
+    'source_kind',
+    'upload_kind',
+    'normalize_status',
+    'index_status',
+    'created_at',
+  ] as const;
+
+  for (const fieldName of requiredStringFields) {
+    if (typeof value[fieldName] !== 'string' || value[fieldName].length === 0) {
+      throw new Error(`${context} returned an invalid source payload: missing canonical field "${fieldName}".`);
+    }
+  }
+
+  const nullableStringFields = [
+    'storage_path',
+    'normalized_path',
+    'index_input_mode',
+    'normalize_summary',
+    'index_error',
+  ] as const;
+
+  for (const fieldName of nullableStringFields) {
+    if (!hasNullableStringField(value, fieldName)) {
+      throw new Error(`${context} returned an invalid source payload: missing canonical field "${fieldName}".`);
+    }
+  }
+}
+
+function assertSourceRecordList(value: unknown, context: string): asserts value is SourceRecord[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${context} returned an invalid source payload: expected an array.`);
+  }
+
+  value.forEach((record, index) => {
+    assertSourceRecord(record, `${context} item ${index}`);
+  });
 }
 
 export function listProjects() {
@@ -181,9 +187,10 @@ export function getProjectKnowledgeBase(projectId: string) {
 }
 
 export function listSources(projectId: string) {
-  return fetchJson<LegacySourceRecord[]>(`/api/projects/${projectId}/sources`).then((sources) =>
-    sources.map(normalizeSourceRecord)
-  );
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources`).then((payload) => {
+    assertSourceRecordList(payload, 'Source list');
+    return payload;
+  });
 }
 
 export function listMessages(projectId: string) {
@@ -204,10 +211,13 @@ export async function uploadTextSource(projectId: string, payload: { name: strin
   formData.set('name', payload.name);
   formData.set('text_content', payload.text);
 
-  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources`, {
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
-  }).then(normalizeSourceRecord);
+  }).then((payload) => {
+    assertSourceRecord(payload, 'Text source upload');
+    return payload;
+  });
 }
 
 export async function uploadUrlSource(projectId: string, payload: { name: string; sourceUrl: string }) {
@@ -216,10 +226,13 @@ export async function uploadUrlSource(projectId: string, payload: { name: string
   formData.set('name', payload.name);
   formData.set('source_url', payload.sourceUrl);
 
-  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources`, {
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
-  }).then(normalizeSourceRecord);
+  }).then((payload) => {
+    assertSourceRecord(payload, 'URL source upload');
+    return payload;
+  });
 }
 
 export async function uploadFileSources(projectId: string, files: File[]) {
@@ -230,10 +243,13 @@ export async function uploadFileSources(projectId: string, files: File[]) {
     formData.append('files', file);
   }
 
-  return fetchJson<LegacySourceRecord[]>(`/api/projects/${projectId}/sources`, {
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
-  }).then((sources) => sources.map(normalizeSourceRecord));
+  }).then((payload) => {
+    assertSourceRecordList(payload, 'File source upload');
+    return payload;
+  });
 }
 
 export function deleteProjectSource(projectId: string, sourceId: string) {
@@ -246,9 +262,12 @@ export function deleteProjectSource(projectId: string, sourceId: string) {
 }
 
 export function reindexProjectSource(projectId: string, sourceId: string) {
-  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
     method: 'POST',
-  }).then(normalizeSourceRecord);
+  }).then((payload) => {
+    assertSourceRecord(payload, 'Source reindex');
+    return payload;
+  });
 }
 
 export function initializeProjectKnowledgeBase(projectId: string) {

@@ -770,11 +770,11 @@ describe('App', () => {
           upload_kind: 'seed',
           storage_path: null,
           normalized_path: null,
-          notebook_import_mode: null,
-          parse_status: 'parsed',
-          parse_summary: '解释业务字段到财务科目的映射口径。',
-          sync_status: 'pending',
-          sync_error: null,
+          index_input_mode: null,
+          normalize_status: 'parsed',
+          normalize_summary: '解释业务字段到财务科目的映射口径。',
+          index_status: 'pending',
+          index_error: null,
           created_at: '2026-04-16T00:00:00+08:00',
         },
       ],
@@ -851,7 +851,7 @@ describe('App', () => {
     });
   });
 
-  it('prefers canonical source indexing semantics over legacy sync_status in the workbench UI', async () => {
+  it('renders canonical source indexing semantics in the workbench UI', async () => {
     window.history.replaceState({}, '', '/projects/source-status-priority/workbench');
 
     installFetchMock({
@@ -879,11 +879,6 @@ describe('App', () => {
           normalize_summary: '已完成标准化。',
           index_status: 'pending',
           index_error: null,
-          notebook_import_mode: 'legacy-notebook',
-          parse_status: 'parsed',
-          parse_summary: '旧摘要',
-          sync_status: 'synced',
-          sync_error: null,
           created_at: '2026-04-16T00:00:00+08:00',
         },
       ],
@@ -923,6 +918,118 @@ describe('App', () => {
     expect(screen.getByText('1 份 · 0 已入库 · 1 待处理')).toBeInTheDocument();
     expect(screen.getAllByText('待入库').length).toBeGreaterThan(0);
     expect(screen.queryByText('1 份 · 1 已入库 · 1 待处理')).not.toBeInTheDocument();
+  });
+
+  it('shows a clear notice when source reindex returns a legacy-only payload', async () => {
+    window.history.replaceState({}, '', '/projects/source-payload-contract/workbench');
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/source-payload-contract/sources/src-legacy-only/reindex' && method === 'POST') {
+        return new Response(
+          JSON.stringify({
+            id: 'src-legacy-only',
+            project_id: 'source-payload-contract',
+            name: '旧资料',
+            source_kind: 'document',
+            upload_kind: 'file',
+            storage_path: null,
+            normalized_path: null,
+            notebook_import_mode: null,
+            parse_status: 'parsed',
+            parse_summary: '旧 source payload',
+            sync_status: 'synced',
+            sync_error: null,
+            created_at: '2026-04-16T00:00:00+08:00',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/source-payload-contract': {
+          id: 'source-payload-contract',
+          name: 'Source Payload Contract',
+          scenario_type: 'reconciliation',
+          summary: '验证 source transport 必须使用 canonical payload。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: null,
+        },
+        '/api/projects/source-payload-contract/sources': [
+          {
+            id: 'src-legacy-only',
+            project_id: 'source-payload-contract',
+            name: '旧资料',
+            source_kind: 'document',
+            upload_kind: 'file',
+            storage_path: null,
+            normalized_path: null,
+            index_input_mode: null,
+            normalize_status: 'parsed',
+            normalize_summary: '当前仍然需要重新入库。',
+            index_status: 'index_failed',
+            index_error: '首次入库失败',
+            created_at: '2026-04-16T00:00:00+08:00',
+          },
+        ],
+        '/api/projects/source-payload-contract/messages': [],
+        '/api/projects/source-payload-contract/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/source-payload-contract/readiness': {
+          project_id: 'source-payload-contract',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'ready',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: source-payload-contract; indexed chunks: 1',
+            action_label: null,
+          },
+        },
+        '/api/projects/source-payload-contract/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('入库失败')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '重试入库 旧资料' }));
+
+    expect(await screen.findByText('重建索引失败')).toBeInTheDocument();
+    expect(screen.getByText('入库失败')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重试入库 旧资料' })).toBeInTheDocument();
   });
 
   it('navigates back to the projects list from the workbench header', async () => {
@@ -1244,11 +1351,11 @@ describe('App', () => {
                 upload_kind: 'seed',
                 storage_path: null,
                 normalized_path: null,
-                notebook_import_mode: null,
-                parse_status: 'parsed',
-                parse_summary: '解释业务字段到财务科目的映射口径。',
-                sync_status: 'pending',
-                sync_error: null,
+                index_input_mode: null,
+                normalize_status: 'parsed',
+                normalize_summary: '解释业务字段到财务科目的映射口径。',
+                index_status: 'pending',
+                index_error: null,
                 created_at: '2026-04-16T00:00:00+08:00',
               },
             ],
@@ -1325,11 +1432,11 @@ describe('App', () => {
             upload_kind: 'file',
             storage_path: null,
             normalized_path: null,
-            notebook_import_mode: null,
-            parse_status: 'parsed',
-            parse_summary: '解释业务字段到财务科目的映射口径。',
-            sync_status: 'synced',
-            sync_error: null,
+            index_input_mode: null,
+            normalize_status: 'parsed',
+            normalize_summary: '解释业务字段到财务科目的映射口径。',
+            index_status: 'indexed',
+            index_error: null,
             created_at: '2026-04-16T00:00:00+08:00',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } }
@@ -1356,11 +1463,11 @@ describe('App', () => {
             upload_kind: 'file',
             storage_path: null,
             normalized_path: null,
-            notebook_import_mode: null,
-            parse_status: 'parsed',
-            parse_summary: '解释业务字段到财务科目的映射口径。',
-            sync_status: retried ? 'synced' : 'sync_failed',
-            sync_error: retried ? null : 'Evidence Runtime 调用失败：ConnectError',
+            index_input_mode: null,
+            normalize_status: 'parsed',
+            normalize_summary: '解释业务字段到财务科目的映射口径。',
+            index_status: retried ? 'indexed' : 'index_failed',
+            index_error: retried ? null : 'Evidence Runtime 调用失败：ConnectError',
             created_at: '2026-04-16T00:00:00+08:00',
           },
         ],
@@ -1445,11 +1552,11 @@ describe('App', () => {
               upload_kind: 'file',
               storage_path: null,
               normalized_path: null,
-              notebook_import_mode: null,
-              parse_status: 'parsed',
-              parse_summary: '规则A',
-              sync_status: 'pending_sync',
-              sync_error: null,
+              index_input_mode: null,
+              normalize_status: 'parsed',
+              normalize_summary: '规则A',
+              index_status: 'pending',
+              index_error: null,
               created_at: '2026-04-16T00:00:00+08:00',
             },
             {
@@ -1460,11 +1567,11 @@ describe('App', () => {
               upload_kind: 'file',
               storage_path: null,
               normalized_path: null,
-              notebook_import_mode: null,
-              parse_status: 'parsed',
-              parse_summary: '规则B',
-              sync_status: 'pending_sync',
-              sync_error: null,
+              index_input_mode: null,
+              normalize_status: 'parsed',
+              normalize_summary: '规则B',
+              index_status: 'pending',
+              index_error: null,
               created_at: '2026-04-16T00:00:00+08:00',
             },
           ]),
