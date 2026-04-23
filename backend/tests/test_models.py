@@ -131,6 +131,13 @@ def test_source_record_accepts_legacy_fields_and_normalizes_to_neutral() -> None
     assert record.index_status == "synced"
     assert record.index_error is None
 
+    payload = record.model_dump()
+    assert payload["notebook_import_mode"] == "direct_text"
+    assert payload["parse_status"] == "parsed"
+    assert payload["parse_summary"] == "旧字段摘要"
+    assert payload["sync_status"] == "synced"
+    assert payload["sync_error"] is None
+
     legacy_payload = record.model_dump_legacy()
 
     assert legacy_payload["index_input_mode"] == "direct_text"

@@ -165,26 +165,6 @@ class SourceRecord(BaseModel):
         payload["sync_error"] = self.index_error
         return payload
 
-    @property
-    def notebook_import_mode(self) -> str | None:
-        return self.index_input_mode
-
-    @property
-    def parse_status(self) -> str:
-        return self.normalize_status
-
-    @property
-    def parse_summary(self) -> str | None:
-        return self.normalize_summary
-
-    @property
-    def sync_status(self) -> str:
-        return self.index_status
-
-    @property
-    def sync_error(self) -> str | None:
-        return self.index_error
-
 
 class MessageRecord(BaseModel):
     id: str
