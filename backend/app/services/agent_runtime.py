@@ -465,6 +465,11 @@ class ClaudeAgentRuntime:
                 provider="CLAUDE_AGENT_SDK",
                 message="未找到 Claude Code CLI。请安装 claude 或配置 CLAUDE_CODE_CLI_PATH。",
             )
+        if not self.settings.claude_model:
+            raise ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message="缺少 CLAUDE_MODEL，先补充模型配置后再继续。",
+            )
 
     def resolved_cli_path(self) -> str:
         cli_path = self.settings.claude_cli_path
@@ -484,12 +489,15 @@ class ClaudeAgentRuntime:
             self.ensure_available()
             cli_path = self.resolved_cli_path()
         except ProviderIssue as exc:
+            action_label = "检查 Claude CLI"
+            if "CLAUDE_MODEL" in exc.message:
+                action_label = "配置 Claude 模型"
             return ProviderReadiness(
                 provider="CLAUDE_AGENT_SDK",
                 status="not_configured",
                 summary="Claude Agent SDK 还没有准备好。",
                 detail=exc.message,
-                action_label="检查 Claude CLI",
+                action_label=action_label,
             )
 
         try:
@@ -547,10 +555,10 @@ class ClaudeAgentRuntime:
 
         return ProviderReadiness(
             provider="CLAUDE_AGENT_SDK",
-            status="ready_default_model",
-            summary="Claude Agent SDK 已可用，但当前走 Claude CLI 默认模型。",
-            detail="建议补充 CLAUDE_MODEL，把部署环境模型锁定下来。",
-            action_label="锁定 Claude 模型",
+            status="not_configured",
+            summary="Claude Agent SDK 还没有准备好。",
+            detail="缺少 CLAUDE_MODEL，先补充模型配置后再继续。",
+            action_label="配置 Claude 模型",
         )
 
     def _build_prompt(self, turn: AgentTurnInput) -> str:

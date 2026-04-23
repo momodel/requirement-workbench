@@ -186,7 +186,7 @@ def test_coerce_html_artifact_payload_parses_loose_object_format() -> None:
     assert "<main>ok</main>" in parsed["html"]
 
 
-def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch) -> None:
+def test_claude_readiness_reports_not_configured_when_model_env_missing(monkeypatch) -> None:
     runtime = ClaudeAgentRuntime(
         AppSettings(
             root_dir=Path("/tmp/project"),
@@ -214,8 +214,28 @@ def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch)
 
     readiness = runtime.get_readiness()
 
-    assert readiness.status == "ready_default_model"
-    assert "默认模型" in readiness.summary
+    assert readiness.status == "not_configured"
+    assert "CLAUDE_MODEL" in readiness.detail
+    assert readiness.action_label == "配置 Claude 模型"
+
+
+def test_claude_runtime_blocks_execution_when_model_env_missing(monkeypatch) -> None:
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=Path("/tmp/project"),
+            data_dir=Path("/tmp/project/data"),
+            sqlite_dir=Path("/tmp/project/data/sqlite"),
+            sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
+            projects_dir=Path("/tmp/project/data/projects"),
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model=None,
+        )
+    )
+
+    monkeypatch.setattr(agent_runtime_module.Path, "exists", lambda self: True)
+
+    with pytest.raises(ProviderIssue, match="CLAUDE_MODEL"):
+        runtime.ensure_available()
 
 
 def test_claude_readiness_reports_auth_required(monkeypatch) -> None:
