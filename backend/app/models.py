@@ -118,25 +118,6 @@ class SourceRecord(BaseModel):
     index_error: str | None = None
     created_at: str
 
-    @model_validator(mode="before")
-    @classmethod
-    def normalize_legacy_source_fields(cls, value: Any) -> Any:
-        if not isinstance(value, dict):
-            return value
-
-        normalized = dict(value)
-        legacy_to_neutral = {
-            "notebook_import_mode": "index_input_mode",
-            "parse_status": "normalize_status",
-            "parse_summary": "normalize_summary",
-            "sync_status": "index_status",
-            "sync_error": "index_error",
-        }
-        for legacy_name, neutral_name in legacy_to_neutral.items():
-            if neutral_name not in normalized and legacy_name in normalized:
-                normalized[neutral_name] = normalized[legacy_name]
-        return normalized
-
     @model_serializer(mode="wrap")
     def serialize_with_legacy_source_fields(self, serializer: Any) -> dict[str, Any]:
         payload = serializer(self)

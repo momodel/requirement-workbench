@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from app.models import AgentStructuredOutput, GeneratedArtifactOutput, SourceRecord
 
 
@@ -108,35 +111,47 @@ def test_source_record_serializes_neutral_index_fields() -> None:
     assert payload["sync_error"] == "Notebook 未绑定"
 
 
-def test_source_record_accepts_legacy_fields_and_normalizes_to_neutral() -> None:
-    record = SourceRecord.model_validate(
-        {
-            "id": "source-3",
-            "project_id": "project-1",
-            "name": "历史资料",
-            "source_kind": "text",
-            "upload_kind": "text",
-            "notebook_import_mode": "direct_text",
-            "parse_status": "parsed",
-            "parse_summary": "旧字段摘要",
-            "sync_status": "synced",
-            "sync_error": None,
-            "created_at": "2026-04-22T00:00:00Z",
-        }
+def test_source_record_rejects_legacy_only_input_fields() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        SourceRecord.model_validate(
+            {
+                "id": "source-3",
+                "project_id": "project-1",
+                "name": "历史资料",
+                "source_kind": "text",
+                "upload_kind": "text",
+                "notebook_import_mode": "direct_text",
+                "parse_status": "parsed",
+                "parse_summary": "旧字段摘要",
+                "sync_status": "synced",
+                "sync_error": None,
+                "created_at": "2026-04-22T00:00:00Z",
+            }
+        )
+
+    errors = exc_info.value.errors()
+
+    assert len(errors) == 1
+    assert errors[0]["type"] == "missing"
+    assert errors[0]["loc"] == ("normalize_status",)
+    assert "normalize_status" not in errors[0]["input"]
+    assert errors[0]["input"]["parse_status"] == "parsed"
+
+
+def test_source_record_legacy_dump_includes_compatibility_keys() -> None:
+    record = SourceRecord(
+        id="source-3",
+        project_id="project-1",
+        name="历史资料",
+        source_kind="text",
+        upload_kind="text",
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="旧字段摘要",
+        index_status="synced",
+        index_error=None,
+        created_at="2026-04-22T00:00:00Z",
     )
-
-    assert record.index_input_mode == "direct_text"
-    assert record.normalize_status == "parsed"
-    assert record.normalize_summary == "旧字段摘要"
-    assert record.index_status == "synced"
-    assert record.index_error is None
-
-    payload = record.model_dump()
-    assert payload["notebook_import_mode"] == "direct_text"
-    assert payload["parse_status"] == "parsed"
-    assert payload["parse_summary"] == "旧字段摘要"
-    assert payload["sync_status"] == "synced"
-    assert payload["sync_error"] is None
 
     legacy_payload = record.model_dump_legacy()
 
