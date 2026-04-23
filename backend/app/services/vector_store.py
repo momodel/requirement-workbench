@@ -70,6 +70,7 @@ class QdrantLlamaIndexVectorStore:
         try:
             importlib.import_module("llama_index.vector_stores.qdrant")
             module = importlib.import_module("llama_index.embeddings.fastembed")
+            importlib.import_module("fastembed")
         except ModuleNotFoundError as exc:
             raise ProviderIssue(
                 provider=EVIDENCE_PROVIDER,
@@ -95,7 +96,18 @@ class QdrantLlamaIndexVectorStore:
     def _get_embed_model(self):
         if self._embed_model is None:
             embedder_class = self._load_fastembed_class()
-            self._embed_model = embedder_class()
+            try:
+                self._embed_model = embedder_class()
+            except ImportError as exc:
+                raise ProviderIssue(
+                    provider=EVIDENCE_PROVIDER,
+                    message=(
+                        "当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。"
+                        "请先在 backend 虚拟环境里安装 Task 3 所需依赖。"
+                    ),
+                ) from exc
+            except Exception as exc:  # pragma: no cover - depends on optional runtime deps
+                raise self._wrap_error(exc, "初始化 embedding 模型") from exc
         return self._embed_model
 
     def _wrap_error(self, exc: Exception, action: str) -> ProviderIssue:
@@ -109,7 +121,7 @@ class QdrantLlamaIndexVectorStore:
         self.qdrant_path.mkdir(parents=True, exist_ok=True)
         self._load_qdrant_client_class()
         self._load_qdrant_models()
-        self._load_fastembed_class()
+        self._get_embed_model()
         self._get_client()
         return self.qdrant_path
 

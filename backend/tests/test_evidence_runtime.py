@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from app.services import vector_store as vector_store_module
 from app.config import AppSettings
 from app.db import init_db
 from app.models import ChatCitation, CreateProjectRequest, ProviderIssue, ProviderReadiness
@@ -98,7 +99,7 @@ class MissingDependencyVectorStore(FakeVectorStore):
     def ensure_available(self) -> Path:
         raise ProviderIssue(
             provider=EVIDENCE_PROVIDER,
-            message="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先安装。",
+            message="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先在 backend 虚拟环境里安装 Task 3 所需依赖。",
         )
 
 
@@ -485,6 +486,47 @@ def test_global_readiness_reports_missing_provider_dependency(tmp_path: Path) ->
         provider=EVIDENCE_PROVIDER,
         status="not_configured",
         summary="项目内证据运行时未就绪。",
-        detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先安装。",
+        detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先在 backend 虚拟环境里安装 Task 3 所需依赖。",
+        action_label="安装 Qdrant/LlamaIndex 依赖",
+    )
+
+
+def test_global_readiness_reports_missing_fastembed_runtime_dependency(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=ProjectCatalog(settings),
+    )
+
+    monkeypatch.setattr(runtime.vector_store, "_load_qdrant_client_class", lambda: object)
+    monkeypatch.setattr(runtime.vector_store, "_load_qdrant_models", lambda: object())
+    monkeypatch.setattr(runtime.vector_store, "_get_client", lambda: object())
+
+    def fake_import_module(name: str):
+        if name == "llama_index.vector_stores.qdrant":
+            return object()
+        if name == "llama_index.embeddings.fastembed":
+            return type("FastEmbedModule", (), {"FastEmbedEmbedding": object})()
+        if name == "fastembed":
+            raise ModuleNotFoundError("No module named 'fastembed'")
+        raise AssertionError(f"unexpected import in readiness test: {name}")
+
+    monkeypatch.setattr(
+        vector_store_module.importlib,
+        "import_module",
+        fake_import_module,
+    )
+
+    readiness = runtime.get_global_readiness()
+
+    assert readiness == ProviderReadiness(
+        provider=EVIDENCE_PROVIDER,
+        status="not_configured",
+        summary="项目内证据运行时未就绪。",
+        detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先在 backend 虚拟环境里安装 Task 3 所需依赖。",
         action_label="安装 Qdrant/LlamaIndex 依赖",
     )

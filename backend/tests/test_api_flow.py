@@ -155,8 +155,23 @@ def install_fake_evidence_runtime(app, monkeypatch) -> None:
     monkeypatch.setattr(services.evidence_runtime, "delete_source", fake_delete_source)
 
 
+def install_not_configured_evidence_runtime(app, monkeypatch) -> None:
+    monkeypatch.setattr(
+        app.state.services.evidence_runtime,
+        "get_global_readiness",
+        lambda: ProviderReadiness(
+            provider="QDRANT_LLAMA_INDEX",
+            status="not_configured",
+            summary="项目内证据运行时未就绪。",
+            detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先安装。",
+            action_label="安装 Qdrant/LlamaIndex 依赖",
+        ),
+    )
+
+
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
+    install_not_configured_evidence_runtime(app, monkeypatch)
 
     with TestClient(app) as client:
         projects_response = client.get("/api/projects")
@@ -421,8 +436,28 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         assert updated_source["index_error"] is None
 
 
-def test_chat_stream_reports_provider_not_configured(tmp_path: Path) -> None:
+def test_chat_stream_reports_provider_not_configured(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
+
+    async def fake_query_evidence(*args, **kwargs) -> EvidenceResult:
+        return EvidenceResult(summary="当前未执行项目知识库证据检索。", citations=[])
+
+    def fake_claude_not_configured() -> None:
+        raise ProviderIssue(
+            provider="CLAUDE_AGENT_SDK",
+            message="未找到 Claude Code CLI。请安装 claude 或配置 CLAUDE_CODE_CLI_PATH。",
+        )
+
+    monkeypatch.setattr(
+        app.state.services.chat_service,
+        "_query_evidence_with_timeout",
+        fake_query_evidence,
+    )
+    monkeypatch.setattr(
+        app.state.services.agent_runtime,
+        "ensure_available",
+        fake_claude_not_configured,
+    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -686,6 +721,7 @@ def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
+    install_not_configured_evidence_runtime(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
