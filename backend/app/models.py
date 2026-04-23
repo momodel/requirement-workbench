@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_serializer, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 STATE_CATEGORIES = (
@@ -104,6 +104,8 @@ class GlobalReadiness(BaseModel):
     evidence: ProviderReadiness
 
 class SourceRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     project_id: str
     name: str
@@ -118,33 +120,8 @@ class SourceRecord(BaseModel):
     index_error: str | None = None
     created_at: str
 
-    @model_serializer(mode="wrap")
-    def serialize_with_legacy_source_fields(self, serializer: Any) -> dict[str, Any]:
-        payload = serializer(self)
-        payload["notebook_import_mode"] = self.index_input_mode
-        payload["parse_status"] = self.normalize_status
-        payload["parse_summary"] = self.normalize_summary
-        payload["sync_status"] = self.index_status
-        payload["sync_error"] = self.index_error
-        return payload
-
     def model_dump_neutral(self) -> dict[str, Any]:
-        payload = self.model_dump()
-        payload.pop("notebook_import_mode", None)
-        payload.pop("parse_status", None)
-        payload.pop("parse_summary", None)
-        payload.pop("sync_status", None)
-        payload.pop("sync_error", None)
-        return payload
-
-    def model_dump_legacy(self) -> dict[str, Any]:
-        payload = self.model_dump()
-        payload["notebook_import_mode"] = self.index_input_mode
-        payload["parse_status"] = self.normalize_status
-        payload["parse_summary"] = self.normalize_summary
-        payload["sync_status"] = self.index_status
-        payload["sync_error"] = self.index_error
-        return payload
+        return self.model_dump()
 
 
 class MessageRecord(BaseModel):

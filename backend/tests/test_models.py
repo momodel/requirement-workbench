@@ -104,11 +104,11 @@ def test_source_record_serializes_neutral_index_fields() -> None:
     assert payload["normalize_summary"] == "流程拆解完成"
     assert payload["index_status"] == "pending_sync"
     assert payload["index_error"] == "Notebook 未绑定"
-    assert payload["notebook_import_mode"] == "normalized_markdown"
-    assert payload["parse_status"] == "parsed"
-    assert payload["parse_summary"] == "流程拆解完成"
-    assert payload["sync_status"] == "pending_sync"
-    assert payload["sync_error"] == "Notebook 未绑定"
+    assert "notebook_import_mode" not in payload
+    assert "parse_status" not in payload
+    assert "parse_summary" not in payload
+    assert "sync_status" not in payload
+    assert "sync_error" not in payload
 
 
 def test_source_record_rejects_legacy_only_input_fields() -> None:
@@ -120,6 +120,7 @@ def test_source_record_rejects_legacy_only_input_fields() -> None:
                 "name": "历史资料",
                 "source_kind": "text",
                 "upload_kind": "text",
+                "normalize_status": "parsed",
                 "notebook_import_mode": "direct_text",
                 "parse_status": "parsed",
                 "parse_summary": "旧字段摘要",
@@ -130,41 +131,16 @@ def test_source_record_rejects_legacy_only_input_fields() -> None:
         )
 
     errors = exc_info.value.errors()
+    rejected_fields = {error["loc"][0] for error in errors}
 
-    assert len(errors) == 1
-    assert errors[0]["type"] == "missing"
-    assert errors[0]["loc"] == ("normalize_status",)
-    assert "normalize_status" not in errors[0]["input"]
-    assert errors[0]["input"]["parse_status"] == "parsed"
-
-
-def test_source_record_legacy_dump_includes_compatibility_keys() -> None:
-    record = SourceRecord(
-        id="source-3",
-        project_id="project-1",
-        name="历史资料",
-        source_kind="text",
-        upload_kind="text",
-        index_input_mode="direct_text",
-        normalize_status="parsed",
-        normalize_summary="旧字段摘要",
-        index_status="synced",
-        index_error=None,
-        created_at="2026-04-22T00:00:00Z",
-    )
-
-    legacy_payload = record.model_dump_legacy()
-
-    assert legacy_payload["index_input_mode"] == "direct_text"
-    assert legacy_payload["normalize_status"] == "parsed"
-    assert legacy_payload["normalize_summary"] == "旧字段摘要"
-    assert legacy_payload["index_status"] == "synced"
-    assert legacy_payload["index_error"] is None
-    assert legacy_payload["notebook_import_mode"] == "direct_text"
-    assert legacy_payload["parse_status"] == "parsed"
-    assert legacy_payload["parse_summary"] == "旧字段摘要"
-    assert legacy_payload["sync_status"] == "synced"
-    assert legacy_payload["sync_error"] is None
+    assert rejected_fields == {
+        "notebook_import_mode",
+        "parse_status",
+        "parse_summary",
+        "sync_status",
+        "sync_error",
+    }
+    assert all(error["type"] == "extra_forbidden" for error in errors)
 
 
 def test_source_record_neutral_dump_excludes_legacy_keys() -> None:
@@ -184,6 +160,8 @@ def test_source_record_neutral_dump_excludes_legacy_keys() -> None:
 
     neutral_payload = record.model_dump_neutral()
 
+    assert not hasattr(record, "model_dump_legacy")
+    assert neutral_payload == record.model_dump()
     assert neutral_payload["index_input_mode"] == "direct_text"
     assert neutral_payload["normalize_status"] == "parsed"
     assert neutral_payload["normalize_summary"] == "neutral only"
