@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from './App';
@@ -1740,6 +1740,242 @@ describe('App', () => {
           names: ['规则A.md', '规则B.md'],
         },
       ]);
+    });
+  });
+
+  it('shows visible in-flight feedback while a text source request is still running', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    let resolveUpload!: () => void;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/sources' && method === 'POST') {
+        await new Promise<void>((resolve) => {
+          resolveUpload = resolve;
+        });
+        return new Response(
+          JSON.stringify({
+            id: 'src-uploading',
+            project_id: 'seed-reconciliation',
+            name: '待上传资料',
+            source_kind: 'text',
+            upload_kind: 'text',
+            storage_path: null,
+            normalized_path: null,
+            index_input_mode: 'direct_text',
+            normalize_status: 'parsed',
+            normalize_summary: '上传完成。',
+            index_status: 'indexed',
+            index_error: null,
+            created_at: '2026-04-16T00:00:00+08:00',
+          }),
+          {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects': [],
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'ready',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 0',
+            action_label: null,
+          },
+        },
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' });
+    await user.click(screen.getByRole('button', { name: '导入文本资料' }));
+    await user.clear(screen.getByPlaceholderText('例如：客户访谈纪要'));
+    await user.type(screen.getByPlaceholderText('例如：客户访谈纪要'), '待上传资料');
+    await user.type(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。'), '这是一段待上传文本。');
+    const dialog = screen.getByRole('dialog');
+    const submitButton = within(dialog).getByRole('button', { name: '导入文本资料' });
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: '导入文本资料' })).toBeDisabled();
+    });
+
+    resolveUpload();
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows an in-progress note while source reindex is still running', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    let resolveReindex!: () => void;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/sources/src-retrying/reindex' && method === 'POST') {
+        await new Promise<void>((resolve) => {
+          resolveReindex = resolve;
+        });
+        return new Response(
+          JSON.stringify({
+            id: 'src-retrying',
+            project_id: 'seed-reconciliation',
+            name: '财务口径说明',
+            source_kind: 'document',
+            upload_kind: 'file',
+            storage_path: null,
+            normalized_path: null,
+            index_input_mode: 'docling',
+            normalize_status: 'parsed',
+            normalize_summary: '已完成标准化。',
+            index_status: 'indexed',
+            index_error: null,
+            created_at: '2026-04-16T00:00:00+08:00',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects': [],
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [
+          {
+            id: 'src-retrying',
+            project_id: 'seed-reconciliation',
+            name: '财务口径说明',
+            source_kind: 'document',
+            upload_kind: 'file',
+            storage_path: null,
+            normalized_path: null,
+            index_input_mode: 'docling',
+            normalize_status: 'parsed',
+            normalize_summary: '已完成标准化。',
+            index_status: 'index_failed',
+            index_error: '首次入库失败',
+            created_at: '2026-04-16T00:00:00+08:00',
+          },
+        ],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'ready',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 1',
+            action_label: null,
+          },
+        },
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('入库失败')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '重试入库 财务口径说明' }));
+
+    expect(await screen.findByText('正在重新入库，完成后会自动刷新当前状态。')).toBeInTheDocument();
+
+    resolveReindex();
+
+    await waitFor(() => {
+      expect(screen.queryByText('正在重新入库，完成后会自动刷新当前状态。')).not.toBeInTheDocument();
     });
   });
 
