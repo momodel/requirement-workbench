@@ -9,6 +9,7 @@ from pathlib import Path
 from ..config import AppSettings, DEFAULT_SETTINGS
 from ..models import ArtifactRecord, ArtifactType, ProjectState, ProjectSummary, ProviderIssue
 from .project_catalog import ProjectCatalog
+from .project_state import ProjectStateService
 from .runtime_contracts import AgentRuntime
 
 
@@ -16,6 +17,7 @@ class ArtifactGenerationService:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
         self.catalog = ProjectCatalog(settings)
+        self.project_state = ProjectStateService(self.catalog)
 
     def validate_html_output(self, artifact_title: str, html: str) -> str:
         cleaned = html.strip()
@@ -99,6 +101,30 @@ class ArtifactGenerationService:
 
         return artifact
 
+    @staticmethod
+    def _artifact_type_label(artifact_type: ArtifactType) -> str:
+        if artifact_type == "document":
+            return "文档稿"
+        if artifact_type == "page_solution":
+            return "页面方案"
+        if artifact_type == "interaction_flow":
+            return "交互稿"
+        return artifact_type
+
+    def _create_artifact_version(
+        self,
+        *,
+        project_id: str,
+        artifact: ArtifactRecord,
+    ) -> None:
+        summary = f"已生成{self._artifact_type_label(artifact.artifact_type)}《{artifact.title}》"
+        self.catalog.create_version_snapshot(
+            project_id=project_id,
+            trigger_kind="交付物生成",
+            summary=summary,
+            state_json=self.project_state.snapshot_json(project_id),
+        )
+
     async def generate_from_model(
         self,
         *,
@@ -140,7 +166,7 @@ class ArtifactGenerationService:
             body = (generated.body or "").strip()
             if not body:
                 raise ValueError("文档稿正文不能为空。")
-            return self.catalog.save_artifact(
+            artifact = self.catalog.save_artifact(
                 project_id=project.id,
                 artifact_type=artifact_type,
                 title=generated.title,
@@ -154,11 +180,13 @@ class ArtifactGenerationService:
                     "generation_cache_key": generation_cache_key,
                 },
             )
+            self._create_artifact_version(project_id=project.id, artifact=artifact)
+            return artifact
 
         html = self.validate_html_output(generated.title, generated.html or "")
         index_path = self._artifact_dir(project.id, artifact_type) / "index.html"
         index_path.write_text(html, encoding="utf-8")
-        return self.catalog.save_artifact(
+        artifact = self.catalog.save_artifact(
             project_id=project.id,
             artifact_type=artifact_type,
             title=generated.title,
@@ -172,3 +200,5 @@ class ArtifactGenerationService:
                 "generation_cache_key": generation_cache_key,
             },
         )
+        self._create_artifact_version(project_id=project.id, artifact=artifact)
+        return artifact

@@ -1,3 +1,5 @@
+import json
+import sqlite3
 from pathlib import Path
 
 from app.config import AppSettings
@@ -171,3 +173,163 @@ def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(t
     assert runtime.call_count == 1
     assert second.id == first.id
     assert second.preview_url == first.preview_url
+    versions = catalog.list_state_items(project.id)["versions"]
+    assert len(versions) == 1
+    assert "交付物" in versions[0].title
+    assert "逐笔对账交互稿" in versions[0].body
+
+
+def test_generate_from_model_creates_version_snapshot_for_new_artifact(tmp_path: Path) -> None:
+    settings = AppSettings(
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
+        claude_artifact_timeout_seconds=5.0,
+    )
+    init_db(settings)
+
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        payload=CreateProjectRequest(
+            name="集团业财逐笔对账需求分析",
+            scenario_type="reconciliation",
+            summary="分析业财逐笔对账需求。",
+        )
+    )
+    state = ProjectState(
+        current_understanding=[],
+        pending_items=[],
+        confirmed_items=[],
+        conflict_items=[],
+        mvp_items=[],
+        versions=[],
+        artifacts=[],
+    )
+    runtime = FakeAgentRuntime(
+        GeneratedArtifactOutput(
+            title="逐笔对账页面方案",
+            summary="覆盖总览、差异明细和异常处理。",
+            html="<!doctype html><html><head><title>逐笔对账页面方案</title></head><body><main>ok</main></body></html>",
+        )
+    )
+    service = ArtifactGenerationService(settings)
+
+    import asyncio
+
+    artifact = asyncio.run(
+        service.generate_from_model(
+            project=project,
+            state=state,
+            artifact_type="page_solution",
+            agent_runtime=runtime,
+        )
+    )
+
+    versions = catalog.list_state_items(project.id)["versions"]
+
+    assert artifact.title == "逐笔对账页面方案"
+    assert len(versions) == 1
+    assert versions[0].title == "交付物生成"
+    assert "页面方案" in versions[0].body
+    assert "逐笔对账页面方案" in versions[0].body
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        snapshot_row = connection.execute(
+            "SELECT state_json FROM version_snapshots WHERE id = ?",
+            (versions[0].id,),
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert snapshot_row is not None
+    snapshot = json.loads(snapshot_row[0])
+    assert len(snapshot["artifacts"]) == 1
+    assert snapshot["artifacts"][0]["title"] == "逐笔对账页面方案"
+
+
+def test_generate_from_model_uses_persisted_state_for_sequential_artifact_snapshots(
+    tmp_path: Path,
+) -> None:
+    settings = AppSettings(
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
+        claude_artifact_timeout_seconds=5.0,
+    )
+    init_db(settings)
+
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        payload=CreateProjectRequest(
+            name="集团业财逐笔对账需求分析",
+            scenario_type="reconciliation",
+            summary="分析业财逐笔对账需求。",
+        )
+    )
+    state = ProjectState(
+        current_understanding=[],
+        pending_items=[],
+        confirmed_items=[],
+        conflict_items=[],
+        mvp_items=[],
+        versions=[],
+        artifacts=[],
+    )
+    service = ArtifactGenerationService(settings)
+
+    import asyncio
+
+    first_runtime = FakeAgentRuntime(
+        GeneratedArtifactOutput(
+            title="逐笔对账页面方案",
+            summary="覆盖总览、差异明细和异常处理。",
+            html="<!doctype html><html><head><title>逐笔对账页面方案</title></head><body><main>ok</main></body></html>",
+        )
+    )
+    second_runtime = FakeAgentRuntime(
+        GeneratedArtifactOutput(
+            title="逐笔对账交互稿",
+            summary="覆盖差异确认和处理闭环。",
+            html="<!doctype html><html><head><title>逐笔对账交互稿</title></head><body><main>ok</main></body></html>",
+        )
+    )
+
+    asyncio.run(
+        service.generate_from_model(
+            project=project,
+            state=state,
+            artifact_type="page_solution",
+            agent_runtime=first_runtime,
+        )
+    )
+    asyncio.run(
+        service.generate_from_model(
+            project=project,
+            state=state,
+            artifact_type="interaction_flow",
+            agent_runtime=second_runtime,
+        )
+    )
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        snapshot_rows = connection.execute(
+            "SELECT state_json FROM version_snapshots WHERE project_id = ? ORDER BY created_at ASC",
+            (project.id,),
+        ).fetchall()
+    finally:
+        connection.close()
+
+    assert len(snapshot_rows) == 2
+    first_snapshot = json.loads(snapshot_rows[0][0])
+    second_snapshot = json.loads(snapshot_rows[1][0])
+    assert [item["title"] for item in first_snapshot["artifacts"]] == ["逐笔对账页面方案"]
+    assert [item["title"] for item in second_snapshot["artifacts"]] == [
+        "逐笔对账页面方案",
+        "逐笔对账交互稿",
+    ]
