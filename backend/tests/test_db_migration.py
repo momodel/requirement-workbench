@@ -8,6 +8,26 @@ from app.db import init_db
 from app.models import CreateProjectRequest
 from app.services.project_catalog import ProjectCatalog
 
+SOURCE_DUAL_WRITE_STORAGE_COLUMNS = (
+    "notebook_import_mode",
+    "index_input_mode",
+    "parse_status",
+    "normalize_status",
+    "parse_summary",
+    "normalize_summary",
+    "sync_status",
+    "index_status",
+    "sync_error",
+    "index_error",
+)
+
+SOURCE_STATUS_STORAGE_COLUMNS = (
+    "sync_status",
+    "index_status",
+    "sync_error",
+    "index_error",
+)
+
 
 def make_settings(tmp_path: Path) -> AppSettings:
     data_dir = tmp_path / "data"
@@ -19,6 +39,52 @@ def make_settings(tmp_path: Path) -> AppSettings:
         projects_dir=data_dir / "projects",
         claude_cli_path=str(tmp_path / "missing-claude"),
     )
+
+
+def fetch_source_storage(connection: sqlite3.Connection, source_id: str, columns: tuple[str, ...]) -> dict:
+    row = connection.execute(
+        f"""
+        SELECT {", ".join(columns)}
+        FROM sources
+        WHERE id = ?
+        """,
+        (source_id,),
+    ).fetchone()
+    assert row is not None
+    return dict(zip(columns, row))
+
+
+def assert_source_dual_write_storage(
+    stored: dict,
+    *,
+    index_input_mode: str | None,
+    normalize_status: str,
+    normalize_summary: str | None,
+    index_status: str,
+    index_error: str | None,
+) -> None:
+    assert stored["notebook_import_mode"] == index_input_mode
+    assert stored["index_input_mode"] == index_input_mode
+    assert stored["parse_status"] == normalize_status
+    assert stored["normalize_status"] == normalize_status
+    assert stored["parse_summary"] == normalize_summary
+    assert stored["normalize_summary"] == normalize_summary
+    assert stored["sync_status"] == index_status
+    assert stored["index_status"] == index_status
+    assert stored["sync_error"] == index_error
+    assert stored["index_error"] == index_error
+
+
+def assert_source_status_dual_write_storage(
+    stored: dict,
+    *,
+    index_status: str,
+    index_error: str | None,
+) -> None:
+    assert stored["sync_status"] == index_status
+    assert stored["index_status"] == index_status
+    assert stored["sync_error"] == index_error
+    assert stored["index_error"] == index_error
 
 
 def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> None:
@@ -361,6 +427,24 @@ def test_project_catalog_persists_knowledge_bases_and_source_chunks(tmp_path: Pa
         index_status="pending_sync",
         index_error=None,
     )
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        stored = fetch_source_storage(
+            connection,
+            source.id,
+            SOURCE_DUAL_WRITE_STORAGE_COLUMNS,
+        )
+    finally:
+        connection.close()
+
+    assert_source_dual_write_storage(
+        stored,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="字段说明",
+        index_status="pending_sync",
+        index_error=None,
+    )
 
     created = catalog.upsert_knowledge_base(
         project_id=project.id,
@@ -614,11 +698,86 @@ def test_bulk_update_source_index_status_updates_all_project_sources(
     )
 
     refreshed_sources = {source.id: source for source in catalog.list_sources(project.id)}
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        stored_statuses = {
+            source_id: fetch_source_storage(
+                connection,
+                source_id,
+                SOURCE_STATUS_STORAGE_COLUMNS,
+            )
+            for source_id in (source_a.id, source_b.id)
+        }
+    finally:
+        connection.close()
 
     assert refreshed_sources[source_a.id].index_status == "indexed"
     assert refreshed_sources[source_a.id].index_error is None
     assert refreshed_sources[source_b.id].index_status == "indexed"
     assert refreshed_sources[source_b.id].index_error is None
+    assert_source_status_dual_write_storage(
+        stored_statuses[source_a.id],
+        index_status="indexed",
+        index_error=None,
+    )
+    assert_source_status_dual_write_storage(
+        stored_statuses[source_b.id],
+        index_status="indexed",
+        index_error=None,
+    )
+
+
+def test_update_source_index_status_dual_writes_neutral_and_legacy_columns(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="单条更新项目",
+            scenario_type="general",
+            summary="验证 source index 状态单条更新",
+        )
+    )
+    source = catalog.create_source(
+        project_id=project.id,
+        name="A.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="A",
+        index_status="pending_sync",
+        index_error="waiting",
+    )
+
+    updated = catalog.update_source_index_status(
+        source_id=source.id,
+        index_status="indexed",
+        index_error=None,
+    )
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        stored = fetch_source_storage(
+            connection,
+            source.id,
+            SOURCE_STATUS_STORAGE_COLUMNS,
+        )
+    finally:
+        connection.close()
+
+    assert updated.index_status == "indexed"
+    assert updated.index_error is None
+    assert_source_status_dual_write_storage(
+        stored,
+        index_status="indexed",
+        index_error=None,
+    )
 
 
 def test_project_catalog_source_reads_legacy_db_columns_into_neutral_source_record(

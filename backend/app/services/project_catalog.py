@@ -33,6 +33,15 @@ def source_chunk_content_hash(content: str, locator_json: str | None) -> str:
     ).hexdigest()
 
 
+SOURCE_DUAL_WRITE_COLUMN_PAIRS = (
+    ("index_input_mode", "notebook_import_mode"),
+    ("normalize_status", "parse_status"),
+    ("normalize_summary", "parse_summary"),
+    ("index_status", "sync_status"),
+    ("index_error", "sync_error"),
+)
+
+
 class ProjectCatalog:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
@@ -79,6 +88,47 @@ class ProjectCatalog:
     @staticmethod
     def _source_chunk_from_row(row: dict) -> SourceChunkRecord:
         return SourceChunkRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _source_dual_write_columns() -> tuple[str, ...]:
+        columns: list[str] = []
+        for neutral_column, legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+            columns.extend((legacy_column, neutral_column))
+        return tuple(columns)
+
+    @staticmethod
+    def _source_dual_write_values(**field_values: str | None) -> tuple[str | None, ...]:
+        values: list[str | None] = []
+        for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+            value = field_values[neutral_column]
+            values.extend((value, value))
+        return tuple(values)
+
+    @staticmethod
+    def _source_dual_write_selected_values(
+        *,
+        neutral_columns: tuple[str, ...],
+        **field_values: str | None,
+    ) -> tuple[str | None, ...]:
+        values: list[str | None] = []
+        selected_neutral_columns = set(neutral_columns)
+        for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+            if neutral_column not in selected_neutral_columns:
+                continue
+            value = field_values[neutral_column]
+            values.extend((value, value))
+        return tuple(values)
+
+    @staticmethod
+    def _source_dual_write_update_clause(*, neutral_columns: tuple[str, ...] | None = None) -> str:
+        selected_neutral_columns = set(neutral_columns or ())
+        assignments: list[str] = []
+        for neutral_column, legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+            if selected_neutral_columns and neutral_column not in selected_neutral_columns:
+                continue
+            assignments.append(f"{legacy_column} = ?")
+            assignments.append(f"{neutral_column} = ?")
+        return ", ".join(assignments)
 
     @staticmethod
     def _validate_source_chunk_ownership(
@@ -254,13 +304,15 @@ class ProjectCatalog:
             created_at=now_iso(self.settings),
         )
         with connection_scope(self.settings) as connection:
+            source_write_columns = self._source_dual_write_columns()
             connection.execute(
-                """
+                f"""
                 INSERT INTO sources (
                   id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                  notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                  {", ".join(source_write_columns)},
+                  created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source.id,
@@ -270,11 +322,13 @@ class ProjectCatalog:
                     source.upload_kind,
                     source.storage_path,
                     source.normalized_path,
-                    index_input_mode,
-                    normalize_status,
-                    normalize_summary,
-                    index_status,
-                    index_error,
+                    *self._source_dual_write_values(
+                        index_input_mode=index_input_mode,
+                        normalize_status=normalize_status,
+                        normalize_summary=normalize_summary,
+                        index_status=index_status,
+                        index_error=index_error,
+                    ),
                     source.created_at,
                 ),
             )
@@ -355,6 +409,7 @@ class ProjectCatalog:
         index_error: str | None,
     ) -> SourceRecord:
         timestamp = now_iso(self.settings)
+        status_update_columns = ("index_status", "index_error")
         with connection_scope(self.settings) as connection:
             row = connection.execute(
                 "SELECT project_id FROM sources WHERE id = ?",
@@ -364,12 +419,22 @@ class ProjectCatalog:
                 raise LookupError("Source not found")
 
             connection.execute(
-                """
+                f"""
                 UPDATE sources
-                SET sync_status = ?, sync_error = ?
+                SET {self._source_dual_write_update_clause(neutral_columns=status_update_columns)}
                 WHERE id = ?
                 """,
-                (index_status, index_error, source_id),
+                (
+                    *self._source_dual_write_selected_values(
+                        neutral_columns=status_update_columns,
+                        index_input_mode=None,
+                        normalize_status=None,
+                        normalize_summary=None,
+                        index_status=index_status,
+                        index_error=index_error,
+                    ),
+                    source_id,
+                ),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -388,14 +453,25 @@ class ProjectCatalog:
         index_error: str | None,
     ) -> None:
         timestamp = now_iso(self.settings)
+        status_update_columns = ("index_status", "index_error")
         with connection_scope(self.settings) as connection:
             connection.execute(
-                """
+                f"""
                 UPDATE sources
-                SET sync_status = ?, sync_error = ?
+                SET {self._source_dual_write_update_clause(neutral_columns=status_update_columns)}
                 WHERE project_id = ?
                 """,
-                (index_status, index_error, project_id),
+                (
+                    *self._source_dual_write_selected_values(
+                        neutral_columns=status_update_columns,
+                        index_input_mode=None,
+                        normalize_status=None,
+                        normalize_summary=None,
+                        index_status=index_status,
+                        index_error=index_error,
+                    ),
+                    project_id,
+                ),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",

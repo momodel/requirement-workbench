@@ -1,4 +1,5 @@
 from pathlib import Path
+import sqlite3
 
 from fastapi.testclient import TestClient
 
@@ -20,12 +21,59 @@ MINIMAL_NEUTRAL_SOURCE_FIELDS = {
     "name",
 }
 
+SOURCE_DUAL_WRITE_STORAGE_COLUMNS = (
+    "notebook_import_mode",
+    "index_input_mode",
+    "parse_status",
+    "normalize_status",
+    "parse_summary",
+    "normalize_summary",
+    "sync_status",
+    "index_status",
+    "sync_error",
+    "index_error",
+)
+
 
 def assert_source_payload_is_neutral_only(source: dict) -> None:
     for field_name in MINIMAL_NEUTRAL_SOURCE_FIELDS:
         assert field_name in source
     for field_name in LEGACY_SOURCE_FIELDS:
         assert field_name not in source
+
+
+def fetch_source_storage(connection: sqlite3.Connection, source_id: str) -> dict:
+    row = connection.execute(
+        f"""
+        SELECT {", ".join(SOURCE_DUAL_WRITE_STORAGE_COLUMNS)}
+        FROM sources
+        WHERE id = ?
+        """,
+        (source_id,),
+    ).fetchone()
+    assert row is not None
+    return dict(zip(SOURCE_DUAL_WRITE_STORAGE_COLUMNS, row))
+
+
+def assert_source_dual_write_storage(
+    stored: dict,
+    *,
+    index_input_mode: str | None,
+    normalize_status: str,
+    normalize_summary: str | None,
+    index_status: str,
+    index_error_predicate,
+) -> None:
+    assert stored["notebook_import_mode"] == index_input_mode
+    assert stored["index_input_mode"] == index_input_mode
+    assert stored["parse_status"] == normalize_status
+    assert stored["normalize_status"] == normalize_status
+    assert stored["parse_summary"] == normalize_summary
+    assert stored["normalize_summary"] == normalize_summary
+    assert stored["sync_status"] == index_status
+    assert stored["index_status"] == index_status
+    assert stored["sync_error"] == stored["index_error"]
+    assert index_error_predicate(stored["index_error"])
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -682,6 +730,24 @@ def test_source_route_maps_neutral_ingestion_fields_to_legacy_catalog_storage(
     assert source["index_input_mode"] == "direct_text"
     assert source["normalize_status"] == "parsed"
     assert source["normalize_summary"] == "这里是一段文本资料。"
+
+    connection = sqlite3.connect(app.state.services.settings.sqlite_path)
+    try:
+        stored = fetch_source_storage(connection, source["id"])
+    finally:
+        connection.close()
+
+    assert_source_dual_write_storage(
+        stored,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="这里是一段文本资料。",
+        index_status="not_configured",
+        index_error_predicate=lambda value: any(
+            marker in (value or "")
+            for marker in ("未配置", "没有安装", "请先安装")
+        ),
+    )
 
 
 def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
