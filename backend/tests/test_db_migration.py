@@ -780,7 +780,7 @@ def test_update_source_index_status_dual_writes_neutral_and_legacy_columns(
     )
 
 
-def test_project_catalog_source_reads_legacy_db_columns_into_neutral_source_record(
+def test_project_catalog_source_reads_prefer_neutral_columns_over_legacy_columns(
     tmp_path: Path,
 ) -> None:
     settings = make_settings(tmp_path)
@@ -800,23 +800,33 @@ def test_project_catalog_source_reads_legacy_db_columns_into_neutral_source_reco
         """
         INSERT INTO sources (
           id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-          notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+          notebook_import_mode, index_input_mode,
+          parse_status, normalize_status,
+          parse_summary, normalize_summary,
+          sync_status, index_status,
+          sync_error, index_error,
+          created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            "source-legacy-1",
+            "source-neutral-1",
             project.id,
             "source.txt",
             "text",
             "text",
             None,
             None,
-            "direct_text",
-            "parsed",
-            "摘要",
-            "synced",
-            "none",
+            "legacy_text",
+            "neutral_text",
+            "legacy_parsed",
+            "neutral_parsed",
+            "legacy 摘要",
+            "neutral 摘要",
+            "legacy_synced",
+            "neutral_synced",
+            "legacy error",
+            "neutral error",
             "2026-04-22T00:00:00Z",
         ),
     )
@@ -824,34 +834,104 @@ def test_project_catalog_source_reads_legacy_db_columns_into_neutral_source_reco
     connection.close()
 
     listed = catalog.list_sources(project.id)
-    fetched = catalog.get_source("source-legacy-1")
+    fetched = catalog.get_source("source-neutral-1")
 
     assert len(listed) == 1
-    assert listed[0].id == "source-legacy-1"
-    assert listed[0].index_input_mode == "direct_text"
-    assert listed[0].normalize_status == "parsed"
-    assert listed[0].normalize_summary == "摘要"
-    assert listed[0].index_status == "synced"
-    assert listed[0].index_error == "none"
+    assert listed[0].id == "source-neutral-1"
+    assert listed[0].index_input_mode == "neutral_text"
+    assert listed[0].normalize_status == "neutral_parsed"
+    assert listed[0].normalize_summary == "neutral 摘要"
+    assert listed[0].index_status == "neutral_synced"
+    assert listed[0].index_error == "neutral error"
     assert fetched is not None
-    assert fetched.id == "source-legacy-1"
-    assert fetched.index_input_mode == "direct_text"
-    assert fetched.normalize_status == "parsed"
-    assert fetched.normalize_summary == "摘要"
-    assert fetched.index_status == "synced"
-    assert fetched.index_error == "none"
+    assert fetched.id == "source-neutral-1"
+    assert fetched.index_input_mode == "neutral_text"
+    assert fetched.normalize_status == "neutral_parsed"
+    assert fetched.normalize_summary == "neutral 摘要"
+    assert fetched.index_status == "neutral_synced"
+    assert fetched.index_error == "neutral error"
 
     listed_payload = listed[0].model_dump_neutral()
     fetched_payload = fetched.model_dump_neutral()
 
     for payload in (listed_payload, fetched_payload):
-        assert payload["index_input_mode"] == "direct_text"
-        assert payload["normalize_status"] == "parsed"
-        assert payload["normalize_summary"] == "摘要"
-        assert payload["index_status"] == "synced"
-        assert payload["index_error"] == "none"
+        assert payload["index_input_mode"] == "neutral_text"
+        assert payload["normalize_status"] == "neutral_parsed"
+        assert payload["normalize_summary"] == "neutral 摘要"
+        assert payload["index_status"] == "neutral_synced"
+        assert payload["index_error"] == "neutral error"
         assert "notebook_import_mode" not in payload
         assert "parse_status" not in payload
         assert "parse_summary" not in payload
         assert "sync_status" not in payload
         assert "sync_error" not in payload
+
+
+def test_project_catalog_source_reads_fallback_to_legacy_columns_when_neutral_is_null(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="Source fallback 项目",
+            scenario_type="general",
+            summary="验证 source 读取会回退 legacy 字段",
+        )
+    )
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    connection.execute(
+        """
+        INSERT INTO sources (
+          id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
+          notebook_import_mode, index_input_mode,
+          parse_status, normalize_status,
+          parse_summary, normalize_summary,
+          sync_status, index_status,
+          sync_error, index_error,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            "source-fallback-1",
+            project.id,
+            "source.txt",
+            "text",
+            "text",
+            None,
+            None,
+            "legacy_text",
+            None,
+            "legacy_parsed",
+            None,
+            "legacy 摘要",
+            None,
+            "legacy_synced",
+            None,
+            "legacy error",
+            None,
+            "2026-04-22T00:00:00Z",
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    listed = catalog.list_sources(project.id)
+    fetched = catalog.get_source("source-fallback-1")
+
+    assert len(listed) == 1
+    assert listed[0].index_input_mode == "legacy_text"
+    assert listed[0].normalize_status == "legacy_parsed"
+    assert listed[0].normalize_summary == "legacy 摘要"
+    assert listed[0].index_status == "legacy_synced"
+    assert listed[0].index_error == "legacy error"
+    assert fetched is not None
+    assert fetched.index_input_mode == "legacy_text"
+    assert fetched.normalize_status == "legacy_parsed"
+    assert fetched.normalize_summary == "legacy 摘要"
+    assert fetched.index_status == "legacy_synced"
+    assert fetched.index_error == "legacy error"

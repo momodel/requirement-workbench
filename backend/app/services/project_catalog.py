@@ -131,6 +131,24 @@ class ProjectCatalog:
         return ", ".join(assignments)
 
     @staticmethod
+    def _source_read_projection() -> str:
+        projected_columns = [
+            "id",
+            "project_id",
+            "name",
+            "source_kind",
+            "upload_kind",
+            "storage_path",
+            "normalized_path",
+        ]
+        for neutral_column, legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+            projected_columns.append(
+                f"COALESCE({neutral_column}, {legacy_column}) AS {neutral_column}"
+            )
+        projected_columns.append("created_at")
+        return ",\n                       ".join(projected_columns)
+
+    @staticmethod
     def _validate_source_chunk_ownership(
         *,
         connection,
@@ -342,13 +360,10 @@ class ProjectCatalog:
         with connection_scope(self.settings) as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode AS index_input_mode,
-                       parse_status AS normalize_status,
-                       parse_summary AS normalize_summary,
-                       sync_status AS index_status,
-                       sync_error AS index_error,
-                       created_at
+                SELECT
+                       """
+                + self._source_read_projection()
+                + """
                 FROM sources
                 WHERE project_id = ?
                 ORDER BY datetime(created_at) ASC
@@ -361,13 +376,10 @@ class ProjectCatalog:
         with connection_scope(self.settings) as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode AS index_input_mode,
-                       parse_status AS normalize_status,
-                       parse_summary AS normalize_summary,
-                       sync_status AS index_status,
-                       sync_error AS index_error,
-                       created_at
+                SELECT
+                       """
+                + self._source_read_projection()
+                + """
                 FROM sources
                 WHERE id = ?
                 """,
