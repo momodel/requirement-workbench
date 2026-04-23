@@ -8,6 +8,13 @@ from ..models import ProviderIssue
 
 router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"])
 
+def _serialize_source_record(source_record):
+    if hasattr(source_record, "model_dump_neutral"):
+        return source_record.model_dump_neutral()
+    if hasattr(source_record, "model_dump"):
+        return source_record.model_dump()
+    return dict(source_record)
+
 
 def _resolve_index_outcome(services, project_id: str, normalized_source) -> tuple[str, str | None]:
     if normalized_source.normalize_status == "pending":
@@ -113,7 +120,10 @@ def list_sources(project_id: str, request: Request):
     project = request.app.state.services.catalog.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
-    return request.app.state.services.catalog.list_sources(project_id)
+    return [
+        _serialize_source_record(source_record)
+        for source_record in request.app.state.services.catalog.list_sources(project_id)
+    ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -137,25 +147,29 @@ async def create_source(
         if not text_content:
             raise HTTPException(status_code=400, detail="text_content is required for text upload")
         storage_path, normalized_source = source_ingestion.ingest_text(project_id, name, text_content)
-        return _create_source_record(
-            services,
-            project_id,
-            upload_kind,
-            name,
-            storage_path,
-            normalized_source,
+        return _serialize_source_record(
+            _create_source_record(
+                services,
+                project_id,
+                upload_kind,
+                name,
+                storage_path,
+                normalized_source,
+            )
         )
     elif upload_kind == "url":
         if not source_url:
             raise HTTPException(status_code=400, detail="source_url is required for url upload")
         storage_path, normalized_source = source_ingestion.ingest_url(project_id, name, source_url)
-        return _create_source_record(
-            services,
-            project_id,
-            upload_kind,
-            name,
-            storage_path,
-            normalized_source,
+        return _serialize_source_record(
+            _create_source_record(
+                services,
+                project_id,
+                upload_kind,
+                name,
+                storage_path,
+                normalized_source,
+            )
         )
     elif upload_kind == "file":
         upload_files = files or ([file] if file is not None else [])
@@ -171,13 +185,15 @@ async def create_source(
                 await upload.read(),
             )
             created_sources.append(
-                _create_source_record(
-                    services,
-                    project_id,
-                    upload_kind,
-                    safe_name,
-                    storage_path,
-                    normalized_source,
+                _serialize_source_record(
+                    _create_source_record(
+                        services,
+                        project_id,
+                        upload_kind,
+                        safe_name,
+                        storage_path,
+                        normalized_source,
+                    )
                 )
             )
         return created_sources if len(created_sources) > 1 or files else created_sources[0]
@@ -236,12 +252,14 @@ def reindex_source(project_id: str, source_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Source not found")
 
     try:
-        return _run_source_index_operation(
-            services,
-            project_id=project_id,
-            source_id=source_id,
-            operation="reindex",
-            raise_on_error=True,
+        return _serialize_source_record(
+            _run_source_index_operation(
+                services,
+                project_id=project_id,
+                source_id=source_id,
+                operation="reindex",
+                raise_on_error=True,
+            )
         )
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -6,6 +6,27 @@ from app.config import AppSettings
 from app.main import create_app
 from app.models import EvidenceResult, ProviderIssue, ProviderReadiness
 
+LEGACY_SOURCE_FIELDS = {
+    "notebook_import_mode",
+    "parse_status",
+    "parse_summary",
+    "sync_status",
+    "sync_error",
+}
+
+MINIMAL_NEUTRAL_SOURCE_FIELDS = {
+    "id",
+    "project_id",
+    "name",
+}
+
+
+def assert_source_payload_is_neutral_only(source: dict) -> None:
+    for field_name in MINIMAL_NEUTRAL_SOURCE_FIELDS:
+        assert field_name in source
+    for field_name in LEGACY_SOURCE_FIELDS:
+        assert field_name not in source
+
 
 def make_settings(tmp_path: Path) -> AppSettings:
     data_dir = tmp_path / "data"
@@ -126,16 +147,22 @@ def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
         )
         assert upload_response.status_code == 201
         source = upload_response.json()
+        assert_source_payload_is_neutral_only(source)
         assert source["name"] == "访谈纪要"
-        assert source["parse_status"] == "parsed"
-        assert source["sync_status"] == "not_configured"
-        assert "安装" in source["sync_error"]
+        assert source["normalize_status"] == "parsed"
+        assert source["index_status"] == "not_configured"
+        assert "安装" in source["index_error"]
 
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         sources = sources_response.json()
         assert len(sources) == 1
+        assert_source_payload_is_neutral_only(sources[0])
         assert sources[0]["id"] == source["id"]
+        assert sources[0]["name"] == "访谈纪要"
+        assert sources[0]["normalize_status"] == "parsed"
+        assert sources[0]["index_status"] == "not_configured"
+        assert "安装" in sources[0]["index_error"]
 
         state_response = client.get(f"/api/projects/{project_id}/state")
         assert state_response.status_code == 200
@@ -172,12 +199,20 @@ def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None
         sources = upload_response.json()
         assert isinstance(sources, list)
         assert len(sources) == 2
+        for source in sources:
+            assert_source_payload_is_neutral_only(source)
+            assert source["upload_kind"] == "file"
+            assert source["normalize_status"] == "parsed"
         assert {source["name"] for source in sources} == {"rules-a.md", "rules-b.md"}
 
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         stored_sources = sources_response.json()
         assert len(stored_sources) == 2
+        for source in stored_sources:
+            assert_source_payload_is_neutral_only(source)
+            assert source["upload_kind"] == "file"
+            assert source["normalize_status"] == "parsed"
 
 
 def test_project_knowledge_base_init_and_get_flow(tmp_path: Path, monkeypatch) -> None:
@@ -270,8 +305,9 @@ def test_source_upload_uses_evidence_readiness_for_provider_errors(tmp_path: Pat
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["sync_status"] == "error"
-        assert "ConnectError" in source["sync_error"]
+        assert_source_payload_is_neutral_only(source)
+        assert source["index_status"] == "error"
+        assert "ConnectError" in source["index_error"]
 
 
 def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> None:
@@ -302,8 +338,11 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
             },
         )
         assert upload_response.status_code == 201
-        source_id = upload_response.json()["id"]
-        assert upload_response.json()["sync_status"] == "indexed"
+        created_source = upload_response.json()
+        assert_source_payload_is_neutral_only(created_source)
+        source_id = created_source["id"]
+        assert created_source["normalize_status"] == "parsed"
+        assert created_source["index_status"] == "indexed"
 
         app.state.services.catalog.update_source_index_status(
             source_id=source_id,
@@ -337,9 +376,11 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
 
         assert reindex_response.status_code == 200
         updated_source = reindex_response.json()
+        assert_source_payload_is_neutral_only(updated_source)
         assert updated_source["id"] == source_id
-        assert updated_source["sync_status"] == "indexed"
-        assert updated_source["sync_error"] is None
+        assert updated_source["normalize_status"] == "parsed"
+        assert updated_source["index_status"] == "indexed"
+        assert updated_source["index_error"] is None
 
 
 def test_chat_stream_reports_provider_not_configured(tmp_path: Path) -> None:
@@ -488,9 +529,10 @@ def test_file_upload_uses_docling_normalized_markdown_before_indexing(
 
         assert upload_response.status_code == 201
         source = upload_response.json()
+        assert_source_payload_is_neutral_only(source)
         assert source["name"] == "brief.pdf"
-        assert source["parse_status"] == "parsed"
-        assert source["sync_status"] == "indexed"
+        assert source["normalize_status"] == "parsed"
+        assert source["index_status"] == "indexed"
         assert source["normalized_path"].endswith(".normalized.md")
         normalized_text = Path(source["normalized_path"]).read_text(encoding="utf-8")
         assert "Docling Output" in normalized_text
@@ -536,11 +578,12 @@ def test_file_upload_reports_normalization_failure_without_collapsing_it_into_in
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["parse_status"] == "failed"
-        assert source["sync_status"] == "normalization_failed"
-        assert source["sync_status"] != "index_failed"
-        assert "尚未进入项目知识库" in source["sync_error"]
-        assert "PDF 转文本链路" in source["sync_error"]
+        assert_source_payload_is_neutral_only(source)
+        assert source["normalize_status"] == "failed"
+        assert source["index_status"] == "normalization_failed"
+        assert source["index_status"] != "index_failed"
+        assert "尚未进入项目知识库" in source["index_error"]
+        assert "PDF 转文本链路" in source["index_error"]
         assert app.state.services.catalog.list_source_chunks(
             project_id=project_id,
             source_id=source["id"],
@@ -587,12 +630,13 @@ def test_url_upload_stays_out_of_evidence_index_until_page_text_exists(
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["parse_status"] == "pending"
-        assert source["sync_status"] == "normalization_pending"
+        assert_source_payload_is_neutral_only(source)
+        assert source["normalize_status"] == "pending"
+        assert source["index_status"] == "normalization_pending"
         assert source["normalized_path"] is None
-        assert source["notebook_import_mode"] is None
-        assert "还没有抓取到页面正文" in source["parse_summary"]
-        assert "不会进入项目知识库" in source["sync_error"]
+        assert source["index_input_mode"] is None
+        assert "还没有抓取到页面正文" in source["normalize_summary"]
+        assert "不会进入项目知识库" in source["index_error"]
         assert app.state.services.catalog.list_source_chunks(
             project_id=project_id,
             source_id=source["id"],
@@ -628,15 +672,16 @@ def test_source_route_maps_neutral_ingestion_fields_to_legacy_catalog_storage(
 
     assert upload_response.status_code == 201
     source = upload_response.json()
+    assert_source_payload_is_neutral_only(source)
     stored_source = app.state.services.catalog.get_source(source["id"])
 
     assert stored_source is not None
     assert stored_source.index_input_mode == "direct_text"
     assert stored_source.normalize_status == "parsed"
     assert stored_source.normalize_summary == "这里是一段文本资料。"
-    assert source["notebook_import_mode"] == "direct_text"
-    assert source["parse_status"] == "parsed"
-    assert source["parse_summary"] == "这里是一段文本资料。"
+    assert source["index_input_mode"] == "direct_text"
+    assert source["normalize_status"] == "parsed"
+    assert source["normalize_summary"] == "这里是一段文本资料。"
 
 
 def test_chat_stream_uses_evidence_runtime_instead_of_notebook_query(
@@ -787,6 +832,7 @@ def test_reindex_converts_synced_source_to_indexed_status(
         )
         assert upload_response.status_code == 201
         source = upload_response.json()
+        assert_source_payload_is_neutral_only(source)
         app.state.services.catalog.update_source_index_status(
             source_id=source["id"],
             index_status="synced",
@@ -798,9 +844,11 @@ def test_reindex_converts_synced_source_to_indexed_status(
         )
         assert reindex_response.status_code == 200
         reindexed_source = reindex_response.json()
+        assert_source_payload_is_neutral_only(reindexed_source)
         assert reindexed_source["id"] == source["id"]
-        assert reindexed_source["sync_status"] == "indexed"
-        assert reindexed_source["sync_error"] is None
+        assert reindexed_source["normalize_status"] == "parsed"
+        assert reindexed_source["index_status"] == "indexed"
+        assert reindexed_source["index_error"] is None
 
 
 def test_delete_source_tolerates_evidence_cleanup_failures(
