@@ -6,6 +6,7 @@ import pytest
 from app.config import AppSettings
 from app.db import init_db
 from app.models import CreateProjectRequest
+from app.services import project_catalog as project_catalog_module
 from app.services.project_catalog import ProjectCatalog
 
 
@@ -538,3 +539,71 @@ def test_bulk_update_source_index_status_updates_all_project_sources(
     assert refreshed_sources[source_a.id].index_error is None
     assert refreshed_sources[source_b.id].index_status == "indexed"
     assert refreshed_sources[source_b.id].index_error is None
+
+
+def test_project_catalog_source_reads_alias_legacy_db_columns_to_neutral_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="Source alias 项目",
+            scenario_type="general",
+            summary="验证 source 读取字段别名",
+        )
+    )
+    source = catalog.create_source(
+        project_id=project.id,
+        name="source.txt",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="摘要",
+        index_status="synced",
+        index_error="none",
+    )
+
+    captured_payloads: list[dict] = []
+
+    class StubSourceRecord:
+        @staticmethod
+        def model_validate(payload: dict) -> dict:
+            captured_payloads.append(payload)
+            return payload
+
+    monkeypatch.setattr(project_catalog_module, "SourceRecord", StubSourceRecord)
+
+    listed = catalog.list_sources(project.id)
+    fetched = catalog.get_source(source.id)
+
+    assert listed[0]["index_input_mode"] == "direct_text"
+    assert listed[0]["normalize_status"] == "parsed"
+    assert listed[0]["normalize_summary"] == "摘要"
+    assert listed[0]["index_status"] == "synced"
+    assert listed[0]["index_error"] == "none"
+    assert fetched is not None
+    assert fetched["index_input_mode"] == "direct_text"
+    assert fetched["normalize_status"] == "parsed"
+    assert fetched["normalize_summary"] == "摘要"
+    assert fetched["index_status"] == "synced"
+    assert fetched["index_error"] == "none"
+
+    assert len(captured_payloads) == 2
+    for payload in captured_payloads:
+        assert "index_input_mode" in payload
+        assert "normalize_status" in payload
+        assert "normalize_summary" in payload
+        assert "index_status" in payload
+        assert "index_error" in payload
+        assert "notebook_import_mode" not in payload
+        assert "parse_status" not in payload
+        assert "parse_summary" not in payload
+        assert "sync_status" not in payload
+        assert "sync_error" not in payload

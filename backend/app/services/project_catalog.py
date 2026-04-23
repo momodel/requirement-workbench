@@ -289,7 +289,12 @@ class ProjectCatalog:
             rows = connection.execute(
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                       notebook_import_mode AS index_input_mode,
+                       parse_status AS normalize_status,
+                       parse_summary AS normalize_summary,
+                       sync_status AS index_status,
+                       sync_error AS index_error,
+                       created_at
                 FROM sources
                 WHERE project_id = ?
                 ORDER BY datetime(created_at) ASC
@@ -303,7 +308,12 @@ class ProjectCatalog:
             row = connection.execute(
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                       notebook_import_mode AS index_input_mode,
+                       parse_status AS normalize_status,
+                       parse_summary AS normalize_summary,
+                       sync_status AS index_status,
+                       sync_error AS index_error,
+                       created_at
                 FROM sources
                 WHERE id = ?
                 """,
