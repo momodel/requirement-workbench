@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -415,6 +416,73 @@ def test_index_source_rejects_binary_source_without_normalized_text(tmp_path: Pa
 
     with pytest.raises(ProviderIssue, match="尚未完成可索引文本标准化"):
         runtime.index_source(project.id, source.id)
+
+
+def test_indexed_image_and_audio_chunks_keep_source_level_locator(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="多模态项目",
+            scenario_type="general",
+            summary="验证 text-first locator",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    image_text = _create_source_file(
+        source_dir,
+        "flowchart.normalized.md",
+        "OCR: 退款审批流包含财务复核节点",
+    )
+    audio_text = _create_source_file(
+        source_dir,
+        "interview.normalized.md",
+        "00:00-00:20 客户要求逐笔核对订单与财务入账",
+    )
+    image_source = catalog.create_source(
+        project_id=project.id,
+        name="流程图.png",
+        source_kind="image",
+        upload_kind="file",
+        storage_path=str(source_dir / "flowchart.png"),
+        normalized_path=str(image_text),
+        index_input_mode="normalized_text",
+        normalize_status="parsed",
+        normalize_summary="OCR 已提取流程图文本。",
+        index_status="pending",
+        index_error=None,
+    )
+    audio_source = catalog.create_source(
+        project_id=project.id,
+        name="访谈录音.mp3",
+        source_kind="audio",
+        upload_kind="file",
+        storage_path=str(source_dir / "interview.mp3"),
+        normalized_path=str(audio_text),
+        index_input_mode="normalized_text",
+        normalize_status="parsed",
+        normalize_summary="ASR 已生成转写文本。",
+        index_status="pending",
+        index_error=None,
+    )
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=FakeVectorStore(),
+    )
+
+    runtime.index_source(project.id, image_source.id)
+    runtime.index_source(project.id, audio_source.id)
+
+    chunks = catalog.list_source_chunks(project_id=project.id)
+    locators = [json.loads(chunk.locator_json or "{}") for chunk in chunks]
+    locator_pairs = [
+        {key: value for key, value in locator.items() if key in {"source_kind", "locator_kind"}}
+        for locator in locators
+    ]
+    assert {"source_kind": "image", "locator_kind": "source_level"} in locator_pairs
+    assert {"source_kind": "audio", "locator_kind": "source_level"} in locator_pairs
 
 
 def test_preparation_failure_marks_knowledge_base_error_and_project_readiness(tmp_path: Path) -> None:

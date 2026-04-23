@@ -191,6 +191,17 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
+def _source_locator(source: SourceRecord, chunk_order: int) -> dict[str, object]:
+    locator: dict[str, object] = {
+        "chunk_order": chunk_order,
+        "source_name": source.name,
+        "source_kind": source.source_kind,
+    }
+    if source.source_kind in {"image", "audio"}:
+        locator["locator_kind"] = "source_level"
+    return locator
+
+
 def prepare_source_chunks(
     *,
     source: SourceRecord,
@@ -200,13 +211,7 @@ def prepare_source_chunks(
     chunks = _chunk_text(text)
     prepared: list[PreparedSourceChunk] = []
     for chunk_order, content in enumerate(chunks):
-        locator_json = json.dumps(
-            {
-                "chunk_order": chunk_order,
-                "source_name": source.name,
-            },
-            ensure_ascii=False,
-        )
+        locator_json = json.dumps(_source_locator(source, chunk_order), ensure_ascii=False)
         content_hash = source_chunk_content_hash(content, locator_json)
         prepared.append(
             PreparedSourceChunk(
@@ -219,6 +224,7 @@ def prepare_source_chunks(
                     "knowledge_base_id": knowledge_base_id,
                     "source_id": source.id,
                     "source_name": source.name,
+                    "source_kind": source.source_kind,
                     "chunk_order": chunk_order,
                     "locator_json": locator_json,
                 },

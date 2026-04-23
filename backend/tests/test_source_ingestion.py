@@ -56,6 +56,47 @@ def test_ingest_pdf_uses_docling_markdown_output(tmp_path: Path) -> None:
     assert "Docling extracted text" in normalized.normalize_summary
 
 
+def test_ingest_image_uses_text_first_normalized_output_when_docling_extracts_text(tmp_path: Path) -> None:
+    normalizer = FakeDoclingNormalizer("# 图片内容\nOCR: 退款审批流包含财务复核节点")
+    service = SourceIngestionService(
+        make_settings(tmp_path),
+        docling_normalizer=normalizer,
+    )
+
+    storage_path, normalized = service.ingest_file(
+        "project-1",
+        "flowchart.png",
+        b"\x89PNG\r\n",
+    )
+
+    assert normalizer.calls == [Path(storage_path)]
+    assert normalized.source_kind == "image"
+    assert normalized.normalize_status == "parsed"
+    assert normalized.index_input_mode == "normalized_text"
+    assert normalized.normalized_path is not None
+    assert "退款审批流" in Path(normalized.normalized_path).read_text(encoding="utf-8")
+
+
+def test_ingest_audio_uses_text_first_normalized_output_when_transcript_exists(tmp_path: Path) -> None:
+    normalizer = FakeDoclingNormalizer("# 访谈录音转写\n00:00-00:20 客户要求逐笔核对订单与财务入账")
+    service = SourceIngestionService(
+        make_settings(tmp_path),
+        docling_normalizer=normalizer,
+    )
+
+    _, normalized = service.ingest_file(
+        "project-1",
+        "interview.mp3",
+        b"ID3",
+    )
+
+    assert normalized.source_kind == "audio"
+    assert normalized.normalize_status == "parsed"
+    assert normalized.index_input_mode == "normalized_text"
+    assert normalized.normalized_path is not None
+    assert "逐笔核对" in Path(normalized.normalized_path).read_text(encoding="utf-8")
+
+
 def test_ingest_image_fails_honestly_when_text_normalization_is_unavailable(tmp_path: Path) -> None:
     normalizer = FakeDoclingNormalizer(
         error=ProviderIssue(
