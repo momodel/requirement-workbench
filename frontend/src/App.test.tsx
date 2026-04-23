@@ -30,7 +30,7 @@ function seedWorkbenchRoutes(overrides?: {
   readiness?: JsonResponse;
   knowledgeBase?: JsonResponse;
   artifacts?: JsonResponse;
-}) {
+}): Record<string, JsonResponse> {
   return {
     '/api/projects/seed-reconciliation': overrides?.project ?? {
       id: 'seed-reconciliation',
