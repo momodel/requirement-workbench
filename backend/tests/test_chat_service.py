@@ -7,6 +7,7 @@ from app.db import init_db
 from app.models import (
     AgentTurnInput,
     AgentTurnResult,
+    ArtifactRecord,
     ChatCitation,
     ChatStreamRequest,
     EvidenceResult,
@@ -51,7 +52,14 @@ class StubEvidenceRuntime:
 
 
 class StubArtifactGenerationService:
+    def __init__(self, generated_artifacts: list[ArtifactRecord] | None = None) -> None:
+        self.generated_artifacts = generated_artifacts or []
+        self.calls: list[dict] = []
+
     async def generate_from_model(self, **kwargs):
+        self.calls.append(kwargs)
+        if self.generated_artifacts:
+            return self.generated_artifacts.pop(0)
         raise AssertionError("this test should not generate artifacts")
 
 
@@ -383,7 +391,7 @@ def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> No
     assert events[-1][0] == "done"
 
 
-def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
+def test_meta_follow_up_streams_text_without_structured_patch(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
@@ -404,7 +412,11 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="我前一个问题是啥", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(
+                message="你刚才问的前一个问题是什么？",
+                selected_source_ids=[],
+                request_artifact_types=[],
+            ),
         ):
             events.append((event_type, payload))
         return events
@@ -417,11 +429,70 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
         for event_type, payload in events
     )
     assert not any(event_type.endswith("_patch") for event_type, _ in events)
+    assert events[-1][0] == "done"
     messages = catalog.list_recent_messages("seed-reconciliation")
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
     assert agent_runtime.turns
     assert agent_runtime.turns[0].evidence_summary == "stub evidence"
+
+
+def test_explicit_artifact_request_still_runs_structured_turn(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+
+    agent_runtime = ChunkThenPatchAgentRuntime()
+    artifact_generation = StubArtifactGenerationService(
+        generated_artifacts=[
+            ArtifactRecord(
+                id="artifact-page-solution-1",
+                project_id="seed-reconciliation",
+                artifact_type="page_solution",
+                title="页面方案草稿",
+                summary="用于验证显式 artifact 请求仍会进入 structured turn。",
+                status="generated",
+                content_format="html",
+                storage_path=str(tmp_path / "page-solution" / "index.html"),
+                preview_url=None,
+                body=None,
+                updated_at="2026-04-23T18:55:11+08:00",
+            )
+        ]
+    )
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=agent_runtime,
+        artifact_generation=artifact_generation,
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(
+                message="请生成页面方案",
+                selected_source_ids=[],
+                request_artifact_types=["page_solution"],
+            ),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert any(event_type == "message_chunk" for event_type, _ in events)
+    assert any(
+        event_type == "assistant_status" and payload["phase"] == "state_patch"
+        for event_type, payload in events
+    )
+    assert artifact_generation.calls
+    assert events[-1][0] == "done"
 
 
 def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Path) -> None:
