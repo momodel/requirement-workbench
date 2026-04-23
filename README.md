@@ -41,7 +41,6 @@
 - 主智能体：`Claude Agent SDK`
 - 证据层：`Docling + Qdrant + LlamaIndex + 项目内 EvidenceRuntime 薄适配层`
 - 项目级方法论：`backend/.claude/skills/requirement-analysis-methodology/`
-- 历史 NotebookLM 迁移参考：`backend/.claude/skills/notebooklm-evidence-workflow/`
 
 说明：
 
@@ -75,15 +74,15 @@
 
 ## 环境要求
 
-- Python `3.12.x`
+- 一个可用的 Python 解释器，用于创建项目内 `backend/.venv`
 - Node.js `18+`
 - 一个可用的 `claude` CLI，或者在环境变量里显式配置 `CLAUDE_CODE_CLI_PATH`
 - 首次安装依赖和配置 provider 时可正常联网
 
-当前说明：
+说明：
 
-- 当前 worktree 已用 Python `3.12` 做过 clean-venv 安装和后端测试验证
-- 系统默认 Python `3.13` 下，当前 `llama-index-embeddings-fastembed` 这组依赖无法直接安装，因此暂不作为受支持解释器口径
+- 后端依赖必须安装到项目内 `backend/.venv`
+- 如果当前解释器无法完成 `backend/requirements.txt` 安装，不要继续复用失败的环境，改用你本机可成功安装项目依赖的解释器后重建 `.venv`
 
 ## 5 分钟启动
 
@@ -91,12 +90,15 @@
 
 ```bash
 cd backend
-python3.12 -m venv .venv
+python -m venv .venv
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+# macOS / Linux
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-如果你的系统没有 `python3.12` 这个命令，就改成任意明确指向 Python `3.12.x` 的解释器路径，不要直接用可能指向 `3.13` 的系统默认 `python3`。
+如果这里安装失败，就换成你本机可成功安装 `backend/requirements.txt` 的明确解释器路径，重新创建 `backend/.venv`。
 
 ### 2. 准备前端环境
 
@@ -166,7 +168,9 @@ REQUIREMENT_WORKBENCH_QDRANT_PATH=../data/qdrant
 
 ```bash
 cd backend
-source .venv/bin/activate
+# Windows PowerShell
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 9300 --reload
+# macOS / Linux
 ./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 9300 --reload
 ```
 
@@ -189,17 +193,65 @@ npm run dev -- --host 127.0.0.1 --port 4173
 - 前端工作台：[http://127.0.0.1:4173](http://127.0.0.1:4173)
 - 后端健康检查：[http://127.0.0.1:9300/api/health](http://127.0.0.1:9300/api/health)
 
+### 7. 初始化 knowledge base 并让检索真正可用
+
+仅启动后端不会自动让项目进入“可检索”状态。Evidence 检索真正可用至少需要：
+
+- 项目 knowledge base 已初始化
+- 至少一条 source 已完成 `indexed`
+
+先初始化 seed project 的 knowledge base：
+
+```bash
+curl -X POST http://127.0.0.1:9300/api/projects/seed-reconciliation/knowledge-base/init
+```
+
+查看当前 source：
+
+```bash
+curl http://127.0.0.1:9300/api/projects/seed-reconciliation/sources
+```
+
+如果是新导入一条文本 source，在 knowledge base 已存在时会自动尝试索引：
+
+```bash
+curl -X POST http://127.0.0.1:9300/api/projects/seed-reconciliation/sources \
+  -F "upload_kind=text" \
+  -F "name=manual-check.md" \
+  -F "text_content=订单金额字段与财务科目映射口径不一致，需要逐笔核对。"
+```
+
+如果是已经存在但仍处于 `pending` 或 `index_failed` 的 source，需要显式重建索引：
+
+```bash
+curl -X POST http://127.0.0.1:9300/api/projects/seed-reconciliation/sources/{source_id}/reindex
+```
+
+最后确认 knowledge base 和 source 状态：
+
+```bash
+curl http://127.0.0.1:9300/api/projects/seed-reconciliation/knowledge-base
+curl http://127.0.0.1:9300/api/projects/seed-reconciliation/sources
+```
+
+预期结果：
+
+- `knowledge_base.readiness.status` 为 `ready`
+- `indexed_chunk_count` 大于 `0`
+- 至少一条 source 的 `index_status` 为 `indexed`
+
 ## 首次进入后怎么验证
 
 建议按这条顺序快速验一遍：
 
 1. 打开首页，确认项目列表能正常加载
-2. 看首页或工作台的 provider readiness，确认 `Claude` 和 `Evidence` 不是未配置状态
+2. 看首页或工作台的 provider readiness，先确认 `Evidence` 不是未配置状态
 3. 进入 seed project 的工作台，确认三栏都能显示
 4. 如果新项目提示 `knowledge_base_missing`，先在工作台初始化项目知识库
-5. 在左栏导入一段文本资料，确认 source 状态会进入 `indexing / indexed` 或给出明确失败原因
-6. 发一条消息，确认中栏能收到 SSE 流式输出，右栏会逐步更新
-7. 打开右栏 artifact，确认文档稿能在抽屉看，HTML artifact 能在大预览层看
+5. 在左栏导入一段文本资料，或对现有 source 触发重新索引，确认至少一条 source 进入 `indexed`
+6. 看 knowledge base 详情，确认 `indexed_chunk_count` 大于 `0`
+7. 如果 `Claude` readiness 也是 `ready`，再发一条消息，确认中栏能收到 SSE 流式输出，右栏会逐步更新
+8. 如果 `Claude` readiness 也是 `ready`，再打开右栏 artifact，确认文档稿能在抽屉看，HTML artifact 能在大预览层看
 
 ## 开发入口
 
@@ -227,7 +279,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 ```bash
 cd backend
-python3.12 -m venv .venv
+python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```

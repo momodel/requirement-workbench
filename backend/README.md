@@ -17,9 +17,7 @@
 
 当前约定：
 
-- `NotebookLM` 不再是一期主链路正式 provider
-- 仓库里残留的 notebook skill / vendor 代码只作为迁移参考，不代表主链路依赖
 - 默认使用项目内 `data/qdrant/` 作为嵌入式向量存储目录；如果配置 `REQUIREMENT_WORKBENCH_QDRANT_URL`，则切到远端 Qdrant
-- 当前依赖组合按 Python `3.12` 验证；系统默认 Python `3.13` 暂不在受支持口径内
+- 仅启动后端并不会自动让项目进入“可检索”状态；knowledge base 初始化完成且至少一条 source 已完成索引后，Evidence 检索才真正可用
 - `CLAUDE_MODEL` 是 Claude runtime 的硬前置条件，缺失时 readiness 和执行入口都会拒绝继续
 - 仍需按 `docs/planning/fullstack-phase1-todo.md` 继续完成真实环境 provider readiness 验收与收尾联调
