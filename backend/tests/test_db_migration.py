@@ -40,6 +40,7 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
           parse_status TEXT NOT NULL,
           sync_status TEXT NOT NULL DEFAULT 'pending',
           parse_summary TEXT,
+          sync_error TEXT,
           created_at TEXT NOT NULL
         );
 
@@ -56,6 +57,18 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
         );
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO sources (
+          id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
+          notebook_import_mode, parse_status, sync_status, parse_summary, sync_error, created_at
+        )
+        VALUES (
+          'source-legacy-1', 'project-legacy-1', '旧资料.txt', 'text', 'text', NULL, NULL,
+          'direct_text', 'parsed', 'synced', '迁移摘要', 'legacy sync error', '2026-04-22T00:00:00Z'
+        )
         """
     )
     connection.commit()
@@ -83,9 +96,35 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
             row[1]
             for row in migrated.execute("PRAGMA table_info(source_chunks)").fetchall()
         }
+        migrated_source_row = migrated.execute(
+            """
+            SELECT
+              notebook_import_mode,
+              parse_status,
+              parse_summary,
+              sync_status,
+              sync_error,
+              index_input_mode,
+              normalize_status,
+              normalize_summary,
+              index_status,
+              index_error
+            FROM sources
+            WHERE id = 'source-legacy-1'
+            """
+        ).fetchone()
     finally:
         migrated.close()
 
+    assert "index_input_mode" in sources_columns
+    assert "normalize_status" in sources_columns
+    assert "normalize_summary" in sources_columns
+    assert "index_status" in sources_columns
+    assert "index_error" in sources_columns
+    assert "notebook_import_mode" in sources_columns
+    assert "parse_status" in sources_columns
+    assert "parse_summary" in sources_columns
+    assert "sync_status" in sources_columns
     assert "sync_error" in sources_columns
     assert "body" in artifact_columns
     assert "knowledge_bases" in tables
@@ -97,6 +136,48 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert "content_hash" in source_chunk_columns
     assert "embedding_status" in source_chunk_columns
     assert "indexed_at" in source_chunk_columns
+    assert migrated_source_row is not None
+    assert migrated_source_row[0] == "direct_text"
+    assert migrated_source_row[1] == "parsed"
+    assert migrated_source_row[2] == "迁移摘要"
+    assert migrated_source_row[3] == "synced"
+    assert migrated_source_row[4] == "legacy sync error"
+    assert migrated_source_row[5] == "direct_text"
+    assert migrated_source_row[6] == "parsed"
+    assert migrated_source_row[7] == "迁移摘要"
+    assert migrated_source_row[8] == "synced"
+    assert migrated_source_row[9] == "legacy sync error"
+
+
+def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+
+    init_db(settings)
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    try:
+        sources_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(sources)").fetchall()
+        }
+    finally:
+        connection.close()
+
+    expected_columns = {
+        "index_input_mode",
+        "notebook_import_mode",
+        "normalize_status",
+        "parse_status",
+        "normalize_summary",
+        "parse_summary",
+        "index_status",
+        "sync_status",
+        "index_error",
+        "sync_error",
+    }
+    assert expected_columns.issubset(sources_columns)
 
 
 def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bases_table(

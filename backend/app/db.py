@@ -11,6 +11,11 @@ from .config import AppSettings, DEFAULT_SETTINGS
 
 MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
     "sources": {
+        "index_input_mode": "ALTER TABLE sources ADD COLUMN index_input_mode TEXT",
+        "normalize_status": "ALTER TABLE sources ADD COLUMN normalize_status TEXT",
+        "normalize_summary": "ALTER TABLE sources ADD COLUMN normalize_summary TEXT",
+        "index_status": "ALTER TABLE sources ADD COLUMN index_status TEXT",
+        "index_error": "ALTER TABLE sources ADD COLUMN index_error TEXT",
         "sync_error": "ALTER TABLE sources ADD COLUMN sync_error TEXT",
     },
     "knowledge_bases": {
@@ -22,6 +27,54 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "body": "ALTER TABLE demo_artifacts ADD COLUMN body TEXT",
     },
 }
+
+SOURCES_NEUTRAL_BACKFILL = (
+    (
+        "index_input_mode",
+        "notebook_import_mode",
+        """
+        UPDATE sources
+        SET index_input_mode = notebook_import_mode
+        WHERE index_input_mode IS NULL AND notebook_import_mode IS NOT NULL
+        """,
+    ),
+    (
+        "normalize_status",
+        "parse_status",
+        """
+        UPDATE sources
+        SET normalize_status = parse_status
+        WHERE normalize_status IS NULL AND parse_status IS NOT NULL
+        """,
+    ),
+    (
+        "normalize_summary",
+        "parse_summary",
+        """
+        UPDATE sources
+        SET normalize_summary = parse_summary
+        WHERE normalize_summary IS NULL AND parse_summary IS NOT NULL
+        """,
+    ),
+    (
+        "index_status",
+        "sync_status",
+        """
+        UPDATE sources
+        SET index_status = sync_status
+        WHERE index_status IS NULL AND sync_status IS NOT NULL
+        """,
+    ),
+    (
+        "index_error",
+        "sync_error",
+        """
+        UPDATE sources
+        SET index_error = sync_error
+        WHERE index_error IS NULL AND sync_error IS NOT NULL
+        """,
+    ),
+)
 
 SOURCE_CHUNKS_EXPECTED_COLUMNS = {
     "id",
@@ -220,6 +273,16 @@ def _apply_column_migrations(connection: sqlite3.Connection) -> None:
                 connection.execute(statement)
 
 
+def _backfill_sources_neutral_columns(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "sources"):
+        return
+
+    existing_columns = _existing_columns(connection, "sources")
+    for neutral_column, legacy_column, statement in SOURCES_NEUTRAL_BACKFILL:
+        if neutral_column in existing_columns and legacy_column in existing_columns:
+            connection.execute(statement)
+
+
 def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
     settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -233,6 +296,7 @@ def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
         connection.executescript(schema_path.read_text(encoding="utf-8"))
         _ensure_source_chunks_schema(connection)
         _apply_column_migrations(connection)
+        _backfill_sources_neutral_columns(connection)
         connection.commit()
     finally:
         connection.close()

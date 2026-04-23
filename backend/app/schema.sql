@@ -19,10 +19,15 @@ CREATE TABLE IF NOT EXISTS sources (
   upload_kind TEXT NOT NULL,
   storage_path TEXT,
   normalized_path TEXT,
+  index_input_mode TEXT,
   notebook_import_mode TEXT,
+  normalize_status TEXT,
   parse_status TEXT NOT NULL,
+  normalize_summary TEXT,
   parse_summary TEXT,
+  index_status TEXT,
   sync_status TEXT NOT NULL DEFAULT 'pending',
+  index_error TEXT,
   sync_error TEXT,
   created_at TEXT NOT NULL
 );
