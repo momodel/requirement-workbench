@@ -392,32 +392,6 @@ class ProjectCatalog:
                 (timestamp, project_id),
             )
 
-    def update_source_sync_status(
-        self,
-        *,
-        source_id: str,
-        sync_status: str,
-        sync_error: str | None,
-    ) -> SourceRecord:
-        return self.update_source_index_status(
-            source_id=source_id,
-            index_status=sync_status,
-            index_error=sync_error,
-        )
-
-    def bulk_update_source_sync_status(
-        self,
-        *,
-        project_id: str,
-        sync_status: str,
-        sync_error: str | None,
-    ) -> None:
-        self.bulk_update_source_index_status(
-            project_id=project_id,
-            index_status=sync_status,
-            index_error=sync_error,
-        )
-
     def upsert_knowledge_base(
         self,
         *,

@@ -485,7 +485,7 @@ def test_replace_source_chunks_rejects_cross_project_ownership(tmp_path: Path) -
     assert catalog.list_source_chunks(project_id=project_a.id, source_id=source_a.id) == []
 
 
-def test_legacy_source_sync_status_wrappers_delegate_to_neutral_index_status_updates(
+def test_bulk_update_source_index_status_updates_all_project_sources(
     tmp_path: Path,
 ) -> None:
     settings = make_settings(tmp_path)
@@ -494,9 +494,9 @@ def test_legacy_source_sync_status_wrappers_delegate_to_neutral_index_status_upd
 
     project = catalog.create_project(
         CreateProjectRequest(
-            name="兼容性项目",
+            name="批量更新项目",
             scenario_type="general",
-            summary="测试 legacy wrapper 委托",
+            summary="验证 source index 状态批量更新",
         )
     )
     source_a = catalog.create_source(
@@ -509,8 +509,8 @@ def test_legacy_source_sync_status_wrappers_delegate_to_neutral_index_status_upd
         index_input_mode="direct_text",
         normalize_status="parsed",
         normalize_summary="A",
-        index_status="pending",
-        index_error=None,
+        index_status="pending_sync",
+        index_error="waiting",
     )
     source_b = catalog.create_source(
         project_id=project.id,
@@ -522,26 +522,18 @@ def test_legacy_source_sync_status_wrappers_delegate_to_neutral_index_status_upd
         index_input_mode="direct_text",
         normalize_status="parsed",
         normalize_summary="B",
-        index_status="pending",
-        index_error=None,
+        index_status="index_failed",
+        index_error="old failure",
     )
 
-    updated = catalog.update_source_sync_status(
-        source_id=source_a.id,
-        sync_status="index_failed",
-        sync_error="legacy wrapper",
-    )
-    catalog.bulk_update_source_sync_status(
+    catalog.bulk_update_source_index_status(
         project_id=project.id,
-        sync_status="indexed",
-        sync_error=None,
+        index_status="indexed",
+        index_error=None,
     )
 
     refreshed_sources = {source.id: source for source in catalog.list_sources(project.id)}
 
-    assert updated.id == source_a.id
-    assert updated.index_status == "index_failed"
-    assert updated.index_error == "legacy wrapper"
     assert refreshed_sources[source_a.id].index_status == "indexed"
     assert refreshed_sources[source_a.id].index_error is None
     assert refreshed_sources[source_b.id].index_status == "indexed"
