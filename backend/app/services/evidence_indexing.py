@@ -136,8 +136,8 @@ def load_source_text(source: SourceRecord) -> str:
     if not raw_fallback_allowed:
         raise _normalized_not_indexable_issue(source)
 
-    if source.parse_summary and source.parse_summary.strip():
-        return source.parse_summary
+    if source.normalize_summary and source.normalize_summary.strip():
+        return source.normalize_summary
 
     raise ProviderIssue(
         provider="QDRANT_LLAMA_INDEX",

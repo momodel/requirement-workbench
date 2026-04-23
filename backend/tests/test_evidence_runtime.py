@@ -7,6 +7,7 @@ import pytest
 from app.config import AppSettings
 from app.db import init_db
 from app.models import ChatCitation, CreateProjectRequest, ProviderIssue, ProviderReadiness
+from app.services.evidence_indexing import load_source_text
 from app.services.evidence_runtime import EVIDENCE_PROVIDER, QdrantLlamaIndexEvidenceRuntime
 from app.services.project_catalog import ProjectCatalog
 from app.services.vector_store import VectorDocument, VectorQueryHit
@@ -165,11 +166,11 @@ def test_query_passes_selected_source_ids_to_vector_store_and_filters_results(tm
         upload_kind="text",
         storage_path=str(path_a),
         normalized_path=str(path_a),
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="退款规则",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="退款规则",
+        index_status="pending_sync",
+        index_error=None,
     )
     source_b = catalog.create_source(
         project_id=project.id,
@@ -178,11 +179,11 @@ def test_query_passes_selected_source_ids_to_vector_store_and_filters_results(tm
         upload_kind="text",
         storage_path=str(path_b),
         normalized_path=str(path_b),
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="对账规则",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="对账规则",
+        index_status="pending_sync",
+        index_error=None,
     )
     vector_store = FakeVectorStore()
     runtime = QdrantLlamaIndexEvidenceRuntime(
@@ -233,11 +234,11 @@ def test_query_shapes_citations_and_deduplicates_duplicate_hits(tmp_path: Path) 
         upload_kind="text",
         storage_path=str(path),
         normalized_path=str(path),
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="订单字段说明",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="订单字段说明",
+        index_status="pending_sync",
+        index_error=None,
     )
     vector_store = FakeVectorStore()
     runtime = QdrantLlamaIndexEvidenceRuntime(
@@ -304,11 +305,11 @@ def test_query_filters_hits_for_sources_deleted_from_catalog(tmp_path: Path) -> 
         upload_kind="text",
         storage_path=str(path),
         normalized_path=str(path),
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="待删除资料",
-        sync_status="indexed",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="待删除资料",
+        index_status="indexed",
+        index_error=None,
     )
     vector_store = FakeVectorStore()
     runtime = QdrantLlamaIndexEvidenceRuntime(
@@ -363,11 +364,11 @@ def test_index_source_rejects_url_without_normalized_page_text(tmp_path: Path) -
         upload_kind="url",
         storage_path=str(url_path),
         normalized_path=None,
-        notebook_import_mode=None,
-        parse_status="pending",
-        parse_summary="URL 已记录，但还没有抓取到页面正文。",
-        sync_status="normalization_pending",
-        sync_error="URL 已记录，但还没有抓取到页面正文；生成 normalized text 前不会进入项目知识库。",
+        index_input_mode=None,
+        normalize_status="pending",
+        normalize_summary="URL 已记录，但还没有抓取到页面正文。",
+        index_status="normalization_pending",
+        index_error="URL 已记录，但还没有抓取到页面正文；生成 normalized text 前不会进入项目知识库。",
     )
     runtime = QdrantLlamaIndexEvidenceRuntime(
         settings=settings,
@@ -399,11 +400,11 @@ def test_index_source_rejects_binary_source_without_normalized_text(tmp_path: Pa
         upload_kind="file",
         storage_path=str(binary_path),
         normalized_path=None,
-        notebook_import_mode="file_upload",
-        parse_status="parsed",
-        parse_summary="这是 PDF 摘要，但还没有标准化文本。",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="file_upload",
+        normalize_status="parsed",
+        normalize_summary="这是 PDF 摘要，但还没有标准化文本。",
+        index_status="pending_sync",
+        index_error=None,
     )
     runtime = QdrantLlamaIndexEvidenceRuntime(
         settings=settings,
@@ -435,11 +436,11 @@ def test_preparation_failure_marks_knowledge_base_error_and_project_readiness(tm
         upload_kind="file",
         storage_path=str(binary_path),
         normalized_path=None,
-        notebook_import_mode="file_upload",
-        parse_status="parsed",
-        parse_summary="录音摘要",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="file_upload",
+        normalize_status="parsed",
+        normalize_summary="录音摘要",
+        index_status="pending_sync",
+        index_error=None,
     )
     runtime = QdrantLlamaIndexEvidenceRuntime(
         settings=settings,

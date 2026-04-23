@@ -52,11 +52,11 @@ def _create_source_record(
         upload_kind=upload_kind,
         storage_path=storage_path,
         normalized_path=normalized_source.normalized_path,
-        notebook_import_mode=normalized_source.index_input_mode,
-        parse_status=normalized_source.normalize_status,
-        parse_summary=normalized_source.normalize_summary,
-        sync_status=index_status,
-        sync_error=index_error,
+        index_input_mode=normalized_source.index_input_mode,
+        normalize_status=normalized_source.normalize_status,
+        normalize_summary=normalized_source.normalize_summary,
+        index_status=index_status,
+        index_error=index_error,
     )
     if index_status == "pending":
         source_record = _run_source_index_operation(
@@ -81,10 +81,10 @@ def _run_source_index_operation(
     if not source:
         raise LookupError("Source not found")
 
-    services.catalog.update_source_sync_status(
+    services.catalog.update_source_index_status(
         source_id=source_id,
-        sync_status="indexing",
-        sync_error=None,
+        index_status="indexing",
+        index_error=None,
     )
     try:
         if operation == "reindex":
@@ -92,19 +92,19 @@ def _run_source_index_operation(
         else:
             services.evidence_runtime.index_source(project_id, source_id)
     except ProviderIssue as exc:
-        failed_source = services.catalog.update_source_sync_status(
+        failed_source = services.catalog.update_source_index_status(
             source_id=source_id,
-            sync_status="index_failed",
-            sync_error=exc.message,
+            index_status="index_failed",
+            index_error=exc.message,
         )
         if raise_on_error:
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return failed_source
 
-    return services.catalog.update_source_sync_status(
+    return services.catalog.update_source_index_status(
         source_id=source_id,
-        sync_status="indexed",
-        sync_error=None,
+        index_status="indexed",
+        index_error=None,
     )
 
 

@@ -67,10 +67,10 @@ def install_fake_evidence_runtime(app, monkeypatch) -> None:
                 }
             ],
         )
-        services.catalog.update_source_sync_status(
+        services.catalog.update_source_index_status(
             source_id=source_id,
-            sync_status="indexed",
-            sync_error=None,
+            index_status="indexed",
+            index_error=None,
         )
         return services.catalog.list_source_chunks(project_id=project_id, source_id=source_id)
 
@@ -305,10 +305,10 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
         source_id = upload_response.json()["id"]
         assert upload_response.json()["sync_status"] == "indexed"
 
-        app.state.services.catalog.update_source_sync_status(
+        app.state.services.catalog.update_source_index_status(
             source_id=source_id,
-            sync_status="index_failed",
-            sync_error="Qdrant collection 暂不可写。",
+            index_status="index_failed",
+            index_error="Qdrant collection 暂不可写。",
         )
 
         def fake_reindex_source(target_project_id: str, target_source_id: str):
@@ -319,10 +319,10 @@ def test_reindex_source_updates_failed_source(tmp_path: Path, monkeypatch) -> No
                 source_id=target_source_id,
                 chunks=[],
             )
-            return app.state.services.catalog.update_source_sync_status(
+            return app.state.services.catalog.update_source_index_status(
                 source_id=target_source_id,
-                sync_status="indexed",
-                sync_error=None,
+                index_status="indexed",
+                index_error=None,
             )
 
         monkeypatch.setattr(
@@ -787,10 +787,10 @@ def test_reindex_converts_synced_source_to_indexed_status(
         )
         assert upload_response.status_code == 201
         source = upload_response.json()
-        app.state.services.catalog.update_source_sync_status(
+        app.state.services.catalog.update_source_index_status(
             source_id=source["id"],
-            sync_status="synced",
-            sync_error=None,
+            index_status="synced",
+            index_error=None,
         )
 
         reindex_response = client.post(
@@ -842,10 +842,10 @@ def test_delete_source_tolerates_evidence_cleanup_failures(
         )
         assert upload_response.status_code == 201
         source_id = upload_response.json()["id"]
-        app.state.services.catalog.update_source_sync_status(
+        app.state.services.catalog.update_source_index_status(
             source_id=source_id,
-            sync_status="synced",
-            sync_error=None,
+            index_status="synced",
+            index_error=None,
         )
 
         delete_response = client.delete(f"/api/projects/{project_id}/sources/{source_id}")

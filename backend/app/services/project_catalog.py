@@ -38,6 +38,39 @@ class ProjectCatalog:
         self.settings = settings
 
     @staticmethod
+    def _build_source_record(
+        *,
+        source_id: str,
+        project_id: str,
+        name: str,
+        source_kind: str,
+        upload_kind: str,
+        storage_path: str | None,
+        normalized_path: str | None,
+        index_input_mode: str | None,
+        normalize_status: str,
+        normalize_summary: str | None,
+        index_status: str,
+        index_error: str | None,
+        created_at: str,
+    ) -> SourceRecord:
+        return SourceRecord(
+            id=source_id,
+            project_id=project_id,
+            name=name,
+            source_kind=source_kind,
+            upload_kind=upload_kind,
+            storage_path=storage_path,
+            normalized_path=normalized_path,
+            index_input_mode=index_input_mode,
+            normalize_status=normalize_status,
+            normalize_summary=normalize_summary,
+            index_status=index_status,
+            index_error=index_error,
+            created_at=created_at,
+        )
+
+    @staticmethod
     def _knowledge_base_from_row(row: dict | None) -> KnowledgeBaseRecord | None:
         if not row:
             return None
@@ -199,25 +232,25 @@ class ProjectCatalog:
         upload_kind: str,
         storage_path: str | None,
         normalized_path: str | None,
-        notebook_import_mode: str | None,
-        parse_status: str,
-        parse_summary: str | None,
-        sync_status: str,
-        sync_error: str | None,
+        index_input_mode: str | None,
+        normalize_status: str,
+        normalize_summary: str | None,
+        index_status: str,
+        index_error: str | None,
     ) -> SourceRecord:
-        source = SourceRecord(
-            id=f"src-{uuid.uuid4().hex[:10]}",
+        source = self._build_source_record(
+            source_id=f"src-{uuid.uuid4().hex[:10]}",
             project_id=project_id,
             name=name,
             source_kind=source_kind,
             upload_kind=upload_kind,
             storage_path=storage_path,
             normalized_path=normalized_path,
-            notebook_import_mode=notebook_import_mode,
-            parse_status=parse_status,
-            parse_summary=parse_summary,
-            sync_status=sync_status,
-            sync_error=sync_error,
+            index_input_mode=index_input_mode,
+            normalize_status=normalize_status,
+            normalize_summary=normalize_summary,
+            index_status=index_status,
+            index_error=index_error,
             created_at=now_iso(self.settings),
         )
         with connection_scope(self.settings) as connection:
@@ -237,11 +270,11 @@ class ProjectCatalog:
                     source.upload_kind,
                     source.storage_path,
                     source.normalized_path,
-                    source.notebook_import_mode,
-                    source.parse_status,
-                    source.parse_summary,
-                    source.sync_status,
-                    source.sync_error,
+                    index_input_mode,
+                    normalize_status,
+                    normalize_summary,
+                    index_status,
+                    index_error,
                     source.created_at,
                 ),
             )
@@ -304,12 +337,12 @@ class ProjectCatalog:
 
         return source
 
-    def update_source_sync_status(
+    def update_source_index_status(
         self,
         *,
         source_id: str,
-        sync_status: str,
-        sync_error: str | None,
+        index_status: str,
+        index_error: str | None,
     ) -> SourceRecord:
         timestamp = now_iso(self.settings)
         with connection_scope(self.settings) as connection:
@@ -326,7 +359,7 @@ class ProjectCatalog:
                 SET sync_status = ?, sync_error = ?
                 WHERE id = ?
                 """,
-                (sync_status, sync_error, source_id),
+                (index_status, index_error, source_id),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -337,12 +370,12 @@ class ProjectCatalog:
             raise LookupError("Source not found after sync update")
         return updated
 
-    def bulk_update_source_sync_status(
+    def bulk_update_source_index_status(
         self,
         *,
         project_id: str,
-        sync_status: str,
-        sync_error: str | None,
+        index_status: str,
+        index_error: str | None,
     ) -> None:
         timestamp = now_iso(self.settings)
         with connection_scope(self.settings) as connection:
@@ -352,12 +385,38 @@ class ProjectCatalog:
                 SET sync_status = ?, sync_error = ?
                 WHERE project_id = ?
                 """,
-                (sync_status, sync_error, project_id),
+                (index_status, index_error, project_id),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
                 (timestamp, project_id),
             )
+
+    def update_source_sync_status(
+        self,
+        *,
+        source_id: str,
+        sync_status: str,
+        sync_error: str | None,
+    ) -> SourceRecord:
+        return self.update_source_index_status(
+            source_id=source_id,
+            index_status=sync_status,
+            index_error=sync_error,
+        )
+
+    def bulk_update_source_sync_status(
+        self,
+        *,
+        project_id: str,
+        sync_status: str,
+        sync_error: str | None,
+    ) -> None:
+        self.bulk_update_source_index_status(
+            project_id=project_id,
+            index_status=sync_status,
+            index_error=sync_error,
+        )
 
     def upsert_knowledge_base(
         self,

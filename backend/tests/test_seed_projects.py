@@ -45,11 +45,11 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
         upload_kind="seed",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode=None,
-        parse_status="parsed",
-        parse_summary="hello",
-        sync_status="synced",
-        sync_error=None,
+        index_input_mode=None,
+        normalize_status="parsed",
+        normalize_summary="hello",
+        index_status="synced",
+        index_error=None,
     )
 
     ensure_seed_project(settings)
@@ -69,10 +69,10 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
     source_files = catalog.list_sources(SEED_PROJECT_ID)
     assert all(source.storage_path for source in source_files)
     assert all(Path(source.storage_path).exists() for source in source_files if source.storage_path)
-    assert all(source.parse_status == "parsed" for source in source_files)
-    assert all(source.sync_status == "pending" for source in source_files)
-    assert all(source.sync_error for source in source_files)
-    assert all("项目知识库" in (source.sync_error or "") for source in source_files)
+    assert all(source.normalize_status == "parsed" for source in source_files)
+    assert all(source.index_status == "pending" for source in source_files)
+    assert all(source.index_error for source in source_files)
+    assert all("项目知识库" in (source.index_error or "") for source in source_files)
 
     message_contents = [message.content for message in catalog.list_recent_messages(SEED_PROJECT_ID)]
     assert any(

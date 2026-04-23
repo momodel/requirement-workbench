@@ -203,7 +203,7 @@ class ChatService:
             state=state,
             user_message=payload.message,
             selected_source_ids=payload.selected_source_ids,
-            source_summaries=[source.parse_summary or source.name for source in selected_sources],
+            source_summaries=[source.normalize_summary or source.name for source in selected_sources],
             evidence_summary=evidence_summary,
             evidence_citations=evidence_citations,
             request_artifact_types=payload.request_artifact_types,

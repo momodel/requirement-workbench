@@ -274,11 +274,11 @@ def test_project_catalog_persists_knowledge_bases_and_source_chunks(tmp_path: Pa
         upload_kind="text",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="字段说明",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="字段说明",
+        index_status="pending_sync",
+        index_error=None,
     )
 
     created = catalog.upsert_knowledge_base(
@@ -398,11 +398,11 @@ def test_replace_source_chunks_rejects_cross_project_ownership(tmp_path: Path) -
         upload_kind="text",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="A",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="A",
+        index_status="pending_sync",
+        index_error=None,
     )
     source_b = catalog.create_source(
         project_id=project_b.id,
@@ -411,11 +411,11 @@ def test_replace_source_chunks_rejects_cross_project_ownership(tmp_path: Path) -
         upload_kind="text",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode="direct_text",
-        parse_status="parsed",
-        parse_summary="B",
-        sync_status="pending_sync",
-        sync_error=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="B",
+        index_status="pending_sync",
+        index_error=None,
     )
     knowledge_base_b = catalog.upsert_knowledge_base(
         project_id=project_b.id,
@@ -483,3 +483,66 @@ def test_replace_source_chunks_rejects_cross_project_ownership(tmp_path: Path) -
         )
 
     assert catalog.list_source_chunks(project_id=project_a.id, source_id=source_a.id) == []
+
+
+def test_legacy_source_sync_status_wrappers_delegate_to_neutral_index_status_updates(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="兼容性项目",
+            scenario_type="general",
+            summary="测试 legacy wrapper 委托",
+        )
+    )
+    source_a = catalog.create_source(
+        project_id=project.id,
+        name="A.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="A",
+        index_status="pending",
+        index_error=None,
+    )
+    source_b = catalog.create_source(
+        project_id=project.id,
+        name="B.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=None,
+        normalized_path=None,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="B",
+        index_status="pending",
+        index_error=None,
+    )
+
+    updated = catalog.update_source_sync_status(
+        source_id=source_a.id,
+        sync_status="index_failed",
+        sync_error="legacy wrapper",
+    )
+    catalog.bulk_update_source_sync_status(
+        project_id=project.id,
+        sync_status="indexed",
+        sync_error=None,
+    )
+
+    refreshed_sources = {source.id: source for source in catalog.list_sources(project.id)}
+
+    assert updated.id == source_a.id
+    assert updated.index_status == "index_failed"
+    assert updated.index_error == "legacy wrapper"
+    assert refreshed_sources[source_a.id].index_status == "indexed"
+    assert refreshed_sources[source_a.id].index_error is None
+    assert refreshed_sources[source_b.id].index_status == "indexed"
+    assert refreshed_sources[source_b.id].index_error is None

@@ -136,11 +136,11 @@ def _seed_sources(
             upload_kind="seed",
             storage_path=str(source_path),
             normalized_path=str(source_path),
-            notebook_import_mode="direct_text",
-            parse_status="parsed",
-            parse_summary=parse_summary,
-            sync_status="pending",
-            sync_error="资料已标准化并写入 seed 项目目录，但当前还没有进入项目知识库索引。",
+            index_input_mode="direct_text",
+            normalize_status="parsed",
+            normalize_summary=parse_summary,
+            index_status="pending",
+            index_error="资料已标准化并写入 seed 项目目录，但当前还没有进入项目知识库索引。",
         )
 
 
