@@ -951,8 +951,11 @@ export function WorkbenchPage({
                   <div className="mt-2.5 grid gap-2.5">
                     {latestVersions.map((version) => (
                       <div key={version.id} className="rounded-[16px] border border-line bg-slate-50 p-3">
-                        <div className="text-sm font-medium text-ink">{version.title}</div>
-                        <p className="mt-1.5 text-sm leading-6 text-muted">{version.body}</p>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-medium text-ink">{`触发原因：${version.title}`}</div>
+                          {version.updated_at ? <Badge>{relativeTime(version.updated_at)}</Badge> : null}
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-muted">{version.body}</p>
                       </div>
                     ))}
                   </div>

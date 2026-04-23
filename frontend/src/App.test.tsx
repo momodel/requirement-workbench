@@ -3494,6 +3494,51 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: '集团业财逐笔对账需求分析' })).not.toBeInTheDocument();
   });
 
+  it('renders version cards with trigger reason, time, and summary in the sidebar', async () => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock(
+      seedWorkbenchRoutes({
+        state: {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [
+            {
+              id: 'version-artifact-1',
+              title: '交付物生成',
+              body: '已生成页面方案《逐笔对账页面方案》',
+              status: 'active',
+              category: 'versions',
+              updated_at: '2026-04-23T09:30:00+08:00',
+              source_ids: [],
+            },
+          ],
+          artifacts: [],
+        },
+      })
+    );
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' })).toBeInTheDocument();
+    const versionsHeading = screen.getByText('最近版本');
+    const versionsCard = versionsHeading.closest('div.rounded-\\[20px\\]');
+    expect(versionsCard).not.toBeNull();
+
+    const versionsPanel = within(versionsCard as HTMLElement);
+    expect(versionsPanel.getByText('触发原因：交付物生成')).toBeInTheDocument();
+    expect(versionsPanel.getByText(/2026\/4\/23/)).toBeInTheDocument();
+    expect(versionsPanel.getByText('已生成页面方案《逐笔对账页面方案》')).toBeInTheDocument();
+  });
+
   it('marks freshly patched insights as new in the sidebar', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
