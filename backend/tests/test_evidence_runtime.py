@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import uuid
 
 import pytest
 
@@ -12,7 +13,7 @@ from app.models import ChatCitation, CreateProjectRequest, ProviderIssue, Provid
 from app.services.evidence_indexing import load_source_text
 from app.services.evidence_runtime import EVIDENCE_PROVIDER, QdrantLlamaIndexEvidenceRuntime
 from app.services.project_catalog import ProjectCatalog
-from app.services.vector_store import VectorDocument, VectorQueryHit
+from app.services.vector_store import QdrantLlamaIndexVectorStore, VectorDocument, VectorQueryHit
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -598,3 +599,47 @@ def test_global_readiness_reports_missing_fastembed_runtime_dependency(
         detail="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先在 backend 虚拟环境里安装 Task 3 所需依赖。",
         action_label="安装 Qdrant/LlamaIndex 依赖",
     )
+
+
+def test_vector_store_upsert_uses_qdrant_compatible_point_ids(tmp_path: Path, monkeypatch) -> None:
+    settings = make_settings(tmp_path)
+    store = QdrantLlamaIndexVectorStore(settings)
+
+    captured: dict[str, object] = {}
+
+    class FakePointStruct:
+        def __init__(self, *, id, vector, payload):
+            self.id = id
+            self.vector = vector
+            self.payload = payload
+
+    class FakeModels:
+        PointStruct = FakePointStruct
+
+    class FakeClient:
+        def upsert(self, *, collection_name, points, wait):
+            captured["collection_name"] = collection_name
+            captured["points"] = points
+            captured["wait"] = wait
+
+    monkeypatch.setattr(store, "ensure_collection", lambda project_id: "project__project-1")
+    monkeypatch.setattr(store, "_load_qdrant_models", lambda: FakeModels)
+    monkeypatch.setattr(store, "_get_client", lambda: FakeClient())
+    monkeypatch.setattr(store, "_embed_text", lambda text, query=False: [0.1, 0.2, 0.3])
+
+    document = VectorDocument(
+        chunk_id="chunk-src-e4e4dc5af1-0-8de84d2414",
+        source_id="src-e4e4dc5af1",
+        text="订单金额字段与财务科目映射口径不一致，需要逐笔核对。",
+        metadata={"chunk_order": 0},
+    )
+
+    store.upsert("project-1", [document])
+
+    points = captured["points"]
+    assert isinstance(points, list)
+    assert len(points) == 1
+    point = points[0]
+    assert point.payload["chunk_id"] == document.chunk_id
+    assert point.id != document.chunk_id
+    assert str(uuid.UUID(point.id)) == point.id

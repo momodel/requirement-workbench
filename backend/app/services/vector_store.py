@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import re
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -130,6 +131,9 @@ class QdrantLlamaIndexVectorStore:
         prefix = re.sub(r"[^a-zA-Z0-9_-]+", "_", self.settings.qdrant_collection_prefix).strip("_") or "project"
         return f"{prefix}__{safe_project_id}"
 
+    def _point_id(self, chunk_id: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, chunk_id))
+
     def _collection_exists(self, collection_name: str) -> bool:
         client = self._get_client()
         if hasattr(client, "collection_exists"):
@@ -179,7 +183,7 @@ class QdrantLlamaIndexVectorStore:
         try:
             points = [
                 models.PointStruct(
-                    id=document.chunk_id,
+                    id=self._point_id(document.chunk_id),
                     vector=self._embed_text(document.text, query=False),
                     payload={
                         "chunk_id": document.chunk_id,
