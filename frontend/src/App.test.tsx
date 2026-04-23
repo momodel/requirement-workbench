@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from './App';
@@ -2982,6 +2982,147 @@ describe('App', () => {
     expect(
       screen.getByText('该 HTML 交付物缺少可打开的 preview_url，未覆盖上一个成功版本。')
     ).toBeInTheDocument();
+  });
+
+  it('clears artifact failure banner when navigating to a different project workbench', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const firstProjectRoutes = seedWorkbenchRoutes({
+      artifacts: [
+        {
+          id: 'artifact-page-existing',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'page_solution',
+          title: '页面方案 v2',
+          summary: '当前可预览的页面方案',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/page-v2.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-page-existing/preview',
+          body: null,
+          updated_at: '2026-04-16T10:10:00+08:00',
+        },
+      ],
+    });
+
+    const secondProjectRoutes = {
+      '/api/projects/project-second': {
+        id: 'project-second',
+        name: '第二个项目工作台',
+        scenario_type: 'reconciliation',
+        summary: '验证跨项目不泄漏 artifact 错误。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: null,
+      },
+      '/api/projects/project-second/sources': [],
+      '/api/projects/project-second/messages': [],
+      '/api/projects/project-second/state': {
+        current_understanding: [],
+        pending_items: [],
+        confirmed_items: [],
+        conflict_items: [],
+        mvp_items: [],
+        versions: [],
+        artifacts: [],
+      },
+      '/api/projects/project-second/readiness': {
+        project_id: 'project-second',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'ready',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: project-second; indexed chunks: 0',
+          action_label: null,
+        },
+      },
+      '/api/projects/project-second/knowledge-base': {
+        project_id: 'project-second',
+        knowledge_base: {
+          id: 'kb-project-second',
+          project_id: 'project-second',
+          provider: 'QDRANT_LLAMAINDEX',
+          external_knowledge_base_id: 'project-second',
+          display_name: '第二个项目工作台',
+          description: null,
+          status: 'ready',
+          status_error: null,
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+        },
+        readiness: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'ready',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: project-second; indexed chunks: 0',
+          action_label: null,
+        },
+        source_count: 0,
+        chunk_count: 0,
+        indexed_chunk_count: 0,
+      },
+      '/api/projects/project-second/artifacts': [
+        {
+          id: 'artifact-document-second',
+          project_id: 'project-second',
+          artifact_type: 'document',
+          title: '第二个项目文档稿',
+          summary: '第二个项目自己的交付物',
+          status: 'generated',
+          content_format: 'markdown',
+          storage_path: null,
+          preview_url: null,
+          body: '# 第二个项目文档稿',
+          updated_at: '2026-04-16T11:00:00+08:00',
+        },
+      ],
+    };
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/artifacts/generate' && method === 'POST') {
+        return new Response('Claude 交付物生成超时，请稍后重试。', { status: 504 });
+      }
+
+      const payload =
+        firstProjectRoutes[path as keyof typeof firstProjectRoutes] ??
+        secondProjectRoutes[path as keyof typeof secondProjectRoutes];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '页面方案' }));
+    expect(await screen.findByText(/当前已有交付物不受影响。/)).toBeInTheDocument();
+
+    await act(async () => {
+      window.history.pushState({}, '', '/projects/project-second/workbench');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByRole('heading', { name: '第二个项目工作台' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /第二个项目文档稿/ })).toBeInTheDocument();
+    expect(screen.queryByText(/当前已有交付物不受影响。/)).not.toBeInTheDocument();
   });
 
   it('marks freshly patched insights as new in the sidebar', async () => {

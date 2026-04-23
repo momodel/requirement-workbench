@@ -303,6 +303,7 @@ function WorkbenchRoute() {
   useEffect(() => {
     autoInitAttemptedProjectId.current = null;
     setRecentInsightIds([]);
+    setArtifactError(null);
     void loadWorkbench();
   }, [projectId]);
 
