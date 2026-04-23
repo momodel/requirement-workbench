@@ -7,7 +7,9 @@ from app.services.project_catalog import ProjectCatalog
 from app.services.seed_projects import SEED_PROJECT_ID, ensure_seed_project
 
 
-def make_settings(tmp_path: Path) -> AppSettings:
+def make_settings(
+    tmp_path: Path,
+) -> AppSettings:
     data_dir = tmp_path / "data"
     return AppSettings(
         root_dir=tmp_path,
@@ -15,7 +17,6 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
@@ -68,6 +69,10 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
     source_files = catalog.list_sources(SEED_PROJECT_ID)
     assert all(source.storage_path for source in source_files)
     assert all(Path(source.storage_path).exists() for source in source_files if source.storage_path)
+    assert all(source.parse_status == "parsed" for source in source_files)
+    assert all(source.sync_status == "pending" for source in source_files)
+    assert all(source.sync_error for source in source_files)
+    assert all("项目知识库" in (source.sync_error or "") for source in source_files)
 
     message_contents = [message.content for message in catalog.list_recent_messages(SEED_PROJECT_ID)]
     assert any(
@@ -80,36 +85,3 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
 
     artifact_titles = [artifact.title for artifact in catalog.list_artifacts(SEED_PROJECT_ID)]
     assert set(artifact_titles) == {"交互稿", "页面方案", "需求分析与 MVP 文档稿"}
-
-
-def test_ensure_seed_project_preserves_existing_notebook_binding(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path)
-    init_db(settings)
-    catalog = ProjectCatalog(settings)
-
-    catalog.upsert_project(
-        ProjectSummary(
-            id=SEED_PROJECT_ID,
-            name="集团业财逐笔对账需求分析",
-            scenario_type="financial-reconciliation",
-            summary="seed",
-            status="seed",
-            created_at="2026-04-16T09:00:00+08:00",
-            updated_at="2026-04-16T09:00:00+08:00",
-            seed_key="reconciliation",
-        )
-    )
-    catalog.upsert_notebook_binding(
-        project_id=SEED_PROJECT_ID,
-        notebook_id="seed-notebook-1",
-        provider="NOTEBOOKLM_PY",
-        sync_status="bound",
-        source_url="https://notebooklm.google.com/notebook/seed-notebook-1",
-    )
-
-    ensure_seed_project(settings)
-
-    binding = catalog.get_notebook_binding(SEED_PROJECT_ID)
-    assert binding is not None
-    assert binding.notebook_id == "seed-notebook-1"
-    assert binding.provider == "NOTEBOOKLM_PY"

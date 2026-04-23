@@ -14,7 +14,6 @@ from ..models import (
     CreateProjectRequest,
     KnowledgeBaseRecord,
     MessageRecord,
-    NotebookBindingRecord,
     ProjectSummary,
     SourceRecord,
     SourceChunkRecord,
@@ -901,48 +900,3 @@ class ProjectCatalog:
             body=body,
             updated_at=timestamp,
         )
-
-    def upsert_notebook_binding(
-        self,
-        *,
-        project_id: str,
-        notebook_id: str,
-        provider: str,
-        sync_status: str,
-        source_url: str | None = None,
-    ) -> None:
-        timestamp = now_iso(self.settings)
-        with connection_scope(self.settings) as connection:
-            connection.execute(
-                """
-                INSERT INTO notebook_bindings (project_id, notebook_id, provider, sync_status, last_synced_at, source_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(project_id) DO UPDATE SET
-                  notebook_id = excluded.notebook_id,
-                  provider = excluded.provider,
-                  sync_status = excluded.sync_status,
-                  last_synced_at = excluded.last_synced_at,
-                  source_url = excluded.source_url
-                """,
-                (project_id, notebook_id, provider, sync_status, timestamp, source_url),
-            )
-        return NotebookBindingRecord(
-            project_id=project_id,
-            notebook_id=notebook_id,
-            provider=provider,
-            sync_status=sync_status,
-            last_synced_at=timestamp,
-            source_url=source_url,
-        )
-
-    def get_notebook_binding(self, project_id: str) -> NotebookBindingRecord | None:
-        with connection_scope(self.settings) as connection:
-            row = connection.execute(
-                """
-                SELECT project_id, notebook_id, provider, sync_status, last_synced_at, source_url
-                FROM notebook_bindings
-                WHERE project_id = ?
-                """,
-                (project_id,),
-            ).fetchone()
-        return NotebookBindingRecord.model_validate(dict(row)) if row else None

@@ -16,14 +16,13 @@ TEXT_LIKE_SOURCE_KINDS = {
     "markdown",
     "md",
     "txt",
-    "url",
     "html",
     "csv",
     "tsv",
     "json",
     "xml",
 }
-TEXT_LIKE_UPLOAD_KINDS = {"text", "url", "seed"}
+TEXT_LIKE_UPLOAD_KINDS = {"text", "seed"}
 TEXT_LIKE_SUFFIXES = {
     ".txt",
     ".md",
@@ -99,6 +98,9 @@ def _read_text_file(path: Path, *, source: SourceRecord, path_label: str) -> str
 def _is_safe_raw_text_fallback(source: SourceRecord) -> bool:
     source_kind = source.source_kind.strip().lower()
     upload_kind = source.upload_kind.strip().lower()
+    if source_kind == "url" or upload_kind == "url":
+        return False
+
     if source_kind in TEXT_LIKE_SOURCE_KINDS or upload_kind in TEXT_LIKE_UPLOAD_KINDS:
         return True
 

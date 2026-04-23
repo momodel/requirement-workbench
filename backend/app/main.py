@@ -22,7 +22,6 @@ from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
 from .services.docling_normalizer import DoclingNormalizer
 from .services.evidence_runtime import QdrantLlamaIndexEvidenceRuntime
-from .services.notebooklm_service import NotebookLMService
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
 from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
@@ -37,7 +36,6 @@ class ServiceContainer:
     project_state: ProjectStateService
     docling_normalizer: DoclingNormalizer
     source_ingestion: SourceIngestionService
-    notebooklm: NotebookLMService
     evidence_runtime: EvidenceRuntime
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
@@ -52,7 +50,6 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         settings,
         docling_normalizer=docling_normalizer,
     )
-    notebooklm = NotebookLMService(settings)
     evidence_runtime = QdrantLlamaIndexEvidenceRuntime(settings, catalog=catalog)
     agent_runtime = ClaudeAgentRuntime(settings)
     artifact_generation = ArtifactGenerationService(settings)
@@ -69,7 +66,6 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         project_state=project_state,
         docling_normalizer=docling_normalizer,
         source_ingestion=source_ingestion,
-        notebooklm=notebooklm,
         evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,

@@ -13,7 +13,6 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "fake-claude"),
     )
 
@@ -50,11 +49,11 @@ def test_ingest_pdf_uses_docling_markdown_output(tmp_path: Path) -> None:
 
     assert Path(storage_path).name == "rules.pdf"
     assert normalizer.calls == [Path(storage_path)]
-    assert normalized.parse_status == "parsed"
-    assert normalized.notebook_import_mode == "normalized_text"
+    assert normalized.normalize_status == "parsed"
+    assert normalized.index_input_mode == "normalized_text"
     assert normalized.normalized_path is not None
     assert Path(normalized.normalized_path).read_text(encoding="utf-8") == "# 规则说明\nDocling extracted text"
-    assert "Docling extracted text" in normalized.parse_summary
+    assert "Docling extracted text" in normalized.normalize_summary
 
 
 def test_ingest_image_fails_honestly_when_text_normalization_is_unavailable(tmp_path: Path) -> None:
@@ -75,10 +74,10 @@ def test_ingest_image_fails_honestly_when_text_normalization_is_unavailable(tmp_
         b"\x89PNG\r\n",
     )
 
-    assert normalized.parse_status == "failed"
+    assert normalized.normalize_status == "failed"
     assert normalized.normalized_path is None
-    assert normalized.notebook_import_mode is None
-    assert "图片转文本链路" in normalized.parse_summary
+    assert normalized.index_input_mode is None
+    assert "图片转文本链路" in normalized.normalize_summary
 
 
 def test_ingest_audio_fails_honestly_when_asr_is_unavailable(tmp_path: Path) -> None:
@@ -99,7 +98,23 @@ def test_ingest_audio_fails_honestly_when_asr_is_unavailable(tmp_path: Path) -> 
         b"ID3",
     )
 
-    assert normalized.parse_status == "failed"
+    assert normalized.normalize_status == "failed"
     assert normalized.normalized_path is None
-    assert normalized.notebook_import_mode is None
-    assert "音频转文本链路" in normalized.parse_summary
+    assert normalized.index_input_mode is None
+    assert "音频转文本链路" in normalized.normalize_summary
+
+
+def test_ingest_url_stays_pending_until_real_page_text_is_normalized(tmp_path: Path) -> None:
+    service = SourceIngestionService(make_settings(tmp_path))
+
+    storage_path, normalized = service.ingest_url(
+        "project-1",
+        "供应商帮助中心",
+        "https://docs.example.com/help/refund-policy",
+    )
+
+    assert Path(storage_path).read_text(encoding="utf-8") == "https://docs.example.com/help/refund-policy"
+    assert normalized.normalize_status == "pending"
+    assert normalized.normalized_path is None
+    assert normalized.index_input_mode is None
+    assert "还没有抓取到页面正文" in normalized.normalize_summary

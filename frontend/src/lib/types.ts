@@ -28,30 +28,6 @@ export type KnowledgeBaseRecord = {
   updated_at: string;
 };
 
-export type NotebookBindingRecord = {
-  project_id: string;
-  notebook_id: string;
-  provider: string;
-  sync_status: string;
-  last_synced_at: string | null;
-  source_url: string | null;
-};
-
-export type CreateNotebookBindingResponse = {
-  notebook: NotebookLibraryItem;
-  binding: NotebookBindingRecord;
-};
-
-export type NotebookLibraryItem = {
-  id: string;
-  name: string;
-  url: string;
-  description: string;
-  topics: string[];
-  use_count: number;
-  last_used: string | null;
-};
-
 export type ProviderReadiness = {
   provider: string;
   status: string;
@@ -63,7 +39,6 @@ export type ProviderReadiness = {
 export type GlobalReadiness = {
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
-  notebooklm: ProviderReadiness;
 };
 
 export type ProjectReadiness = {
@@ -71,8 +46,6 @@ export type ProjectReadiness = {
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
   knowledge_base: KnowledgeBaseRecord | null;
-  notebooklm: ProviderReadiness;
-  notebook_binding: NotebookBindingRecord | null;
 };
 
 export type ProjectKnowledgeBase = {
@@ -97,11 +70,6 @@ export type SourceRecord = {
   normalize_summary: string | null;
   index_status: string;
   index_error: string | null;
-  notebook_import_mode: string | null;
-  parse_status: string;
-  parse_summary: string | null;
-  sync_status: string;
-  sync_error: string | null;
   created_at: string;
 };
 
@@ -155,20 +123,6 @@ export type ChatStreamRequest = {
   selected_source_ids: string[];
   request_artifact_types: Array<'document' | 'page_solution' | 'interaction_flow'>;
   client_context?: Record<string, unknown>;
-};
-
-export type BindNotebookRequest = {
-  source_url?: string;
-  notebook_id?: string;
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
-};
-
-export type CreateNotebookRequest = {
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
 };
 
 export type ChatCitation = {

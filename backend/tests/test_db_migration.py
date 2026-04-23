@@ -17,7 +17,6 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
@@ -42,14 +41,6 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
           sync_status TEXT NOT NULL DEFAULT 'pending',
           parse_summary TEXT,
           created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE notebook_bindings (
-          project_id TEXT PRIMARY KEY,
-          notebook_id TEXT NOT NULL,
-          provider TEXT NOT NULL,
-          sync_status TEXT NOT NULL,
-          last_synced_at TEXT
         );
 
         CREATE TABLE demo_artifacts (
@@ -84,10 +75,6 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
                 "SELECT name FROM sqlite_master WHERE type = 'table'"
             ).fetchall()
         }
-        bindings_columns = {
-            row[1]
-            for row in migrated.execute("PRAGMA table_info(notebook_bindings)").fetchall()
-        }
         artifact_columns = {
             row[1]
             for row in migrated.execute("PRAGMA table_info(demo_artifacts)").fetchall()
@@ -100,7 +87,6 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
         migrated.close()
 
     assert "sync_error" in sources_columns
-    assert "source_url" in bindings_columns
     assert "body" in artifact_columns
     assert "knowledge_bases" in tables
     assert "source_chunks" in tables

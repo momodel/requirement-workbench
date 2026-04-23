@@ -20,7 +20,6 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
@@ -279,6 +278,105 @@ def test_query_shapes_citations_and_deduplicates_duplicate_hits(tmp_path: Path) 
     ]
     assert "已检索到 1 条相关证据" in result.summary
     assert "订单字段说明.md" in result.summary
+
+
+def test_query_filters_hits_for_sources_deleted_from_catalog(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="删除过滤项目",
+            scenario_type="general",
+            summary="测试删除后的 ghost vector 不会继续出现在查询里",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    path = _create_source_file(
+        source_dir,
+        "deleted.md",
+        "这条资料稍后会被删除，但向量命中仍会残留。",
+    )
+    source = catalog.create_source(
+        project_id=project.id,
+        name="待删除资料.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=str(path),
+        normalized_path=str(path),
+        notebook_import_mode="direct_text",
+        parse_status="parsed",
+        parse_summary="待删除资料",
+        sync_status="indexed",
+        sync_error=None,
+    )
+    vector_store = FakeVectorStore()
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=vector_store,
+    )
+
+    indexed_chunks = runtime.index_source(project.id, source.id)
+    assert indexed_chunks
+    chunk = indexed_chunks[0]
+    vector_store.override_hits = [
+        VectorQueryHit(
+            chunk_id=chunk.id,
+            source_id=source.id,
+            text=chunk.content,
+            score=0.95,
+            metadata={"source_id": source.id, "source_name": source.name},
+        )
+    ]
+    deleted = catalog.delete_source(source.id)
+    assert deleted.id == source.id
+
+    result = runtime.query(project.id, "删除后的资料还会被引用吗？")
+
+    assert result.sync_status == "queried"
+    assert result.citations == []
+    assert result.summary == "当前项目知识库里没有检索到相关证据。"
+
+
+def test_index_source_rejects_url_without_normalized_page_text(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="URL 项目",
+            scenario_type="general",
+            summary="测试 URL 不能用裸链接文本冒充可索引正文",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    url_path = _create_source_file(
+        source_dir,
+        "refund-policy.url.txt",
+        "https://docs.example.com/help/refund-policy",
+    )
+    source = catalog.create_source(
+        project_id=project.id,
+        name="退款规则链接",
+        source_kind="url",
+        upload_kind="url",
+        storage_path=str(url_path),
+        normalized_path=None,
+        notebook_import_mode=None,
+        parse_status="pending",
+        parse_summary="URL 已记录，但还没有抓取到页面正文。",
+        sync_status="normalization_pending",
+        sync_error="URL 已记录，但还没有抓取到页面正文；生成 normalized text 前不会进入项目知识库。",
+    )
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=FakeVectorStore(),
+    )
+
+    with pytest.raises(ProviderIssue, match="尚未完成可索引文本标准化"):
+        runtime.index_source(project.id, source.id)
 
 
 def test_index_source_rejects_binary_source_without_normalized_text(tmp_path: Path) -> None:

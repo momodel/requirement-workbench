@@ -438,6 +438,309 @@ describe('App', () => {
     expect(await screen.findByText('Evidence: 已就绪')).toBeInTheDocument();
   });
 
+  it('normalizes legacy binding_required readiness into knowledge base initialization flow', async () => {
+    window.history.replaceState({}, '', '/projects/project-legacy-binding/workbench');
+
+    let knowledgeBaseReady = false;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/project-legacy-binding/knowledge-base/init' && method === 'POST') {
+        knowledgeBaseReady = true;
+        return new Response(
+          JSON.stringify({
+            id: 'kb-legacy-binding',
+            project_id: 'project-legacy-binding',
+            provider: 'QDRANT_LLAMAINDEX',
+            external_knowledge_base_id: 'project-legacy-binding',
+            display_name: '历史绑定项目',
+            description: null,
+            status: 'ready',
+            status_error: null,
+            created_at: '2026-04-16T00:00:00+08:00',
+            updated_at: '2026-04-16T00:00:00+08:00',
+          }),
+          {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/project-legacy-binding': {
+          id: 'project-legacy-binding',
+          name: '历史绑定项目',
+          scenario_type: 'general',
+          summary: '旧项目返回了 notebook-era readiness。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: null,
+        },
+        '/api/projects/project-legacy-binding/sources': [],
+        '/api/projects/project-legacy-binding/messages': [],
+        '/api/projects/project-legacy-binding/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/project-legacy-binding/readiness': {
+          project_id: 'project-legacy-binding',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: knowledgeBaseReady ? 'ready' : 'binding_required',
+            summary: knowledgeBaseReady ? '当前项目知识库可用于证据检索。' : '历史接口仍返回待绑定状态。',
+            detail: knowledgeBaseReady ? 'Collection: project-legacy-binding; indexed chunks: 0' : 'legacy binding_required should be treated as knowledge_base_missing.',
+            action_label: knowledgeBaseReady ? null : '初始化知识库',
+          },
+          knowledge_base: knowledgeBaseReady
+            ? {
+                id: 'kb-legacy-binding',
+                project_id: 'project-legacy-binding',
+                provider: 'QDRANT_LLAMAINDEX',
+                external_knowledge_base_id: 'project-legacy-binding',
+                display_name: '历史绑定项目',
+                description: null,
+                status: 'ready',
+                status_error: null,
+                created_at: '2026-04-16T00:00:00+08:00',
+                updated_at: '2026-04-16T00:00:00+08:00',
+              }
+            : null,
+        },
+        '/api/projects/project-legacy-binding/knowledge-base': {
+          project_id: 'project-legacy-binding',
+          knowledge_base: knowledgeBaseReady
+            ? {
+                id: 'kb-legacy-binding',
+                project_id: 'project-legacy-binding',
+                provider: 'QDRANT_LLAMAINDEX',
+                external_knowledge_base_id: 'project-legacy-binding',
+                display_name: '历史绑定项目',
+                description: null,
+                status: 'ready',
+                status_error: null,
+                created_at: '2026-04-16T00:00:00+08:00',
+                updated_at: '2026-04-16T00:00:00+08:00',
+              }
+            : null,
+          readiness: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: knowledgeBaseReady ? 'ready' : 'binding_required',
+            summary: knowledgeBaseReady ? '当前项目知识库可用于证据检索。' : '历史接口仍返回待绑定状态。',
+            detail: knowledgeBaseReady ? 'Collection: project-legacy-binding; indexed chunks: 0' : 'legacy binding_required should be treated as knowledge_base_missing.',
+            action_label: knowledgeBaseReady ? null : '初始化知识库',
+          },
+          source_count: 0,
+          chunk_count: 0,
+          indexed_chunk_count: 0,
+        },
+        '/api/projects/project-legacy-binding/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '历史绑定项目' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/projects/project-legacy-binding/knowledge-base/init',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      );
+    });
+
+    expect(await screen.findByText('Evidence: 已就绪')).toBeInTheDocument();
+  });
+
+  it('falls back to legacy notebooklm readiness payloads and still auto-initializes the knowledge base', async () => {
+    window.history.replaceState({}, '', '/projects/project-legacy-notebooklm/workbench');
+
+    let knowledgeBaseReady = false;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/project-legacy-notebooklm/knowledge-base/init' && method === 'POST') {
+        knowledgeBaseReady = true;
+        return new Response(
+          JSON.stringify({
+            id: 'kb-legacy-notebooklm',
+            project_id: 'project-legacy-notebooklm',
+            provider: 'QDRANT_LLAMAINDEX',
+            external_knowledge_base_id: 'project-legacy-notebooklm',
+            display_name: '历史 NotebookLM 项目',
+            description: null,
+            status: 'ready',
+            status_error: null,
+            created_at: '2026-04-16T00:00:00+08:00',
+            updated_at: '2026-04-16T00:00:00+08:00',
+          }),
+          {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/project-legacy-notebooklm': {
+          id: 'project-legacy-notebooklm',
+          name: '历史 NotebookLM 项目',
+          scenario_type: 'general',
+          summary: '旧项目仍返回 notebooklm readiness 字段。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: null,
+        },
+        '/api/projects/project-legacy-notebooklm/sources': [],
+        '/api/projects/project-legacy-notebooklm/messages': [],
+        '/api/projects/project-legacy-notebooklm/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/project-legacy-notebooklm/readiness': knowledgeBaseReady
+          ? {
+              project_id: 'project-legacy-notebooklm',
+              claude: {
+                provider: 'CLAUDE_AGENT_SDK',
+                status: 'ready',
+                summary: 'Claude Agent SDK 已就绪。',
+                detail: null,
+                action_label: null,
+              },
+              notebooklm: {
+                provider: 'QDRANT_LLAMAINDEX',
+                status: 'ready',
+                summary: '当前项目知识库可用于证据检索。',
+                detail: 'Collection: project-legacy-notebooklm; indexed chunks: 0',
+                action_label: null,
+              },
+              knowledge_base: {
+                id: 'kb-legacy-notebooklm',
+                project_id: 'project-legacy-notebooklm',
+                provider: 'QDRANT_LLAMAINDEX',
+                external_knowledge_base_id: 'project-legacy-notebooklm',
+                display_name: '历史 NotebookLM 项目',
+                description: null,
+                status: 'ready',
+                status_error: null,
+                created_at: '2026-04-16T00:00:00+08:00',
+                updated_at: '2026-04-16T00:00:00+08:00',
+              },
+            }
+          : {
+              project_id: 'project-legacy-notebooklm',
+              claude: {
+                provider: 'CLAUDE_AGENT_SDK',
+                status: 'ready',
+                summary: 'Claude Agent SDK 已就绪。',
+                detail: null,
+                action_label: null,
+              },
+              notebooklm: {
+                provider: 'QDRANT_LLAMAINDEX',
+                status: 'binding_required',
+                summary: '旧接口仍只返回 notebooklm 待绑定状态。',
+                detail: 'legacy notebooklm readiness should normalize into knowledge_base_missing.',
+                action_label: '初始化知识库',
+              },
+              knowledge_base: null,
+            },
+        '/api/projects/project-legacy-notebooklm/knowledge-base': {
+          project_id: 'project-legacy-notebooklm',
+          knowledge_base: knowledgeBaseReady
+            ? {
+                id: 'kb-legacy-notebooklm',
+                project_id: 'project-legacy-notebooklm',
+                provider: 'QDRANT_LLAMAINDEX',
+                external_knowledge_base_id: 'project-legacy-notebooklm',
+                display_name: '历史 NotebookLM 项目',
+                description: null,
+                status: 'ready',
+                status_error: null,
+                created_at: '2026-04-16T00:00:00+08:00',
+                updated_at: '2026-04-16T00:00:00+08:00',
+              }
+            : null,
+          readiness: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: knowledgeBaseReady ? 'ready' : 'knowledge_base_missing',
+            summary: knowledgeBaseReady ? '当前项目知识库可用于证据检索。' : '当前项目还没有初始化项目内知识库。',
+            detail: knowledgeBaseReady
+              ? 'Collection: project-legacy-notebooklm; indexed chunks: 0'
+              : '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+            action_label: knowledgeBaseReady ? null : '初始化知识库',
+          },
+          source_count: 0,
+          chunk_count: 0,
+          indexed_chunk_count: 0,
+        },
+        '/api/projects/project-legacy-notebooklm/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '历史 NotebookLM 项目' })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/projects/project-legacy-notebooklm/knowledge-base/init',
+        expect.objectContaining({
+          method: 'POST',
+        })
+      );
+    });
+
+    expect(await screen.findByText('Evidence: 已就绪')).toBeInTheDocument();
+  });
+
   it('renders the workbench with project, sources, messages and state from the API payload', async () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
@@ -513,33 +816,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-seed-001',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: seed-reconciliation; indexed chunks: 2',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-seed-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [
-        {
-          id: 'nb-1',
-          name: '集团业财逐笔对账 Notebook',
-          url: 'https://notebooklm.google.com/notebook/seed123',
-          description: '默认演示 notebook',
-          topics: ['业财对账', '需求分析'],
-          use_count: 2,
-          last_used: null,
-        },
-      ],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -565,6 +849,80 @@ describe('App', () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(7);
     });
+  });
+
+  it('prefers canonical source indexing semantics over legacy sync_status in the workbench UI', async () => {
+    window.history.replaceState({}, '', '/projects/source-status-priority/workbench');
+
+    installFetchMock({
+      '/api/projects/source-status-priority': {
+        id: 'source-status-priority',
+        name: '索引状态优先级验证',
+        scenario_type: 'reconciliation',
+        summary: '验证 source UI 以 canonical index_status 为主。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: null,
+      },
+      '/api/projects/source-status-priority/sources': [
+        {
+          id: 'src-canonical-pending',
+          project_id: 'source-status-priority',
+          name: '尚未入库资料',
+          source_kind: 'document',
+          upload_kind: 'file',
+          storage_path: null,
+          normalized_path: null,
+          index_input_mode: 'docling',
+          normalize_status: 'parsed',
+          normalize_summary: '已完成标准化。',
+          index_status: 'pending',
+          index_error: null,
+          notebook_import_mode: 'legacy-notebook',
+          parse_status: 'parsed',
+          parse_summary: '旧摘要',
+          sync_status: 'synced',
+          sync_error: null,
+          created_at: '2026-04-16T00:00:00+08:00',
+        },
+      ],
+      '/api/projects/source-status-priority/messages': [],
+      '/api/projects/source-status-priority/state': {
+        current_understanding: [],
+        pending_items: [],
+        confirmed_items: [],
+        conflict_items: [],
+        mvp_items: [],
+        versions: [],
+        artifacts: [],
+      },
+      '/api/projects/source-status-priority/readiness': {
+        project_id: 'source-status-priority',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'ready',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: source-status-priority; indexed chunks: 0',
+          action_label: null,
+        },
+      },
+      '/api/projects/source-status-priority/artifacts': [],
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole('heading', { name: '索引状态优先级验证' })).toBeInTheDocument();
+    expect(screen.getByText('1 份 · 0 已入库 · 1 待处理')).toBeInTheDocument();
+    expect(screen.getAllByText('待入库').length).toBeGreaterThan(0);
+    expect(screen.queryByText('1 份 · 1 已入库 · 1 待处理')).not.toBeInTheDocument();
   });
 
   it('navigates back to the projects list from the workbench header', async () => {
@@ -629,23 +987,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-seed-001',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: seed-reconciliation; indexed chunks: 0',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-seed-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -693,16 +1042,15 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
-          status: 'binding_required',
-          summary: '当前项目还没有绑定专属 NotebookLM notebook。',
-          detail: '需要先绑定',
-          action_label: '绑定项目 notebook',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'knowledge_base_missing',
+          summary: '当前项目还没有初始化项目内知识库。',
+          detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+          action_label: '初始化知识库',
         },
-        notebook_binding: null,
+        knowledge_base: null,
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -716,6 +1064,64 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: '导入文本资料' })).toBeInTheDocument();
     expect(screen.getByPlaceholderText('例如：客户访谈纪要')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。')).toBeInTheDocument();
+  });
+
+  it('opens a dialog when importing a source url', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock({
+      '/api/projects/seed-reconciliation': {
+        id: 'seed-reconciliation',
+        name: '集团业财逐笔对账需求分析',
+        scenario_type: 'reconciliation',
+        summary: '默认 seed 项目。',
+        status: 'active',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: 'seed-reconciliation',
+      },
+      '/api/projects/seed-reconciliation/sources': [],
+      '/api/projects/seed-reconciliation/messages': [],
+      '/api/projects/seed-reconciliation/state': {
+        current_understanding: [],
+        pending_items: [],
+        confirmed_items: [],
+        conflict_items: [],
+        mvp_items: [],
+        versions: [],
+        artifacts: [],
+      },
+      '/api/projects/seed-reconciliation/readiness': {
+        project_id: 'seed-reconciliation',
+        claude: {
+          provider: 'CLAUDE_AGENT_SDK',
+          status: 'ready',
+          summary: 'Claude Agent SDK 已就绪。',
+          detail: null,
+          action_label: null,
+        },
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
+          status: 'knowledge_base_missing',
+          summary: '当前项目还没有初始化项目内知识库。',
+          detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+          action_label: '初始化知识库',
+        },
+        knowledge_base: null,
+      },
+      '/api/projects/seed-reconciliation/artifacts': [],
+    });
+
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: '导入网页链接' }));
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '导入网页链接' })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('例如：退款规则链接')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('粘贴网页地址，例如 https://docs.example.com/help/refund-policy')).toBeInTheDocument();
   });
 
   it('opens the project knowledge base dialog with the existing binding controls and updated wording', async () => {
@@ -785,14 +1191,12 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '绑定项目知识库' })).toBeInTheDocument();
-    expect(screen.getByText('已登记的知识库')).toBeInTheDocument();
-    expect(screen.getByText('为当前项目创建专属知识库')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('粘贴知识库入口链接，例如项目知识库地址')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定已登记知识库' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '创建并绑定知识库' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定知识库入口' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '初始化项目知识库' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '项目知识库详情' })).toBeInTheDocument();
+    expect(screen.getByText('当前项目还没有初始化项目知识库。')).toBeInTheDocument();
+    expect(screen.getByText('初始化完成后，新导入资料会自动进入标准化、分块和索引流程。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '初始化项目知识库' })).toBeInTheDocument();
+    expect(screen.queryByText('已登记的知识库')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建并绑定知识库' })).not.toBeInTheDocument();
   });
 
   it('can delete a source from the workbench', async () => {
@@ -867,16 +1271,15 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
-            status: 'binding_required',
-            summary: '当前项目还没有绑定专属 NotebookLM notebook。',
-            detail: '需要先绑定',
-            action_label: '绑定项目 notebook',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'knowledge_base_missing',
+            summary: '当前项目还没有初始化项目内知识库。',
+            detail: '需要先创建项目级 collection，并为 source 建立本地向量索引。',
+            action_label: '初始化知识库',
           },
-          notebook_binding: null,
+          knowledge_base: null,
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -957,7 +1360,7 @@ describe('App', () => {
             parse_status: 'parsed',
             parse_summary: '解释业务字段到财务科目的映射口径。',
             sync_status: retried ? 'synced' : 'sync_failed',
-            sync_error: retried ? null : 'NotebookLM 调用失败：ConnectError',
+            sync_error: retried ? null : 'Evidence Runtime 调用失败：ConnectError',
             created_at: '2026-04-16T00:00:00+08:00',
           },
         ],
@@ -980,23 +1383,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-seed-001',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 1',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-seed-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1109,23 +1503,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-batch-001',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 0',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-batch-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-batch-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1453,23 +1838,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-stream-001',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 0',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-stream-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-stream-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1570,23 +1946,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-md-001',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 0',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-md-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-md-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1763,13 +2130,13 @@ describe('App', () => {
 
     await user.click(await screen.findByRole('button', { name: '运行状态' }));
     await user.click(screen.getByRole('button', { name: '项目知识库详情' }));
-    expect(screen.getByRole('heading', { name: '绑定项目知识库' })).toBeInTheDocument();
-    expect(screen.getByText('已登记的知识库')).toBeInTheDocument();
-    expect(screen.getByText('为当前项目创建专属知识库')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定已登记知识库' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '创建并绑定知识库' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定知识库入口' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '项目知识库详情' })).toBeInTheDocument();
+    expect(screen.getByText('当前项目知识库已初始化并可用于证据检索。')).toBeInTheDocument();
+    expect(screen.getByText('Collection ID')).toBeInTheDocument();
+    expect(screen.getByText('seed-reconciliation')).toBeInTheDocument();
+    expect(screen.getByText('已索引分块')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '初始化项目知识库' })).not.toBeInTheDocument();
+    expect(screen.queryByText('已登记的知识库')).not.toBeInTheDocument();
   });
 
   it('does not send chat when knowledge base initialization fails', async () => {
@@ -1929,23 +2296,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        evidence: {
+          provider: 'QDRANT_LLAMAINDEX',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-ready-001',
+          summary: '当前项目知识库可用于证据检索。',
+          detail: 'Collection: seed-reconciliation; indexed chunks: 0',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-ready-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [
         {
           id: 'artifact-page-new',
@@ -2107,23 +2465,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-ready-001',
+            summary: '当前项目知识库可用于证据检索。',
+            detail: 'Collection: seed-reconciliation; indexed chunks: 0',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-ready-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 

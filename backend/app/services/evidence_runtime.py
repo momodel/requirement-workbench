@@ -409,10 +409,13 @@ class QdrantLlamaIndexEvidenceRuntime:
             top_k=self.settings.evidence_top_k,
             source_ids=source_filter,
         )
-        deduped_hits = self._dedupe_hits(hits)
-
         sources = self.catalog.list_sources(project_id)
         source_titles = {source.id: source.name for source in sources}
+        current_source_ids = set(source_titles)
+        filtered_hits = [
+            hit for hit in hits if hit.source_id and hit.source_id in current_source_ids
+        ]
+        deduped_hits = self._dedupe_hits(filtered_hits)
         citations: list[ChatCitation] = []
         for hit in deduped_hits:
             source_title = source_titles.get(

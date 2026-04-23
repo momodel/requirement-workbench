@@ -36,7 +36,7 @@ import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
   MessageRecord,
-  NotebookLibraryItem,
+  ProjectKnowledgeBase,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
@@ -51,22 +51,22 @@ type WorkbenchPageProps = {
   messages: MessageRecord[];
   state: ProjectState;
   artifacts: ArtifactRecord[];
+  knowledgeBase: ProjectKnowledgeBase | null;
   recentInsightIds: string[];
-  notebookLibrary: NotebookLibraryItem[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
   sending: boolean;
   uploading: boolean;
   deletingSourceId: string | null;
   retryingSourceId: string | null;
-  bindingNotebook: boolean;
+  initializingKnowledgeBase: boolean;
   generatingArtifactType: string | null;
   onSendMessage: (message: string) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
+  onUploadUrlSource: (payload: { name: string; sourceUrl: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
-  onRetrySourceSync: (sourceId: string) => Promise<void>;
-  onBindProjectNotebook: (payload: { sourceUrl?: string; notebookId?: string }) => Promise<void>;
-  onCreateAndBindProjectNotebook: () => Promise<void>;
+  onRetrySourceIndex: (sourceId: string) => Promise<void>;
+  onInitializeKnowledgeBase: () => Promise<boolean>;
   onGenerateArtifact: (artifactType: 'document' | 'page_solution' | 'interaction_flow') => Promise<void>;
 };
 
@@ -100,15 +100,20 @@ function statusVariant(status: string) {
   }
   if (
     status.includes('parsed') ||
+    status.includes('indexed') ||
     status.includes('generated') ||
     status.includes('seed_ready') ||
-    status.includes('synced') ||
-    status.includes('ready') ||
-    status.includes('bound')
+    status.includes('ready')
   ) {
     return 'success' as const;
   }
-  if (status.includes('pending') || status.includes('queued') || status.includes('missing') || status.includes('required')) {
+  if (
+    status.includes('pending') ||
+    status.includes('queued') ||
+    status.includes('missing') ||
+    status.includes('required') ||
+    status.includes('indexing')
+  ) {
     return 'warning' as const;
   }
   return 'default' as const;
@@ -135,26 +140,29 @@ function readinessStatusLabel(status: string) {
   if (status === 'ready') return '已就绪';
   if (status === 'knowledge_base_missing') return '待初始化';
   if (status === 'auth_required') return '待认证';
-  if (status === 'binding_required') return '待绑定';
   if (status === 'not_configured') return '未配置';
   if (status.includes('failed') || status.includes('error')) return '异常';
   return status;
 }
 
 function parseStatusLabel(status: string) {
-  if (status === 'parsed') return '已解析';
-  if (status === 'pending') return '解析中';
+  if (status === 'parsed') return '已标准化';
+  if (status === 'pending') return '标准化中';
   if (status === 'queued') return '排队中';
-  if (status === 'error') return '解析异常';
+  if (status === 'failed') return '标准化失败';
+  if (status === 'error') return '标准化异常';
   return status;
 }
 
-function syncStatusLabel(status: string) {
-  if (status === 'synced') return '已入库';
-  if (status === 'pending_sync') return '待入库';
-  if (status === 'sync_failed') return '入库失败';
+function indexStatusLabel(status: string) {
+  if (status === 'indexed') return '已入库';
+  if (status === 'indexing') return '入库中';
+  if (status === 'pending') return '待入库';
+  if (status === 'index_failed') return '入库失败';
+  if (status === 'knowledge_base_missing') return '知识库未初始化';
+  if (status === 'normalization_pending') return '待标准化';
+  if (status === 'normalization_failed') return '标准化失败';
   if (status === 'error') return '入库异常';
-  if (status === 'binding_required') return '知识库未就绪';
   if (status === 'not_configured') return '未配置';
   return status;
 }
@@ -220,14 +228,14 @@ function SourcePreview({
       <div className="mt-4 space-y-3 text-sm text-muted">
         <div className="flex flex-wrap gap-2">
           <Badge>{source.source_kind}</Badge>
-          <Badge variant={statusVariant(source.parse_status)}>{`解析：${parseStatusLabel(source.parse_status)}`}</Badge>
-          <Badge variant={statusVariant(source.sync_status)}>{`入库：${syncStatusLabel(source.sync_status)}`}</Badge>
+          <Badge variant={statusVariant(source.normalize_status)}>{`标准化：${parseStatusLabel(source.normalize_status)}`}</Badge>
+          <Badge variant={statusVariant(source.index_status)}>{`入库：${indexStatusLabel(source.index_status)}`}</Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{source.parse_summary ?? '当前还没有解析摘要。'}</p>
-        {source.sync_error ? (
+        <p>{source.normalize_summary ?? '当前还没有标准化摘要。'}</p>
+        {source.index_error ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            {source.sync_error}
+            {source.index_error}
           </div>
         ) : null}
       </div>
@@ -330,32 +338,33 @@ export function WorkbenchPage({
   messages,
   state,
   artifacts,
+  knowledgeBase,
   recentInsightIds,
-  notebookLibrary,
   notices,
   sending,
   uploading,
   deletingSourceId,
   retryingSourceId,
-  bindingNotebook,
+  initializingKnowledgeBase,
   generatingArtifactType,
   onSendMessage,
   onUploadTextSource,
+  onUploadUrlSource,
   onUploadFileSource,
   onDeleteSource,
-  onRetrySourceSync,
-  onBindProjectNotebook,
-  onCreateAndBindProjectNotebook,
+  onRetrySourceIndex,
+  onInitializeKnowledgeBase,
   onGenerateArtifact,
 }: WorkbenchPageProps) {
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isBindingDialogOpen, setIsBindingDialogOpen] = useState(false);
+  const [isUrlImportDialogOpen, setIsUrlImportDialogOpen] = useState(false);
+  const [isKnowledgeBaseDialogOpen, setIsKnowledgeBaseDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
-  const [knowledgeBaseUrl, setKnowledgeBaseUrl] = useState('');
-  const [selectedKnowledgeBaseId, setSelectedKnowledgeBaseId] = useState('');
+  const [urlSourceName, setUrlSourceName] = useState('退款规则链接');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
@@ -374,17 +383,16 @@ export function WorkbenchPage({
   }, [state]);
 
   const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
-  const evidenceReadiness = readiness?.evidence ?? readiness?.notebooklm;
-  const knowledgeBase = readiness?.knowledge_base ?? null;
+  const evidenceReadiness = readiness?.evidence ?? null;
+  const knowledgeBaseRecord = knowledgeBase?.knowledge_base ?? readiness?.knowledge_base ?? null;
   const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
-  const referencedSourceCount = sources.filter(
-    (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
-  ).length;
+  const referencedSourceCount = sources.filter((source) => source.index_status === 'indexed').length;
   const pendingSourceCount = sources.filter(
     (source) =>
-      source.parse_status.includes('pending') ||
-      source.sync_status.includes('pending') ||
-      source.sync_status.includes('queued')
+      source.normalize_status.includes('pending') ||
+      source.index_status === 'pending' ||
+      source.index_status === 'queued' ||
+      source.index_status === 'indexing'
   ).length;
   const totalInsightCount =
     state.current_understanding.length +
@@ -417,26 +425,18 @@ export function WorkbenchPage({
     setIsImportDialogOpen(false);
   }
 
-  async function handleBindKnowledgeBaseUrl() {
-    const sourceUrl = knowledgeBaseUrl.trim();
-    if (!sourceUrl) return;
-    await onBindProjectNotebook({ sourceUrl });
-    setKnowledgeBaseUrl('');
-    setIsBindingDialogOpen(false);
+  async function handleUploadUrl() {
+    const name = urlSourceName.trim();
+    const url = sourceUrl.trim();
+    if (!name || !url) return;
+    await onUploadUrlSource({ name, sourceUrl: url });
+    setUrlSourceName('退款规则链接');
+    setSourceUrl('');
+    setIsUrlImportDialogOpen(false);
   }
 
-  async function handleBindRegisteredKnowledgeBase() {
-    if (!selectedKnowledgeBaseId) return;
-    await onBindProjectNotebook({ notebookId: selectedKnowledgeBaseId });
-    setSelectedKnowledgeBaseId('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleCreateAndBindKnowledgeBase() {
-    await onCreateAndBindProjectNotebook();
-    setSelectedKnowledgeBaseId('');
-    setKnowledgeBaseUrl('');
-    setIsBindingDialogOpen(false);
+  async function handleInitializeKnowledgeBase() {
+    await onInitializeKnowledgeBase();
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -523,6 +523,9 @@ export function WorkbenchPage({
                   {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                   导入文本资料
                 </Button>
+                <Button variant="secondary" size="sm" onClick={() => setIsUrlImportDialogOpen(true)} disabled={uploading}>
+                  导入网页链接
+                </Button>
                 <Button variant="secondary" size="sm" onClick={() => sourceInputRef.current?.click()} disabled={uploading}>
                   上传文件
                 </Button>
@@ -544,8 +547,7 @@ export function WorkbenchPage({
               <div data-testid="sources-scroll-area" className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <div className="grid gap-2.5">
                   {sources.map((source) => {
-                    const canRetrySync =
-                      source.sync_status === 'sync_failed' || source.sync_status === 'error';
+                    const canRetryIndex = source.index_status === 'index_failed' || source.index_status === 'error';
 
                     return (
                       <div
@@ -571,7 +573,7 @@ export function WorkbenchPage({
                             </div>
                           </button>
                           <div className="flex shrink-0 items-center gap-0.5">
-                            {canRetrySync ? (
+                            {canRetryIndex ? (
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -580,7 +582,7 @@ export function WorkbenchPage({
                                 disabled={retryingSourceId === source.id}
                                 onClick={async (event) => {
                                   event.stopPropagation();
-                                  await onRetrySourceSync(source.id);
+                                  await onRetrySourceIndex(source.id);
                                 }}
                               >
                                 {retryingSourceId === source.id ? (
@@ -611,11 +613,11 @@ export function WorkbenchPage({
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge>{source.source_kind}</Badge>
-                          <Badge variant={statusVariant(source.parse_status)}>
-                            {parseStatusLabel(source.parse_status)}
+                          <Badge variant={statusVariant(source.normalize_status)}>
+                            {parseStatusLabel(source.normalize_status)}
                           </Badge>
-                          <Badge variant={statusVariant(source.sync_status)}>
-                            {syncStatusLabel(source.sync_status)}
+                          <Badge variant={statusVariant(source.index_status)}>
+                            {indexStatusLabel(source.index_status)}
                           </Badge>
                         </div>
                       </div>
@@ -936,7 +938,7 @@ export function WorkbenchPage({
                       variant="secondary"
                       onClick={() => {
                         setIsRuntimeDialogOpen(false);
-                        setIsBindingDialogOpen(true);
+                        setIsKnowledgeBaseDialogOpen(true);
                       }}
                     >
                       项目知识库详情
@@ -986,91 +988,121 @@ export function WorkbenchPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isBindingDialogOpen} onOpenChange={setIsBindingDialogOpen}>
+      <Dialog open={isUrlImportDialogOpen} onOpenChange={setIsUrlImportDialogOpen}>
         <DialogContent className="w-[min(640px,92vw)]">
           <DialogHeader>
-            <DialogTitle>绑定项目知识库</DialogTitle>
+            <DialogTitle>导入网页链接</DialogTitle>
+            <DialogDescription>把规则页、帮助中心或文档链接登记到当前项目，后续进入标准化与入库流程。</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <Input
+              id="source-url-name"
+              name="source-url-name"
+              value={urlSourceName}
+              onChange={(event) => setUrlSourceName(event.target.value)}
+              placeholder="例如：退款规则链接"
+            />
+            <Input
+              id="source-url"
+              name="source-url"
+              value={sourceUrl}
+              onChange={(event) => setSourceUrl(event.target.value)}
+              placeholder="粘贴网页地址，例如 https://docs.example.com/help/refund-policy"
+            />
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setIsUrlImportDialogOpen(false)}>
+                取消
+              </Button>
+              <Button onClick={handleUploadUrl} disabled={uploading || !urlSourceName.trim() || !sourceUrl.trim()}>
+                {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                导入网页链接
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isKnowledgeBaseDialogOpen} onOpenChange={setIsKnowledgeBaseDialogOpen}>
+        <DialogContent className="w-[min(640px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>项目知识库详情</DialogTitle>
             <DialogDescription>
-              为当前项目绑定专属知识库入口。后续资料入库、证据检索和引用都走这个项目自己的知识库。
+              这里展示当前项目知识库的真实 readiness、collection 和入库统计，不再要求手工绑定外部知识库入口。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">已登记的知识库</div>
-              <div className="mt-3 grid gap-3">
-                {notebookLibrary.length === 0 ? (
-                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                    当前还没有可直接复用的已登记知识库。你可以粘贴知识库入口链接完成绑定，或者直接为当前项目创建一个专属知识库。
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-ink">当前状态</div>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    {knowledgeBase?.readiness.summary ?? evidenceReadiness?.summary ?? '当前还没有拿到项目知识库状态。'}
+                  </p>
+                  {(knowledgeBase?.readiness.detail ?? evidenceReadiness?.detail) ? (
+                    <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
+                      {knowledgeBase?.readiness.detail ?? evidenceReadiness?.detail}
+                    </p>
+                  ) : null}
+                </div>
+                {evidenceReadiness ? (
+                  <Badge variant={readinessVariant(evidenceReadiness.status)}>
+                    {readinessStatusLabel(evidenceReadiness.status)}
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+
+            {knowledgeBaseRecord ? (
+              <>
+                <div className="rounded-[20px] border border-line bg-white p-4">
+                  <div className="text-sm font-semibold text-ink">当前项目知识库已初始化并可用于证据检索。</div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-[16px] border border-line bg-slate-50 p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-muted">Collection ID</div>
+                      <div className="mt-2 text-sm font-semibold text-ink">
+                        {knowledgeBaseRecord.external_knowledge_base_id}
+                      </div>
+                    </div>
+                    <div className="rounded-[16px] border border-line bg-slate-50 p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-muted">资料数</div>
+                      <div className="mt-2 text-sm font-semibold text-ink">{knowledgeBase?.source_count ?? 0}</div>
+                    </div>
+                    <div className="rounded-[16px] border border-line bg-slate-50 p-3">
+                      <div className="text-[11px] uppercase tracking-[0.16em] text-muted">已索引分块</div>
+                      <div className="mt-2 text-sm font-semibold text-ink">
+                        {knowledgeBase?.indexed_chunk_count ?? 0}
+                      </div>
+                    </div>
                   </div>
-                ) : (
-                  notebookLibrary.map((notebook) => (
-                    <button
-                      key={notebook.id}
-                      type="button"
-                      className={cn(
-                        'rounded-[18px] border p-4 text-left transition',
-                        selectedKnowledgeBaseId === notebook.id
-                          ? 'border-accent bg-accentSoft'
-                          : 'border-line bg-slate-50 hover:border-accent/30 hover:bg-white'
-                      )}
-                      onClick={() => setSelectedKnowledgeBaseId(notebook.id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-ink">{notebook.name}</div>
-                          <p className="mt-2 text-sm leading-6 text-muted">{notebook.description}</p>
-                        </div>
-                        <Badge variant={selectedKnowledgeBaseId === notebook.id ? 'accent' : 'default'}>
-                          {selectedKnowledgeBaseId === notebook.id ? '已选择' : `使用 ${notebook.use_count} 次`}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {notebook.topics.map((topic) => (
-                          <Badge key={`${notebook.id}-${topic}`}>{topic}</Badge>
-                        ))}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button onClick={handleBindRegisteredKnowledgeBase} disabled={bindingNotebook || !selectedKnowledgeBaseId}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  绑定已登记知识库
-                </Button>
-              </div>
-            </div>
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">为当前项目创建专属知识库</div>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                直接用当前项目名创建新的项目级知识库，并自动完成绑定。后续资料会沿用这条证据链路继续入库。
-              </p>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={handleCreateAndBindKnowledgeBase} disabled={bindingNotebook}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  创建并绑定知识库
-                </Button>
-              </div>
-            </div>
-            <Input
-              id="knowledge-base-url"
-              name="knowledge-base-url"
-              value={knowledgeBaseUrl}
-              onChange={(event) => setKnowledgeBaseUrl(event.target.value)}
-              placeholder="粘贴知识库入口链接，例如项目知识库地址"
-            />
-            <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
-              这里绑定的是项目级知识库入口，不把具体 provider 名称直接当成唯一产品对象暴露给用户。
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleBindKnowledgeBaseUrl} disabled={bindingNotebook || !knowledgeBaseUrl.trim()}>
-                {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                绑定知识库入口
-              </Button>
-            </div>
+                  <div className="mt-4 rounded-[16px] border border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
+                    资料导入后会自动进入标准化、分块和向量入库流程，不需要手工绑定外部知识库入口。
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="secondary" onClick={() => setIsKnowledgeBaseDialogOpen(false)}>
+                    关闭
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-[20px] border border-line bg-white p-4">
+                  <div className="text-sm font-semibold text-ink">当前项目还没有初始化项目知识库。</div>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    初始化完成后，新导入资料会自动进入标准化、分块和索引流程。
+                  </p>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <Button variant="secondary" onClick={() => setIsKnowledgeBaseDialogOpen(false)}>
+                    取消
+                  </Button>
+                  <Button onClick={handleInitializeKnowledgeBase} disabled={initializingKnowledgeBase}>
+                    {initializingKnowledgeBase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    初始化项目知识库
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>

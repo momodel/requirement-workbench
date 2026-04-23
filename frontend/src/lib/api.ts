@@ -15,6 +15,39 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+type LegacySourceRecord = Omit<
+  SourceRecord,
+  'index_input_mode' | 'normalize_status' | 'normalize_summary' | 'index_status' | 'index_error'
+> & {
+  index_input_mode?: string | null;
+  normalize_status?: string;
+  normalize_summary?: string | null;
+  index_status?: string;
+  index_error?: string | null;
+  notebook_import_mode?: string | null;
+  parse_status?: string;
+  parse_summary?: string | null;
+  sync_status?: string;
+  sync_error?: string | null;
+};
+
+type LegacyReadinessProvider = {
+  provider: string;
+  status: string;
+  summary: string;
+  detail: string | null;
+  action_label: string | null;
+};
+
+type LegacyReadinessPayload = {
+  claude: LegacyReadinessProvider;
+  evidence?: LegacyReadinessProvider;
+  notebooklm?: LegacyReadinessProvider;
+};
+
+// Keep notebook-era field compatibility at the transport edge only.
+// UI components should consume the normalized SourceRecord shape exclusively.
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
@@ -37,12 +70,41 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function normalizeReadinessStatus(status: string): string {
+  if (status === 'binding_required') {
+    return 'knowledge_base_missing';
+  }
+  return status;
+}
+
+function normalizeIndexStatus(status: string): string {
+  if (status === 'synced') return 'indexed';
+  if (status === 'pending_sync') return 'pending';
+  if (status === 'sync_failed') return 'index_failed';
+  if (status === 'binding_required') return 'knowledge_base_missing';
+  return status;
+}
+
 function normalizeProviderReadiness<T extends GlobalReadiness | ProjectReadiness>(readiness: T): T {
-  const evidence = readiness.evidence ?? readiness.notebooklm;
+  const legacyReadiness = readiness as T & LegacyReadinessPayload;
+  const evidenceReadiness = legacyReadiness.evidence ?? legacyReadiness.notebooklm;
+
   return {
     ...readiness,
-    evidence,
-    notebooklm: readiness.notebooklm ?? evidence,
+    claude: {
+      ...readiness.claude,
+      status: normalizeReadinessStatus(readiness.claude.status),
+    },
+    evidence: {
+      ...(evidenceReadiness ?? {
+        provider: 'UNKNOWN',
+        status: 'not_configured',
+        summary: 'Evidence Runtime 未配置。',
+        detail: null,
+        action_label: null,
+      }),
+      status: normalizeReadinessStatus((evidenceReadiness ?? { status: 'not_configured' }).status),
+    },
   };
 }
 
@@ -52,25 +114,27 @@ function normalizeKnowledgeBaseRecord(
   return knowledgeBase ?? null;
 }
 
-function normalizeSourceRecord(source: SourceRecord): SourceRecord {
+function normalizeSourceRecord(source: LegacySourceRecord): SourceRecord {
   const indexInputMode = source.index_input_mode ?? source.notebook_import_mode ?? null;
   const normalizeStatus = source.normalize_status ?? source.parse_status ?? 'pending';
   const normalizeSummary = source.normalize_summary ?? source.parse_summary ?? null;
-  const indexStatus = source.index_status ?? source.sync_status ?? 'pending';
+  const indexStatus = normalizeIndexStatus(source.index_status ?? source.sync_status ?? 'pending');
   const indexError = source.index_error ?? source.sync_error ?? null;
 
   return {
-    ...source,
+    id: source.id,
+    project_id: source.project_id,
+    name: source.name,
+    source_kind: source.source_kind,
+    upload_kind: source.upload_kind,
+    storage_path: source.storage_path,
+    normalized_path: source.normalized_path,
     index_input_mode: indexInputMode,
     normalize_status: normalizeStatus,
     normalize_summary: normalizeSummary,
     index_status: indexStatus,
     index_error: indexError,
-    notebook_import_mode: source.notebook_import_mode ?? indexInputMode,
-    parse_status: source.parse_status ?? normalizeStatus,
-    parse_summary: source.parse_summary ?? normalizeSummary,
-    sync_status: source.sync_status ?? indexStatus,
-    sync_error: source.sync_error ?? indexError,
+    created_at: source.created_at,
   };
 }
 
@@ -100,7 +164,6 @@ export function getProjectReadiness(projectId: string) {
   return fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`).then((payload) => ({
     ...normalizeProviderReadiness(payload),
     knowledge_base: normalizeKnowledgeBaseRecord(payload.knowledge_base),
-    notebook_binding: payload.notebook_binding ?? null,
   }));
 }
 
@@ -109,12 +172,16 @@ export function getProjectKnowledgeBase(projectId: string) {
     (payload) => ({
       ...payload,
       knowledge_base: normalizeKnowledgeBaseRecord(payload.knowledge_base),
+      readiness: {
+        ...payload.readiness,
+        status: normalizeReadinessStatus(payload.readiness.status),
+      },
     })
   );
 }
 
 export function listSources(projectId: string) {
-  return fetchJson<SourceRecord[]>(`/api/projects/${projectId}/sources`).then((sources) =>
+  return fetchJson<LegacySourceRecord[]>(`/api/projects/${projectId}/sources`).then((sources) =>
     sources.map(normalizeSourceRecord)
   );
 }
@@ -137,7 +204,19 @@ export async function uploadTextSource(projectId: string, payload: { name: strin
   formData.set('name', payload.name);
   formData.set('text_content', payload.text);
 
-  return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources`, {
+  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources`, {
+    method: 'POST',
+    body: formData,
+  }).then(normalizeSourceRecord);
+}
+
+export async function uploadUrlSource(projectId: string, payload: { name: string; sourceUrl: string }) {
+  const formData = new FormData();
+  formData.set('upload_kind', 'url');
+  formData.set('name', payload.name);
+  formData.set('source_url', payload.sourceUrl);
+
+  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
   }).then(normalizeSourceRecord);
@@ -151,7 +230,7 @@ export async function uploadFileSources(projectId: string, files: File[]) {
     formData.append('files', file);
   }
 
-  return fetchJson<SourceRecord[]>(`/api/projects/${projectId}/sources`, {
+  return fetchJson<LegacySourceRecord[]>(`/api/projects/${projectId}/sources`, {
     method: 'POST',
     body: formData,
   }).then((sources) => sources.map(normalizeSourceRecord));
@@ -167,7 +246,7 @@ export function deleteProjectSource(projectId: string, sourceId: string) {
 }
 
 export function reindexProjectSource(projectId: string, sourceId: string) {
-  return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
+  return fetchJson<LegacySourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
     method: 'POST',
   }).then(normalizeSourceRecord);
 }

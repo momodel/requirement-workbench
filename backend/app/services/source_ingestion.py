@@ -14,10 +14,10 @@ from .docling_normalizer import DoclingNormalizer
 @dataclass(slots=True)
 class NormalizedSource:
     source_kind: str
-    parse_status: str
-    parse_summary: str
+    normalize_status: str
+    normalize_summary: str
     normalized_path: str | None = None
-    notebook_import_mode: str | None = None
+    index_input_mode: str | None = None
 
 
 class SourceIngestionService:
@@ -67,10 +67,10 @@ class SourceIngestionService:
         summary = self._summarize_text(text_content, fallback=f"{name} 已入库。")
         return str(raw_path), NormalizedSource(
             source_kind="text",
-            parse_status="parsed",
-            parse_summary=summary,
+            normalize_status="parsed",
+            normalize_summary=summary,
             normalized_path=str(raw_path),
-            notebook_import_mode="direct_text",
+            index_input_mode="direct_text",
         )
 
     def ingest_url(self, project_id: str, name: str, source_url: str) -> tuple[str | None, NormalizedSource]:
@@ -78,13 +78,16 @@ class SourceIngestionService:
         raw_path = source_dir / f"{name}.url.txt"
         raw_path.write_text(source_url, encoding="utf-8")
         parsed = urlparse(source_url)
-        summary = f"URL source: {parsed.netloc}{parsed.path}"
+        summary = (
+            f"URL 已记录：{parsed.netloc}{parsed.path or '/'}。"
+            "当前版本还没有抓取到页面正文；生成 normalized text 前不会进入项目知识库。"
+        )
         return str(raw_path), NormalizedSource(
             source_kind="url",
-            parse_status="parsed",
-            parse_summary=summary,
+            normalize_status="pending",
+            normalize_summary=summary,
             normalized_path=None,
-            notebook_import_mode="direct_url",
+            index_input_mode=None,
         )
 
     def ingest_file(self, project_id: str, filename: str, file_bytes: bytes) -> tuple[str, NormalizedSource]:
@@ -137,16 +140,16 @@ class SourceIngestionService:
             message = exc.message if isinstance(exc, ProviderIssue) else str(exc)
             return str(raw_path), NormalizedSource(
                 source_kind=source_kind,
-                parse_status="failed",
-                parse_summary=message,
+                normalize_status="failed",
+                normalize_summary=message,
                 normalized_path=None,
-                notebook_import_mode=None,
+                index_input_mode=None,
             )
 
         return str(raw_path), NormalizedSource(
             source_kind=source_kind,
-            parse_status="parsed",
-            parse_summary=summary,
+            normalize_status="parsed",
+            normalize_summary=summary,
             normalized_path=str(normalized_path) if normalized_path else None,
-            notebook_import_mode=import_mode,
+            index_input_mode=import_mode,
         )

@@ -4,8 +4,8 @@ from pathlib import Path
 from app.config import AppSettings, _load_local_env_file
 
 
-def test_from_env_defaults_notebooklm_home_to_repo_data_dir(monkeypatch: object) -> None:
-    monkeypatch.delenv("NOTEBOOKLM_HOME", raising=False)
+def test_from_env_no_longer_exposes_notebooklm_home(monkeypatch: object) -> None:
+    monkeypatch.delenv("NOTEBOOKLM_QUERY_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_DATA_DIR", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_SQLITE_DIR", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_SQLITE_PATH", raising=False)
@@ -13,7 +13,10 @@ def test_from_env_defaults_notebooklm_home_to_repo_data_dir(monkeypatch: object)
 
     settings = AppSettings.from_env()
 
-    assert settings.notebooklm_home_dir == settings.data_dir / "notebooklm"
+    assert "notebooklm_home_dir" not in AppSettings.__dataclass_fields__
+    assert not hasattr(settings, "notebooklm_home_dir")
+    assert "notebooklm_query_timeout_seconds" not in AppSettings.__dataclass_fields__
+    assert not hasattr(settings, "notebooklm_query_timeout_seconds")
 
 
 def test_from_env_defaults_evidence_runtime_paths(monkeypatch: object) -> None:

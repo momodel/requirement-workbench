@@ -47,15 +47,6 @@ class CreateProjectRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=1000)
 
 
-class NotebookBindingRecord(BaseModel):
-    project_id: str
-    notebook_id: str
-    provider: str
-    sync_status: str
-    last_synced_at: str | None = None
-    source_url: str | None = None
-
-
 class KnowledgeBaseRecord(BaseModel):
     id: str
     project_id: str
@@ -94,41 +85,6 @@ class EvidenceHit(BaseModel):
     score: float | None = None
 
 
-class NotebookLibraryItem(BaseModel):
-    id: str
-    name: str
-    url: str
-    description: str
-    topics: list[str] = Field(default_factory=list)
-    use_count: int = 0
-    last_used: str | None = None
-
-
-class BindNotebookRequest(BaseModel):
-    source_url: str | None = Field(default=None, min_length=1)
-    notebook_id: str | None = Field(default=None, min_length=1)
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_binding_target(self) -> "BindNotebookRequest":
-        if not self.source_url and not self.notebook_id:
-            raise ValueError("source_url 和 notebook_id 至少要提供一个。")
-        return self
-
-
-class CreateNotebookRequest(BaseModel):
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
-
-
-class CreateNotebookBindingResponse(BaseModel):
-    notebook: NotebookLibraryItem
-    binding: NotebookBindingRecord
-
-
 class ProviderReadiness(BaseModel):
     provider: str
     status: str
@@ -140,31 +96,12 @@ class ProviderReadiness(BaseModel):
 class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
-    evidence: ProviderReadiness | None = None
-    notebooklm: ProviderReadiness | None = Field(default=None, exclude=True)
+    evidence: ProviderReadiness
     knowledge_base: KnowledgeBaseRecord | None = None
-    notebook_binding: NotebookBindingRecord | None = Field(default=None, exclude=True)
-
-    @model_validator(mode="after")
-    def normalize_evidence_readiness(self) -> "ProjectReadiness":
-        if self.evidence is None and self.notebooklm is not None:
-            self.evidence = self.notebooklm
-        if self.notebooklm is None and self.evidence is not None:
-            self.notebooklm = self.evidence
-        return self
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
-    evidence: ProviderReadiness | None = None
-    notebooklm: ProviderReadiness | None = Field(default=None, exclude=True)
-
-    @model_validator(mode="after")
-    def normalize_global_evidence_readiness(self) -> "GlobalReadiness":
-        if self.evidence is None and self.notebooklm is not None:
-            self.evidence = self.notebooklm
-        if self.notebooklm is None and self.evidence is not None:
-            self.notebooklm = self.evidence
-        return self
+    evidence: ProviderReadiness
 
 class SourceRecord(BaseModel):
     id: str

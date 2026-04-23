@@ -22,6 +22,7 @@ import {
   streamChat,
   uploadFileSources,
   uploadTextSource,
+  uploadUrlSource,
 } from './lib/api';
 import type {
   ArtifactRecord,
@@ -159,7 +160,7 @@ function HomeRoute() {
     setCreating(true);
     try {
       const project = await createProject(payload);
-      if (readiness?.evidence.status === 'ready') {
+      if (readiness?.evidence?.status === 'ready') {
         await initializeProjectKnowledgeBase(project.id).catch(() => undefined);
       }
       setProjects((current) => [project, ...current]);
@@ -204,6 +205,7 @@ function WorkbenchRoute() {
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoInitAttemptedProjectId = useRef<string | null>(null);
   const recentInsightTimerRef = useRef<number | null>(null);
+  const evidenceStatus = readiness?.evidence?.status ?? null;
 
   function markRecentInsights(items: StateItem[]) {
     const nextIds = collectItemIds(items);
@@ -312,7 +314,7 @@ function WorkbenchRoute() {
   }, []);
 
   useEffect(() => {
-    if (!data.project || initializingKnowledgeBase || readiness?.evidence.status !== 'knowledge_base_missing') {
+    if (!data.project || initializingKnowledgeBase || evidenceStatus !== 'knowledge_base_missing') {
       return;
     }
     if (autoInitAttemptedProjectId.current === projectId) {
@@ -321,10 +323,10 @@ function WorkbenchRoute() {
 
     autoInitAttemptedProjectId.current = projectId;
     void ensureProjectKnowledgeBase();
-  }, [data.project, initializingKnowledgeBase, projectId, readiness?.evidence.status]);
+  }, [data.project, initializingKnowledgeBase, projectId, evidenceStatus]);
 
   async function ensureProjectKnowledgeBase() {
-    if (initializingKnowledgeBase || readiness?.evidence.status !== 'knowledge_base_missing') {
+    if (initializingKnowledgeBase || evidenceStatus !== 'knowledge_base_missing') {
       return true;
     }
 
@@ -349,7 +351,7 @@ function WorkbenchRoute() {
   }
 
   async function handleSendMessage(message: string) {
-    if (readiness?.evidence.status === 'knowledge_base_missing') {
+    if (evidenceStatus === 'knowledge_base_missing') {
       const ready = await ensureProjectKnowledgeBase();
       if (!ready) {
         return;
@@ -542,6 +544,27 @@ function WorkbenchRoute() {
     }
   }
 
+  async function handleUploadUrlSource(payload: { name: string; sourceUrl: string }) {
+    setUploading(true);
+    try {
+      await uploadUrlSource(projectId, payload);
+      await loadWorkbench({ silent: true });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '网页链接导入失败。';
+      setNotices((current) => [
+        {
+          id: `url-${Date.now()}`,
+          kind: 'error',
+          title: '导入网页链接失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function handleUploadFileSource(files: File[]) {
     setUploading(true);
     try {
@@ -584,7 +607,7 @@ function WorkbenchRoute() {
     }
   }
 
-  async function handleRetrySourceSync(sourceId: string) {
+  async function handleRetrySourceIndex(sourceId: string) {
     setRetryingSourceId(sourceId);
     try {
       await reindexProjectSource(projectId, sourceId);
@@ -624,45 +647,6 @@ function WorkbenchRoute() {
     }
   }
 
-  async function handleBindProjectNotebook(payload: { sourceUrl?: string; notebookId?: string }) {
-    void payload;
-    setInitializingKnowledgeBase(true);
-    try {
-      await initializeProjectKnowledgeBase(projectId);
-      await loadWorkbench({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '初始化项目知识库失败。';
-      setNotices((current) =>
-        prependNotice(current, {
-          kind: 'error',
-          title: '初始化项目知识库失败',
-          body: message,
-        })
-      );
-    } finally {
-      setInitializingKnowledgeBase(false);
-    }
-  }
-
-  async function handleCreateAndBindProjectNotebook() {
-    setInitializingKnowledgeBase(true);
-    try {
-      await initializeProjectKnowledgeBase(projectId);
-      await loadWorkbench({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '初始化项目知识库失败。';
-      setNotices((current) =>
-        prependNotice(current, {
-          kind: 'error',
-          title: '初始化项目知识库失败',
-          body: message,
-        })
-      );
-    } finally {
-      setInitializingKnowledgeBase(false);
-    }
-  }
-
   const cleanedNotices = useMemo(() => notices.slice(0, 4), [notices]);
 
   if (loading || !data.project || !data.state) {
@@ -685,24 +669,24 @@ function WorkbenchRoute() {
       messages={data.messages}
       state={data.state}
       artifacts={data.artifacts}
+      knowledgeBase={data.knowledgeBase}
       recentInsightIds={recentInsightIds}
-      notebookLibrary={[]}
       notices={cleanedNotices}
       sending={sending}
       uploading={uploading}
       deletingSourceId={deletingSourceId}
       retryingSourceId={retryingSourceId}
-      bindingNotebook={initializingKnowledgeBase}
+      initializingKnowledgeBase={initializingKnowledgeBase}
       generatingArtifactType={generatingArtifactType}
       onSendMessage={handleSendMessage}
-        onUploadTextSource={handleUploadTextSource}
-        onUploadFileSource={handleUploadFileSource}
-        onDeleteSource={handleDeleteSource}
-        onRetrySourceSync={handleRetrySourceSync}
-        onBindProjectNotebook={handleBindProjectNotebook}
-        onCreateAndBindProjectNotebook={handleCreateAndBindProjectNotebook}
-        onGenerateArtifact={handleGenerateArtifact}
-      />
+      onUploadTextSource={handleUploadTextSource}
+      onUploadUrlSource={handleUploadUrlSource}
+      onUploadFileSource={handleUploadFileSource}
+      onDeleteSource={handleDeleteSource}
+      onRetrySourceIndex={handleRetrySourceIndex}
+      onInitializeKnowledgeBase={ensureProjectKnowledgeBase}
+      onGenerateArtifact={handleGenerateArtifact}
+    />
   );
 }
 

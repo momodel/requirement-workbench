@@ -37,13 +37,20 @@
 一期当前确认的正式路线是：
 
 - 主智能体：`Claude Agent SDK`
-- 证据层：`notebooklm-py`
+- 证据层：`Docling + Qdrant + LlamaIndex + 项目内 EvidenceRuntime`
+
+当前需要明确：
+
+- `NotebookLM` 不再是一期主链路正式 provider
+- 仓库里残留的 `NotebookLMService`、notebook skill、旧 binding 数据，只能视为迁移兼容或核对脚手架
+- 一期主链路不再依赖 notebook binding / library / create-and-bind 语义
 
 不要做这些事：
 
 - 用本地规则拼接结果，却命名成 `ClaudeAgentRuntime`
-- 用本地摘要服务，却命名成 `NotebookLMService`
+- 用本地摘要服务或假向量检索结果，却命名成正式 `EvidenceRuntime`
 - 在文档、注释、UI 里把 stub 写成“已接入正式 provider”
+- 把旧 notebook 兼容逻辑继续包装成一期正式主路径
 
 未配置就报未配置，失败就报失败，不做伪装 fallback。
 
@@ -77,7 +84,7 @@
 
 ## 提前检查，不要等用户撞错
 
-- 进入实现或验收前，先主动检查 `Claude Agent SDK`、`CLAUDE_MODEL`、`NotebookLM` runtime、认证态、项目 notebook 绑定状态
+- 进入实现或验收前，先主动检查 `Claude Agent SDK`、`CLAUDE_MODEL`、evidence runtime 依赖、项目 knowledge base 状态、source 标准化状态
 - 这些状态要优先在后端 readiness 和前端界面里展示
 - 不要等用户点到聊天、上传、生成交付物时报错了，才说“还没配”
 
@@ -98,9 +105,9 @@
 - 以下任一项没过，都不能把主链路说成“已打通”：
   - `Claude Agent SDK` 可调用
   - `CLAUDE_MODEL` 已配置
-  - 项目内 `notebooklm-py` provider 可调用
-  - 项目内 NotebookLM 认证已完成
-  - 当前项目已绑定自己的 notebook
+  - 项目内 evidence runtime 可调用
+  - 当前项目可初始化并读取自己的 knowledge base
+  - source 标准化状态与可索引状态真实一致
 - 如果某一项必须人工完成，要明确指出“只差这一步需要用户操作”，不要把其他未完成项混在一起
 
 ### 实现中必须持续检查的项
@@ -118,13 +125,13 @@
   - 是否还残留旧路线、旧假设、误导性命名
 - provider 真伪检查
   - 是否真的调用 `Claude Agent SDK`
-  - 是否真的调用项目内 NotebookLM runtime
+  - 是否真的调用项目内 evidence runtime
   - 是否还残留“看起来像真的”的本地替代实现
 - UI 对齐检查
   - 是否仍然是分析工作台，而不是后台配置页
   - 是否至少恢复到 `archive/legacy-demo/` 的产品感基线
 - 失败路径检查
-  - 未配置、未认证、未绑定、provider 失败时，是否提前且明确提示
+  - 未配置、未标准化、knowledge base 未初始化、provider 失败时，是否提前且明确提示
 - Chrome DevTools 联调检查
   - 真实启动后检查页面、控制台、关键请求和交互
 - 必要时专项 review
@@ -146,7 +153,7 @@
   - Path: `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
 
 - `notebooklm-evidence-workflow`
-  - 用在 source 标准化、NotebookLM 导入、grounded summary、citation 获取、失败回写
+  - 用在历史证据流程参考、旧路线迁移核对、grounded summary / citation 对照，不再作为一期主链路正式 runtime 约定
   - Path: `backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
 
 ## 实现顺序
@@ -156,7 +163,7 @@
 1. 先对齐文档和规则
 2. 再清理误导性的旧实现
 3. 再重建前端工作台
-4. 再接真实 provider
+4. 再收口真实 provider 和项目级 knowledge base
 5. 最后做联调和验收
 
 如果用户没有明确改顺序，就按这个来。

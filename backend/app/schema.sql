@@ -57,15 +57,6 @@ CREATE TABLE IF NOT EXISTS version_snapshots (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS notebook_bindings (
-  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-  notebook_id TEXT NOT NULL,
-  provider TEXT NOT NULL,
-  sync_status TEXT NOT NULL,
-  last_synced_at TEXT,
-  source_url TEXT
-);
-
 CREATE TABLE IF NOT EXISTS knowledge_bases (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

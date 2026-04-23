@@ -35,7 +35,6 @@ function readinessStatusLabel(status: string) {
   if (status === 'ready') return '已就绪';
   if (status === 'knowledge_base_missing') return '待初始化';
   if (status === 'auth_required') return '待认证';
-  if (status === 'binding_required') return '待绑定';
   if (status === 'not_configured') return '未配置';
   if (status.includes('failed') || status.includes('error')) return '异常';
   return status;
@@ -60,7 +59,7 @@ export function ProjectsPage({
   const [projectName, setProjectName] = useState('');
   const [scenarioType, setScenarioType] = useState('');
   const [projectSummary, setProjectSummary] = useState('');
-  const evidenceReadiness = readiness?.evidence ?? readiness?.notebooklm;
+  const evidenceReadiness = readiness?.evidence ?? null;
 
   async function handleCreateProject() {
     const name = projectName.trim();

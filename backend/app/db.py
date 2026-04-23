@@ -13,9 +13,6 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
     "sources": {
         "sync_error": "ALTER TABLE sources ADD COLUMN sync_error TEXT",
     },
-    "notebook_bindings": {
-        "source_url": "ALTER TABLE notebook_bindings ADD COLUMN source_url TEXT",
-    },
     "knowledge_bases": {
         "display_name": "ALTER TABLE knowledge_bases ADD COLUMN display_name TEXT",
         "description": "ALTER TABLE knowledge_bases ADD COLUMN description TEXT",
