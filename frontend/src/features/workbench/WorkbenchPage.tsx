@@ -51,6 +51,7 @@ type WorkbenchPageProps = {
   messages: MessageRecord[];
   state: ProjectState;
   artifacts: ArtifactRecord[];
+  artifactError: string | null;
   knowledgeBase: ProjectKnowledgeBase | null;
   recentInsightIds: string[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
@@ -418,6 +419,7 @@ export function WorkbenchPage({
   messages,
   state,
   artifacts,
+  artifactError,
   knowledgeBase,
   recentInsightIds,
   notices,
@@ -926,6 +928,15 @@ export function WorkbenchPage({
                       </button>
                     ))
                   )}
+                  {artifactError ? (
+                    <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      <div className="flex items-center gap-2 font-medium">
+                        <AlertCircle className="h-4 w-4" />
+                        交付物生成失败
+                      </div>
+                      <p className="mt-2 whitespace-pre-wrap leading-6">{artifactError}</p>
+                    </div>
+                  ) : null}
                   {artifactHistoryCount > 0 ? (
                     <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs text-muted">
                       {`当前已折叠 ${artifactHistoryCount} 个历史版本，侧栏默认只显示每类最新交付物。`}
@@ -975,7 +986,19 @@ export function WorkbenchPage({
                     src={activeArtifact.preview_url}
                     className="h-full w-full border-0 bg-white"
                   />
-                ) : null}
+                ) : (
+                  <div className="flex h-full items-center justify-center p-6">
+                    <div className="w-full max-w-xl rounded-[24px] border border-amber-200 bg-white p-6 shadow-sm">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+                        <AlertCircle className="h-4 w-4" />
+                        预览不可用
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-slate-700">
+                        该 HTML 交付物缺少可打开的 preview_url，未覆盖上一个成功版本。
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </DialogContent>

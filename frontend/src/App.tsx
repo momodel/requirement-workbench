@@ -201,6 +201,7 @@ function WorkbenchRoute() {
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [generatingArtifactType, setGeneratingArtifactType] = useState<string | null>(null);
+  const [artifactError, setArtifactError] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoInitAttemptedProjectId = useRef<string | null>(null);
@@ -627,12 +628,14 @@ function WorkbenchRoute() {
   }
 
   async function handleGenerateArtifact(artifactType: 'document' | 'page_solution' | 'interaction_flow') {
+    setArtifactError(null);
     setGeneratingArtifactType(artifactType);
     try {
       await generateArtifact(projectId, artifactType);
       await loadWorkbench({ silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : '交付物生成失败。';
+      setArtifactError(`${message} 当前已有交付物不受影响。`);
       setNotices((current) => [
         {
           id: `artifact-${Date.now()}`,
@@ -669,6 +672,7 @@ function WorkbenchRoute() {
       messages={data.messages}
       state={data.state}
       artifacts={data.artifacts}
+      artifactError={artifactError}
       knowledgeBase={data.knowledgeBase}
       recentInsightIds={recentInsightIds}
       notices={cleanedNotices}

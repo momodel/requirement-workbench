@@ -22,6 +22,83 @@ function installFetchMock(routes: Record<string, JsonResponse>) {
   });
 }
 
+function seedWorkbenchRoutes(overrides?: {
+  project?: JsonResponse;
+  sources?: JsonResponse;
+  messages?: JsonResponse;
+  state?: JsonResponse;
+  readiness?: JsonResponse;
+  knowledgeBase?: JsonResponse;
+  artifacts?: JsonResponse;
+}) {
+  return {
+    '/api/projects/seed-reconciliation': overrides?.project ?? {
+      id: 'seed-reconciliation',
+      name: '集团业财逐笔对账需求分析',
+      scenario_type: 'reconciliation',
+      summary: '默认 seed 项目。',
+      status: 'active',
+      created_at: '2026-04-16T00:00:00+08:00',
+      updated_at: '2026-04-16T00:00:00+08:00',
+      seed_key: 'seed-reconciliation',
+    },
+    '/api/projects/seed-reconciliation/sources': overrides?.sources ?? [],
+    '/api/projects/seed-reconciliation/messages': overrides?.messages ?? [],
+    '/api/projects/seed-reconciliation/state': overrides?.state ?? {
+      current_understanding: [],
+      pending_items: [],
+      confirmed_items: [],
+      conflict_items: [],
+      mvp_items: [],
+      versions: [],
+      artifacts: [],
+    },
+    '/api/projects/seed-reconciliation/readiness': overrides?.readiness ?? {
+      project_id: 'seed-reconciliation',
+      claude: {
+        provider: 'CLAUDE_AGENT_SDK',
+        status: 'ready',
+        summary: 'Claude Agent SDK 已就绪。',
+        detail: null,
+        action_label: null,
+      },
+      evidence: {
+        provider: 'QDRANT_LLAMAINDEX',
+        status: 'ready',
+        summary: '当前项目知识库可用于证据检索。',
+        detail: 'Collection: seed-reconciliation; indexed chunks: 2',
+        action_label: null,
+      },
+    },
+    '/api/projects/seed-reconciliation/knowledge-base': overrides?.knowledgeBase ?? {
+      project_id: 'seed-reconciliation',
+      knowledge_base: {
+        id: 'kb-seed-reconciliation',
+        project_id: 'seed-reconciliation',
+        provider: 'QDRANT_LLAMAINDEX',
+        external_knowledge_base_id: 'seed-reconciliation',
+        display_name: '集团业财逐笔对账需求分析',
+        description: null,
+        status: 'ready',
+        status_error: null,
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+      },
+      readiness: {
+        provider: 'QDRANT_LLAMAINDEX',
+        status: 'ready',
+        summary: '当前项目知识库可用于证据检索。',
+        detail: 'Collection: seed-reconciliation; indexed chunks: 2',
+        action_label: null,
+      },
+      source_count: 2,
+      chunk_count: 12,
+      indexed_chunk_count: 12,
+    },
+    '/api/projects/seed-reconciliation/artifacts': overrides?.artifacts ?? [],
+  };
+}
+
 describe('App', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -2803,6 +2880,108 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /交互稿 v2/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /文档稿 v2/ })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /页面方案 v1/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps existing artifacts visible when artifact generation fails', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const routes = seedWorkbenchRoutes({
+      artifacts: [
+        {
+          id: 'artifact-page-existing',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'page_solution',
+          title: '页面方案 v2',
+          summary: '当前可预览的页面方案',
+          status: 'generated',
+          content_format: 'html',
+          storage_path: '/tmp/page-v2.html',
+          preview_url: '/api/projects/seed-reconciliation/artifacts/artifact-page-existing/preview',
+          body: null,
+          updated_at: '2026-04-16T10:10:00+08:00',
+        },
+        {
+          id: 'artifact-document-existing',
+          project_id: 'seed-reconciliation',
+          artifact_type: 'document',
+          title: '文档稿 v3',
+          summary: '最新文档稿',
+          status: 'generated',
+          content_format: 'markdown',
+          storage_path: null,
+          preview_url: null,
+          body: '# 文档稿',
+          updated_at: '2026-04-16T10:12:00+08:00',
+        },
+      ],
+    });
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/artifacts/generate' && method === 'POST') {
+        return new Response('Claude 交付物生成超时，请稍后重试。', { status: 504 });
+      }
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByRole('button', { name: /页面方案 v2/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '页面方案' }));
+
+    expect((await screen.findAllByText('交付物生成失败')).length).toBeGreaterThan(0);
+    expect(screen.getByText('Claude 交付物生成超时，请稍后重试。')).toBeInTheDocument();
+    expect(screen.getByText(/当前已有交付物不受影响。/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /页面方案 v2/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /文档稿 v3/ })).toBeInTheDocument();
+  });
+
+  it('shows explicit preview failure UI when an html artifact is missing preview_url', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock(
+      seedWorkbenchRoutes({
+        artifacts: [
+          {
+            id: 'artifact-page-missing-preview',
+            project_id: 'seed-reconciliation',
+            artifact_type: 'page_solution',
+            title: '页面方案 v3',
+            summary: '这次生成没有带 preview_url',
+            status: 'generated',
+            content_format: 'html',
+            storage_path: '/tmp/page-v3.html',
+            preview_url: null,
+            body: null,
+            updated_at: '2026-04-16T10:15:00+08:00',
+          },
+        ],
+      })
+    );
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole('button', { name: /页面方案 v3/ }));
+
+    expect(await screen.findByText('预览不可用')).toBeInTheDocument();
+    expect(
+      screen.getByText('该 HTML 交付物缺少可打开的 preview_url，未覆盖上一个成功版本。')
+    ).toBeInTheDocument();
   });
 
   it('marks freshly patched insights as new in the sidebar', async () => {
