@@ -90,43 +90,42 @@ class ProjectCatalog:
         return SourceChunkRecord.model_validate(dict(row))
 
     @staticmethod
-    def _source_dual_write_columns() -> tuple[str, ...]:
-        columns: list[str] = []
-        for neutral_column, legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
-            columns.extend((legacy_column, neutral_column))
-        return tuple(columns)
+    def _source_neutral_write_columns() -> tuple[str, ...]:
+        return tuple(
+            neutral_column
+            for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS
+        )
 
     @staticmethod
-    def _source_dual_write_values(**field_values: str | None) -> tuple[str | None, ...]:
-        values: list[str | None] = []
-        for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
-            value = field_values[neutral_column]
-            values.extend((value, value))
-        return tuple(values)
+    def _source_neutral_write_values(**field_values: str | None) -> tuple[str | None, ...]:
+        return tuple(
+            field_values[neutral_column]
+            for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS
+        )
 
     @staticmethod
-    def _source_dual_write_selected_values(
+    def _source_neutral_write_selected_values(
         *,
         neutral_columns: tuple[str, ...],
         **field_values: str | None,
     ) -> tuple[str | None, ...]:
-        values: list[str | None] = []
         selected_neutral_columns = set(neutral_columns)
-        for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
-            if neutral_column not in selected_neutral_columns:
-                continue
-            value = field_values[neutral_column]
-            values.extend((value, value))
-        return tuple(values)
+        return tuple(
+            field_values[neutral_column]
+            for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS
+            if neutral_column in selected_neutral_columns
+        )
 
     @staticmethod
-    def _source_dual_write_update_clause(*, neutral_columns: tuple[str, ...] | None = None) -> str:
+    def _source_neutral_write_update_clause(
+        *,
+        neutral_columns: tuple[str, ...] | None = None,
+    ) -> str:
         selected_neutral_columns = set(neutral_columns or ())
         assignments: list[str] = []
-        for neutral_column, legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
+        for neutral_column, _legacy_column in SOURCE_DUAL_WRITE_COLUMN_PAIRS:
             if selected_neutral_columns and neutral_column not in selected_neutral_columns:
                 continue
-            assignments.append(f"{legacy_column} = ?")
             assignments.append(f"{neutral_column} = ?")
         return ", ".join(assignments)
 
@@ -322,7 +321,7 @@ class ProjectCatalog:
             created_at=now_iso(self.settings),
         )
         with connection_scope(self.settings) as connection:
-            source_write_columns = self._source_dual_write_columns()
+            source_write_columns = self._source_neutral_write_columns()
             connection.execute(
                 f"""
                 INSERT INTO sources (
@@ -330,7 +329,7 @@ class ProjectCatalog:
                   {", ".join(source_write_columns)},
                   created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source.id,
@@ -340,7 +339,7 @@ class ProjectCatalog:
                     source.upload_kind,
                     source.storage_path,
                     source.normalized_path,
-                    *self._source_dual_write_values(
+                    *self._source_neutral_write_values(
                         index_input_mode=index_input_mode,
                         normalize_status=normalize_status,
                         normalize_summary=normalize_summary,
@@ -433,11 +432,11 @@ class ProjectCatalog:
             connection.execute(
                 f"""
                 UPDATE sources
-                SET {self._source_dual_write_update_clause(neutral_columns=status_update_columns)}
+                SET {self._source_neutral_write_update_clause(neutral_columns=status_update_columns)}
                 WHERE id = ?
                 """,
                 (
-                    *self._source_dual_write_selected_values(
+                    *self._source_neutral_write_selected_values(
                         neutral_columns=status_update_columns,
                         index_input_mode=None,
                         normalize_status=None,
@@ -470,11 +469,11 @@ class ProjectCatalog:
             connection.execute(
                 f"""
                 UPDATE sources
-                SET {self._source_dual_write_update_clause(neutral_columns=status_update_columns)}
+                SET {self._source_neutral_write_update_clause(neutral_columns=status_update_columns)}
                 WHERE project_id = ?
                 """,
                 (
-                    *self._source_dual_write_selected_values(
+                    *self._source_neutral_write_selected_values(
                         neutral_columns=status_update_columns,
                         index_input_mode=None,
                         normalize_status=None,

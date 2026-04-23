@@ -8,7 +8,7 @@ from app.db import init_db
 from app.models import CreateProjectRequest
 from app.services.project_catalog import ProjectCatalog
 
-SOURCE_DUAL_WRITE_STORAGE_COLUMNS = (
+SOURCE_WRITE_STORAGE_COLUMNS = (
     "notebook_import_mode",
     "index_input_mode",
     "parse_status",
@@ -54,7 +54,14 @@ def fetch_source_storage(connection: sqlite3.Connection, source_id: str, columns
     return dict(zip(columns, row))
 
 
-def assert_source_dual_write_storage(
+def fetch_table_info(connection: sqlite3.Connection, table_name: str) -> dict[str, tuple]:
+    return {
+        row[1]: row
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
+def assert_source_neutral_write_storage(
     stored: dict,
     *,
     index_input_mode: str | None,
@@ -63,28 +70,28 @@ def assert_source_dual_write_storage(
     index_status: str,
     index_error: str | None,
 ) -> None:
-    assert stored["notebook_import_mode"] == index_input_mode
     assert stored["index_input_mode"] == index_input_mode
-    assert stored["parse_status"] == normalize_status
     assert stored["normalize_status"] == normalize_status
-    assert stored["parse_summary"] == normalize_summary
     assert stored["normalize_summary"] == normalize_summary
-    assert stored["sync_status"] == index_status
     assert stored["index_status"] == index_status
-    assert stored["sync_error"] == index_error
     assert stored["index_error"] == index_error
+    assert stored["notebook_import_mode"] is None
+    assert stored["parse_status"] is None
+    assert stored["parse_summary"] is None
+    assert stored["sync_status"] is None
+    assert stored["sync_error"] is None
 
 
-def assert_source_status_dual_write_storage(
+def assert_source_status_neutral_write_storage(
     stored: dict,
     *,
     index_status: str,
     index_error: str | None,
 ) -> None:
-    assert stored["sync_status"] == index_status
     assert stored["index_status"] == index_status
-    assert stored["sync_error"] == index_error
     assert stored["index_error"] == index_error
+    assert stored["sync_status"] is None
+    assert stored["sync_error"] is None
 
 
 def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> None:
@@ -144,10 +151,8 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
 
     migrated = sqlite3.connect(settings.sqlite_path)
     try:
-        sources_columns = {
-            row[1]
-            for row in migrated.execute("PRAGMA table_info(sources)").fetchall()
-        }
+        sources_table_info = fetch_table_info(migrated, "sources")
+        sources_columns = set(sources_table_info)
         tables = {
             row[0]
             for row in migrated.execute(
@@ -213,6 +218,10 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
     assert migrated_source_row[7] == "迁移摘要"
     assert migrated_source_row[8] == "synced"
     assert migrated_source_row[9] == "legacy sync error"
+    assert sources_table_info["parse_status"][3] == 0
+    assert sources_table_info["parse_status"][4] is None
+    assert sources_table_info["sync_status"][3] == 0
+    assert sources_table_info["sync_status"][4] is None
 
 
 def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
@@ -224,10 +233,8 @@ def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
 
     connection = sqlite3.connect(settings.sqlite_path)
     try:
-        sources_columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(sources)").fetchall()
-        }
+        sources_table_info = fetch_table_info(connection, "sources")
+        sources_columns = set(sources_table_info)
     finally:
         connection.close()
 
@@ -244,6 +251,47 @@ def test_init_db_creates_sources_table_with_neutral_and_legacy_source_columns(
         "sync_error",
     }
     assert expected_columns.issubset(sources_columns)
+    assert sources_table_info["parse_status"][3] == 0
+    assert sources_table_info["parse_status"][4] is None
+    assert sources_table_info["sync_status"][3] == 0
+    assert sources_table_info["sync_status"][4] is None
+
+
+def test_init_db_allows_neutral_only_source_insert_on_fresh_schema(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+
+    connection = sqlite3.connect(settings.sqlite_path)
+    connection.execute(
+        """
+        INSERT INTO projects (id, name, scenario_type, summary, status, created_at, updated_at, seed_key)
+        VALUES ('project-neutral-1', '项目一', 'general', 'summary', 'active', '2026-04-22T10:00:00+08:00', '2026-04-22T10:00:00+08:00', NULL)
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO sources (
+          id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
+          index_input_mode, normalize_status, normalize_summary, index_status, index_error, created_at
+        )
+        VALUES (
+          'source-neutral-only-1', 'project-neutral-1', '中性写入资料', 'text', 'text', NULL, NULL,
+          'direct_text', 'parsed', '摘要', 'pending_sync', NULL, '2026-04-22T10:00:00+08:00'
+        )
+        """
+    )
+    stored = fetch_source_storage(connection, "source-neutral-only-1", SOURCE_WRITE_STORAGE_COLUMNS)
+    connection.commit()
+    connection.close()
+
+    assert_source_neutral_write_storage(
+        stored,
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="摘要",
+        index_status="pending_sync",
+        index_error=None,
+    )
 
 
 def test_init_db_migrates_legacy_source_chunks_table_shape_without_knowledge_bases_table(
@@ -432,12 +480,12 @@ def test_project_catalog_persists_knowledge_bases_and_source_chunks(tmp_path: Pa
         stored = fetch_source_storage(
             connection,
             source.id,
-            SOURCE_DUAL_WRITE_STORAGE_COLUMNS,
+            SOURCE_WRITE_STORAGE_COLUMNS,
         )
     finally:
         connection.close()
 
-    assert_source_dual_write_storage(
+    assert_source_neutral_write_storage(
         stored,
         index_input_mode="direct_text",
         normalize_status="parsed",
@@ -715,19 +763,19 @@ def test_bulk_update_source_index_status_updates_all_project_sources(
     assert refreshed_sources[source_a.id].index_error is None
     assert refreshed_sources[source_b.id].index_status == "indexed"
     assert refreshed_sources[source_b.id].index_error is None
-    assert_source_status_dual_write_storage(
+    assert_source_status_neutral_write_storage(
         stored_statuses[source_a.id],
         index_status="indexed",
         index_error=None,
     )
-    assert_source_status_dual_write_storage(
+    assert_source_status_neutral_write_storage(
         stored_statuses[source_b.id],
         index_status="indexed",
         index_error=None,
     )
 
 
-def test_update_source_index_status_dual_writes_neutral_and_legacy_columns(
+def test_update_source_index_status_writes_neutral_columns_only(
     tmp_path: Path,
 ) -> None:
     settings = make_settings(tmp_path)
@@ -773,7 +821,7 @@ def test_update_source_index_status_dual_writes_neutral_and_legacy_columns(
 
     assert updated.index_status == "indexed"
     assert updated.index_error is None
-    assert_source_status_dual_write_storage(
+    assert_source_status_neutral_write_storage(
         stored,
         index_status="indexed",
         index_error=None,

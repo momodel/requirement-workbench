@@ -21,7 +21,7 @@ MINIMAL_NEUTRAL_SOURCE_FIELDS = {
     "name",
 }
 
-SOURCE_DUAL_WRITE_STORAGE_COLUMNS = (
+SOURCE_WRITE_STORAGE_COLUMNS = (
     "notebook_import_mode",
     "index_input_mode",
     "parse_status",
@@ -45,17 +45,17 @@ def assert_source_payload_is_neutral_only(source: dict) -> None:
 def fetch_source_storage(connection: sqlite3.Connection, source_id: str) -> dict:
     row = connection.execute(
         f"""
-        SELECT {", ".join(SOURCE_DUAL_WRITE_STORAGE_COLUMNS)}
+        SELECT {", ".join(SOURCE_WRITE_STORAGE_COLUMNS)}
         FROM sources
         WHERE id = ?
         """,
         (source_id,),
     ).fetchone()
     assert row is not None
-    return dict(zip(SOURCE_DUAL_WRITE_STORAGE_COLUMNS, row))
+    return dict(zip(SOURCE_WRITE_STORAGE_COLUMNS, row))
 
 
-def assert_source_dual_write_storage(
+def assert_source_neutral_write_storage(
     stored: dict,
     *,
     index_input_mode: str | None,
@@ -64,16 +64,16 @@ def assert_source_dual_write_storage(
     index_status: str,
     index_error_predicate,
 ) -> None:
-    assert stored["notebook_import_mode"] == index_input_mode
     assert stored["index_input_mode"] == index_input_mode
-    assert stored["parse_status"] == normalize_status
     assert stored["normalize_status"] == normalize_status
-    assert stored["parse_summary"] == normalize_summary
     assert stored["normalize_summary"] == normalize_summary
-    assert stored["sync_status"] == index_status
     assert stored["index_status"] == index_status
-    assert stored["sync_error"] == stored["index_error"]
     assert index_error_predicate(stored["index_error"])
+    assert stored["notebook_import_mode"] is None
+    assert stored["parse_status"] is None
+    assert stored["parse_summary"] is None
+    assert stored["sync_status"] is None
+    assert stored["sync_error"] is None
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -691,7 +691,7 @@ def test_url_upload_stays_out_of_evidence_index_until_page_text_exists(
         ) == []
 
 
-def test_source_route_maps_neutral_ingestion_fields_to_legacy_catalog_storage(
+def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -703,7 +703,7 @@ def test_source_route_maps_neutral_ingestion_fields_to_legacy_catalog_storage(
             json={
                 "name": "中性语义映射测试",
                 "scenario_type": "general",
-                "summary": "验证 route 内部 normalize/index 语义仍正确写入兼容字段",
+                "summary": "验证 route 内部 normalize/index 语义只写 neutral 字段",
             },
         )
         assert create_response.status_code == 201
@@ -737,7 +737,7 @@ def test_source_route_maps_neutral_ingestion_fields_to_legacy_catalog_storage(
     finally:
         connection.close()
 
-    assert_source_dual_write_storage(
+    assert_source_neutral_write_storage(
         stored,
         index_input_mode="direct_text",
         normalize_status="parsed",

@@ -103,9 +103,109 @@ SOURCE_CHUNKS_INDEX_STATEMENTS = (
 )
 
 
-def _existing_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+def _column_info(connection: sqlite3.Connection, table_name: str) -> dict[str, sqlite3.Row]:
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
-    return {row[1] for row in rows}
+    return {row[1]: row for row in rows}
+
+
+def _existing_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return set(_column_info(connection, table_name))
+
+
+def _sources_table_needs_rebuild(connection: sqlite3.Connection) -> bool:
+    if not _table_exists(connection, "sources"):
+        return False
+
+    column_info = _column_info(connection, "sources")
+    parse_status = column_info.get("parse_status")
+    sync_status = column_info.get("sync_status")
+    if parse_status is None or sync_status is None:
+        return False
+
+    return bool(parse_status[3]) or bool(sync_status[3]) or sync_status[4] is not None
+
+
+def _rebuild_sources_table(connection: sqlite3.Connection) -> None:
+    rows = [
+        dict(row)
+        for row in connection.execute("SELECT * FROM sources ORDER BY created_at, id").fetchall()
+    ]
+    existing_columns = _existing_columns(connection, "sources")
+    project_constraint = "project_id TEXT NOT NULL"
+    if _table_exists(connection, "projects"):
+        project_constraint = (
+            "project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE"
+        )
+
+    foreign_keys_enabled = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    if foreign_keys_enabled:
+        connection.execute("PRAGMA foreign_keys = OFF")
+
+    try:
+        connection.execute(
+            f"""
+            CREATE TABLE sources__migrated (
+              id TEXT PRIMARY KEY,
+              {project_constraint},
+              name TEXT NOT NULL,
+              source_kind TEXT NOT NULL,
+              upload_kind TEXT NOT NULL,
+              storage_path TEXT,
+              normalized_path TEXT,
+              index_input_mode TEXT,
+              notebook_import_mode TEXT,
+              normalize_status TEXT,
+              parse_status TEXT,
+              normalize_summary TEXT,
+              parse_summary TEXT,
+              index_status TEXT,
+              sync_status TEXT,
+              index_error TEXT,
+              sync_error TEXT,
+              created_at TEXT NOT NULL
+            )
+            """
+        )
+
+        for row in rows:
+            connection.execute(
+                """
+                INSERT INTO sources__migrated (
+                  id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
+                  index_input_mode, notebook_import_mode, normalize_status, parse_status,
+                  normalize_summary, parse_summary, index_status, sync_status, index_error,
+                  sync_error, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    row["id"],
+                    row["project_id"],
+                    row["name"],
+                    row["source_kind"],
+                    row["upload_kind"],
+                    row.get("storage_path"),
+                    row.get("normalized_path"),
+                    row.get("index_input_mode") if "index_input_mode" in existing_columns else None,
+                    row.get("notebook_import_mode") if "notebook_import_mode" in existing_columns else None,
+                    row.get("normalize_status") if "normalize_status" in existing_columns else None,
+                    row.get("parse_status") if "parse_status" in existing_columns else None,
+                    row.get("normalize_summary") if "normalize_summary" in existing_columns else None,
+                    row.get("parse_summary") if "parse_summary" in existing_columns else None,
+                    row.get("index_status") if "index_status" in existing_columns else None,
+                    row.get("sync_status") if "sync_status" in existing_columns else None,
+                    row.get("index_error") if "index_error" in existing_columns else None,
+                    row.get("sync_error") if "sync_error" in existing_columns else None,
+                    row["created_at"],
+                ),
+            )
+
+        connection.execute("DROP TABLE sources")
+        connection.execute("ALTER TABLE sources__migrated RENAME TO sources")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_sources_project_id ON sources(project_id)")
+    finally:
+        if foreign_keys_enabled:
+            connection.execute("PRAGMA foreign_keys = ON")
 
 
 def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
@@ -248,6 +348,13 @@ def _migrate_source_chunks_table(connection: sqlite3.Connection) -> None:
     _rebuild_source_chunks_table(connection, include_knowledge_base_fk=False)
 
 
+def _migrate_sources_table(connection: sqlite3.Connection) -> None:
+    if not _sources_table_needs_rebuild(connection):
+        return
+
+    _rebuild_sources_table(connection)
+
+
 def _ensure_source_chunks_schema(connection: sqlite3.Connection) -> None:
     if not _table_exists(connection, "source_chunks"):
         return
@@ -291,6 +398,7 @@ def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
     try:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        _migrate_sources_table(connection)
         _migrate_source_chunks_table(connection)
         schema_path = Path(__file__).with_name("schema.sql")
         connection.executescript(schema_path.read_text(encoding="utf-8"))
