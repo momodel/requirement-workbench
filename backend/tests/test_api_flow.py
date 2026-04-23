@@ -1,11 +1,13 @@
 from pathlib import Path
 import sqlite3
+from subprocess import CompletedProcess
 
 from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
 from app.models import EvidenceResult, ProviderIssue, ProviderReadiness
+from app.services import agent_runtime as agent_runtime_module
 
 LEGACY_SOURCE_FIELDS = {
     "notebook_import_mode",
@@ -319,6 +321,56 @@ def test_global_readiness_payload_uses_evidence_semantics_only(tmp_path: Path, m
     assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
     assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
     assert "notebooklm" not in readiness
+
+
+def test_readiness_endpoints_surface_claude_model_not_configured_status(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+
+    real_path_exists = agent_runtime_module.Path.exists
+
+    def fake_exists(path_obj):
+        if str(path_obj) == str(app.state.services.agent_runtime.settings.claude_cli_path):
+            return True
+        return real_path_exists(path_obj)
+
+    monkeypatch.setattr(agent_runtime_module.Path, "exists", fake_exists)
+
+    def fake_run(command, **kwargs):
+        assert command == [str(app.state.services.agent_runtime.settings.claude_cli_path), "auth", "status"]
+        return CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout='{"loggedIn": true, "authMethod": "oauth_token", "apiProvider": "firstParty"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(agent_runtime_module.subprocess, "run", fake_run)
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "Claude 模型缺失测试",
+                "scenario_type": "general",
+                "summary": "验证 readiness 接口会把 Claude 模型缺失显式透出给前端",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        global_readiness = client.get("/api/providers/readiness").json()
+        project_readiness = client.get(f"/api/projects/{project_id}/readiness").json()
+
+    assert global_readiness["claude"]["status"] == "not_configured"
+    assert "CLAUDE_MODEL" in global_readiness["claude"]["detail"]
+    assert global_readiness["claude"]["action_label"]
+    assert project_readiness["claude"]["status"] == "not_configured"
+    assert "CLAUDE_MODEL" in project_readiness["claude"]["detail"]
+    assert project_readiness["claude"]["action_label"]
 
 
 def test_source_upload_uses_evidence_readiness_for_provider_errors(tmp_path: Path, monkeypatch) -> None:
