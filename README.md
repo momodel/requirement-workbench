@@ -75,10 +75,15 @@
 
 ## 环境要求
 
-- Python `3.11+`
+- Python `3.12.x`
 - Node.js `18+`
 - 一个可用的 `claude` CLI，或者在环境变量里显式配置 `CLAUDE_CODE_CLI_PATH`
 - 首次安装依赖和配置 provider 时可正常联网
+
+当前说明：
+
+- 当前 worktree 已用 Python `3.12` 做过 clean-venv 安装和后端测试验证
+- 系统默认 Python `3.13` 下，当前 `llama-index-embeddings-fastembed` 这组依赖无法直接安装，因此暂不作为受支持解释器口径
 
 ## 5 分钟启动
 
@@ -86,10 +91,12 @@
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+如果你的系统没有 `python3.12` 这个命令，就改成任意明确指向 Python `3.12.x` 的解释器路径，不要直接用可能指向 `3.13` 的系统默认 `python3`。
 
 ### 2. 准备前端环境
 
@@ -117,6 +124,11 @@ ANTHROPIC_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
 CLAUDE_MODEL=glm-5
 ```
 
+注意：
+
+- `CLAUDE_MODEL` 现在是 Claude readiness 的硬前置条件
+- 如果缺少这个变量，后端会把 Claude provider 标成 `not_configured`，不会再把“走 CLI 默认模型”包装成已就绪
+
 按当前代码，Claude 运行还依赖一个可执行的 `claude` CLI：
 
 - 如果 `claude` 已经在 `PATH` 里，后端会直接使用
@@ -132,6 +144,7 @@ which claude
 ```
 
 如果 `which claude` 没输出，就需要配 `CLAUDE_CODE_CLI_PATH`。
+如果 CLI 正常但首页 readiness 仍显示 Claude `未配置`，优先先检查 `CLAUDE_MODEL`。
 
 ### 4. 可选：调整 evidence runtime 配置
 
@@ -214,7 +227,7 @@ npm run dev -- --host 127.0.0.1 --port 4173
 
 ```bash
 cd backend
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -228,7 +241,14 @@ pip install -r requirements.txt
 - 让 `claude` 出现在 `PATH`
 - 或在 `backend/.env.local` 配 `CLAUDE_CODE_CLI_PATH`
 
-### 3. `Evidence Runtime 未就绪`
+### 3. `Claude 显示未配置`
+
+先分两类看：
+
+- CLI 不可用：按上一条补 `claude` 或 `CLAUDE_CODE_CLI_PATH`
+- `CLAUDE_MODEL` 缺失：在 `backend/.env.local` 里补模型名，再重启后端
+
+### 4. `Evidence Runtime 未就绪`
 
 先分三类看：
 
@@ -236,7 +256,7 @@ pip install -r requirements.txt
 - `.env.local` 把 `REQUIREMENT_WORKBENCH_EVIDENCE_BACKEND` 改成了非 `qdrant_llamaindex`
 - 你显式配置了远端 `REQUIREMENT_WORKBENCH_QDRANT_URL`，但当前地址不可达
 
-### 4. 新项目显示 `knowledge_base_missing`
+### 5. 新项目显示 `knowledge_base_missing`
 
 这表示项目存在，但还没初始化自己的 knowledge base。
 
@@ -245,7 +265,7 @@ pip install -r requirements.txt
 - 在工作台里点击初始化 knowledge base
 - 或调用 `POST /api/projects/{project_id}/knowledge-base/init`
 
-### 5. 某个 source 变成 `index_failed`
+### 6. 某个 source 变成 `index_failed`
 
 这表示 source 已标准化，但写入项目知识库失败。
 
