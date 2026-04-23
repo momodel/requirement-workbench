@@ -206,6 +206,7 @@ function WorkbenchRoute() {
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoInitAttemptedProjectId = useRef<string | null>(null);
   const currentProjectIdRef = useRef(projectId);
+  const loadWorkbenchRequestIdRef = useRef(0);
   const recentInsightTimerRef = useRef<number | null>(null);
   const evidenceStatus = readiness?.evidence?.status ?? null;
 
@@ -226,17 +227,25 @@ function WorkbenchRoute() {
   }
 
   async function loadWorkbench(options?: { silent?: boolean }) {
+    const workbenchProjectId = projectId;
+    const requestId = ++loadWorkbenchRequestIdRef.current;
+    const isStaleRequest = () =>
+      currentProjectIdRef.current !== workbenchProjectId || loadWorkbenchRequestIdRef.current !== requestId;
+
     if (!options?.silent) {
       setLoading(true);
     }
     try {
       const [project, sources, messages, state, artifacts] = await Promise.all([
-        getProject(projectId),
-        listSources(projectId),
-        listMessages(projectId),
-        getProjectState(projectId),
-        listArtifacts(projectId),
+        getProject(workbenchProjectId),
+        listSources(workbenchProjectId),
+        listMessages(workbenchProjectId),
+        getProjectState(workbenchProjectId),
+        listArtifacts(workbenchProjectId),
       ]);
+      if (isStaleRequest()) {
+        return;
+      }
       setData((current) => ({
         ...current,
         project,
@@ -247,9 +256,12 @@ function WorkbenchRoute() {
       }));
 
       void Promise.allSettled([
-        getProjectKnowledgeBase(projectId),
-        getProjectReadiness(projectId),
+        getProjectKnowledgeBase(workbenchProjectId),
+        getProjectReadiness(workbenchProjectId),
       ]).then(([knowledgeBaseResult, readinessResult]) => {
+        if (isStaleRequest()) {
+          return;
+        }
         if (knowledgeBaseResult.status === 'fulfilled') {
           setData((current) => ({
             ...current,
@@ -286,6 +298,9 @@ function WorkbenchRoute() {
         }
       });
     } catch (error) {
+      if (isStaleRequest()) {
+        return;
+      }
       const message = error instanceof Error ? error.message : '加载工作台失败。';
       setNotices((current) =>
         prependNotice(current, {
@@ -295,7 +310,7 @@ function WorkbenchRoute() {
         })
       );
     } finally {
-      if (!options?.silent) {
+      if (!options?.silent && !isStaleRequest()) {
         setLoading(false);
       }
     }
@@ -307,6 +322,7 @@ function WorkbenchRoute() {
     setRecentInsightIds([]);
     setGeneratingArtifactType(null);
     setArtifactError(null);
+    setNotices([]);
     void loadWorkbench();
   }, [projectId]);
 
