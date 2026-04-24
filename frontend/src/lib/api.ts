@@ -2,6 +2,7 @@ import type {
   ArtifactRecord,
   ChatStreamRequest,
   CreateProjectRequest,
+  DeleteProjectResult,
   GlobalReadiness,
   KnowledgeBaseRecord,
   MessageRecord,
@@ -153,6 +154,12 @@ export function createProject(payload: CreateProjectRequest) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProject(projectId: string) {
+  return fetchJson<DeleteProjectResult>(`/api/projects/${projectId}`, {
+    method: 'DELETE',
   });
 }
 

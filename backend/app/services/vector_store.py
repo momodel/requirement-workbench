@@ -232,6 +232,16 @@ class QdrantLlamaIndexVectorStore:
         except Exception as exc:  # pragma: no cover - depends on optional runtime deps
             raise self._wrap_error(exc, "删除 source 向量") from exc
 
+    def delete_project(self, project_id: str) -> None:
+        collection_name = self.collection_name(project_id)
+        if not self._collection_exists(collection_name):
+            return
+
+        try:
+            self._get_client().delete_collection(collection_name)
+        except Exception as exc:  # pragma: no cover - depends on optional runtime deps
+            raise self._wrap_error(exc, "删除项目 collection") from exc
+
     def _build_source_filter(self, source_ids: list[str] | None):
         if not source_ids:
             return None

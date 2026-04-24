@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -195,6 +196,39 @@ class ProjectCatalog:
                 ),
             )
         return project
+
+    def delete_project(self, project_id: str) -> ProjectSummary:
+        project = self.get_project(project_id)
+        if not project:
+            raise LookupError("Project not found")
+        if project.seed_key:
+            raise ValueError("默认 seed project 不能删除。")
+
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                "DELETE FROM projects WHERE id = ?",
+                (project_id,),
+            )
+
+        return project
+
+    def cleanup_project_files(self, project_id: str) -> str | None:
+        projects_root = self.settings.projects_dir.resolve()
+        project_dir = (self.settings.projects_dir / project_id).resolve()
+        try:
+            project_dir.relative_to(projects_root)
+        except ValueError:
+            return "项目目录不在受控 projects 目录内，已跳过文件清理。"
+
+        if not project_dir.exists():
+            return None
+
+        try:
+            shutil.rmtree(project_dir)
+        except OSError as exc:
+            return f"项目已从本地数据库删除，但项目目录清理失败：{exc}"
+
+        return None
 
     def upsert_project(self, project: ProjectSummary) -> None:
         with connection_scope(self.settings) as connection:

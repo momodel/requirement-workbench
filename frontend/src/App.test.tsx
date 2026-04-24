@@ -146,6 +146,109 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: '新建项目' })).toBeInTheDocument();
   });
 
+  it('deletes a non-seed project from the home page and surfaces cleanup warnings', async () => {
+    let projects = [
+      {
+        id: 'seed-reconciliation',
+        name: '集团业财逐笔对账',
+        scenario_type: 'reconciliation',
+        summary: '演示项目',
+        status: 'seed',
+        created_at: '2026-04-16T00:00:00+08:00',
+        updated_at: '2026-04-16T00:00:00+08:00',
+        seed_key: 'seed-reconciliation',
+      },
+      {
+        id: 'project-delete-001',
+        name: '渠道返利对账分析',
+        scenario_type: 'rebate-reconciliation',
+        summary: '准备删除的普通项目。',
+        status: 'active',
+        created_at: '2026-04-18T00:00:00+08:00',
+        updated_at: '2026-04-18T00:00:00+08:00',
+        seed_key: null,
+      },
+    ];
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/project-delete-001' && method === 'DELETE') {
+        projects = projects.filter((project) => project.id !== 'project-delete-001');
+        return new Response(
+          JSON.stringify({
+            id: 'project-delete-001',
+            name: '渠道返利对账分析',
+            deleted: true,
+            warning: 'Qdrant collection 清理失败。',
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects': projects,
+        '/api/providers/readiness': {
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMAINDEX',
+            status: 'ready',
+            summary: '项目内证据运行时已就绪。',
+            detail: null,
+            action_label: null,
+          },
+        },
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('渠道返利对账分析')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除项目：集团业财逐笔对账' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '删除项目：渠道返利对账分析' }));
+
+    expect(screen.getByRole('heading', { name: '删除项目' })).toBeInTheDocument();
+    expect(screen.getByText('删除后会移除项目资料、聊天记录、状态沉淀和交付物文件。')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '确认删除项目' }));
+
+    await waitFor(() => {
+      expect(screen.queryByText('渠道返利对账分析')).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText('证据层清理未完全完成')).toBeInTheDocument();
+    expect(screen.getByText('Qdrant collection 清理失败。')).toBeInTheDocument();
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      '/api/projects/project-delete-001',
+      expect.objectContaining({
+        method: 'DELETE',
+      })
+    );
+  });
+
   it('creates a project from the home page and navigates into the new workbench', async () => {
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,

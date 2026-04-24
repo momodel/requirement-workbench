@@ -1,4 +1,4 @@
-import { ArrowRight, FolderKanban, Loader2, Plus, Sparkles } from 'lucide-react';
+import { AlertTriangle, ArrowRight, FolderKanban, Loader2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -15,6 +15,12 @@ import {
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
 import type { GlobalReadiness, ProjectSummary } from '../../lib/types';
+
+type PageNotice = {
+  kind: 'error' | 'info';
+  title: string;
+  body: string;
+};
 
 function readinessVariant(status: string) {
   if (status === 'ready') return 'success' as const;
@@ -43,19 +49,26 @@ function readinessStatusLabel(status: string) {
 export function ProjectsPage({
   projects,
   readiness,
+  notice,
   creating,
+  deletingProjectId,
   onCreateProject,
+  onDeleteProject,
 }: {
   projects: ProjectSummary[];
   readiness: GlobalReadiness | null;
+  notice: PageNotice | null;
   creating: boolean;
+  deletingProjectId: string | null;
   onCreateProject: (payload: {
     name: string;
     scenario_type: string;
     summary: string;
   }) => Promise<void>;
+  onDeleteProject: (project: ProjectSummary) => Promise<void>;
 }) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [projectPendingDelete, setProjectPendingDelete] = useState<ProjectSummary | null>(null);
   const [projectName, setProjectName] = useState('');
   const [scenarioType, setScenarioType] = useState('');
   const [projectSummary, setProjectSummary] = useState('');
@@ -67,15 +80,32 @@ export function ProjectsPage({
     const summary = projectSummary.trim();
     if (!name || !scenario || !summary) return;
 
-    await onCreateProject({
-      name,
-      scenario_type: scenario,
-      summary,
-    });
-    setProjectName('');
-    setScenarioType('');
-    setProjectSummary('');
-    setIsCreateDialogOpen(false);
+    try {
+      await onCreateProject({
+        name,
+        scenario_type: scenario,
+        summary,
+      });
+      setProjectName('');
+      setScenarioType('');
+      setProjectSummary('');
+      setIsCreateDialogOpen(false);
+    } catch {
+      // 页面级错误提示由上层路由负责，弹窗保持打开便于用户调整输入后重试。
+    }
+  }
+
+  async function handleDeleteProject() {
+    if (!projectPendingDelete) {
+      return;
+    }
+
+    try {
+      await onDeleteProject(projectPendingDelete);
+      setProjectPendingDelete(null);
+    } catch {
+      // 删除失败时保留确认弹窗，让用户直接看到错误并决定是否重试。
+    }
   }
 
   return (
@@ -160,6 +190,30 @@ export function ProjectsPage({
           </CardContent>
         </Card>
 
+        {notice ? (
+          <Card
+            className={
+              notice.kind === 'error'
+                ? 'border-rose-200 bg-rose-50/90'
+                : 'border-amber-200 bg-amber-50/90'
+            }
+          >
+            <CardContent className="flex items-start gap-3 p-5">
+              <AlertTriangle
+                className={
+                  notice.kind === 'error'
+                    ? 'mt-0.5 h-5 w-5 text-rose-700'
+                    : 'mt-0.5 h-5 w-5 text-amber-700'
+                }
+              />
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-ink">{notice.title}</div>
+                <p className="text-sm leading-7 text-muted">{notice.body}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <div className="grid gap-4">
           <div className="flex items-center justify-between">
             <div>
@@ -187,23 +241,48 @@ export function ProjectsPage({
                         </div>
                         <CardTitle className="text-2xl">{project.name}</CardTitle>
                       </div>
-                      <Badge variant="accent">{project.status}</Badge>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {project.seed_key ? <Badge variant="warning">默认演示项目</Badge> : null}
+                        <Badge variant="accent">{project.status}</Badge>
+                      </div>
                     </div>
                     <CardDescription className="text-sm leading-7">
                       {project.summary}
                     </CardDescription>
                   </div>
                 </CardHeader>
-                <CardContent className="flex items-center justify-between gap-4 pt-2">
-                  <div className="text-sm text-muted">
-                    最近更新时间：{new Date(project.updated_at).toLocaleString('zh-CN')}
+                <CardContent className="flex flex-wrap items-center justify-between gap-4 pt-2">
+                  <div className="space-y-1 text-sm text-muted">
+                    <div>最近更新时间：{new Date(project.updated_at).toLocaleString('zh-CN')}</div>
+                    {project.seed_key ? (
+                      <div>默认案例作为一期演示基线保留，不提供删除。</div>
+                    ) : (
+                      <div>删除会同时清理项目资料、聊天沉淀和本地交付物。</div>
+                    )}
                   </div>
-                  <Button asChild>
-                    <Link to={`/projects/${project.id}/workbench`}>
-                      进入工作台
-                      <ArrowRight className="ml-2 h-4 w-4" />
-                    </Link>
-                  </Button>
+                  <div className="flex items-center gap-3">
+                    {!project.seed_key ? (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setProjectPendingDelete(project)}
+                        disabled={deletingProjectId === project.id}
+                        aria-label={`删除项目：${project.name}`}
+                      >
+                        {deletingProjectId === project.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="mr-2 h-4 w-4" />
+                        )}
+                        删除项目
+                      </Button>
+                    ) : null}
+                    <Button asChild>
+                      <Link to={`/projects/${project.id}/workbench`}>
+                        进入工作台
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Link>
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -246,6 +325,53 @@ export function ProjectsPage({
               >
                 {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                 创建并进入工作台
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={projectPendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && deletingProjectId !== projectPendingDelete?.id) {
+            setProjectPendingDelete(null);
+          }
+        }}
+      >
+        <DialogContent className="w-[min(560px,92vw)]">
+          <DialogHeader>
+            <DialogTitle>删除项目</DialogTitle>
+            <DialogDescription>
+              删除后会移除项目资料、聊天记录、状态沉淀和交付物文件。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2">
+            <div className="rounded-[20px] border border-rose-200 bg-rose-50 p-4 text-sm leading-7 text-rose-900">
+              <div className="font-medium">即将删除：{projectPendingDelete?.name ?? '未选择项目'}</div>
+              <div className="mt-2">
+                这个操作不可撤销。如果证据层 collection 清理失败，系统会照常删除本地项目，并额外提示残留风险。
+              </div>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setProjectPendingDelete(null)}
+                disabled={deletingProjectId === projectPendingDelete?.id}
+              >
+                取消
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void handleDeleteProject()}
+                disabled={!projectPendingDelete || deletingProjectId === projectPendingDelete.id}
+              >
+                {deletingProjectId === projectPendingDelete?.id ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="mr-2 h-4 w-4" />
+                )}
+                确认删除项目
               </Button>
             </div>
           </div>

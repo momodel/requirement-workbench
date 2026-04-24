@@ -15,6 +15,13 @@ export type CreateProjectRequest = {
   summary: string;
 };
 
+export type DeleteProjectResult = {
+  id: string;
+  name: string;
+  deleted: boolean;
+  warning: string | null;
+};
+
 export type KnowledgeBaseRecord = {
   id: string;
   project_id: string;

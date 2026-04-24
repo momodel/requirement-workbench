@@ -6,6 +6,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage';
 import { WorkbenchPage } from './features/workbench/WorkbenchPage';
 import {
   createProject,
+  deleteProject,
   deleteProjectSource,
   generateArtifact,
   getGlobalReadiness,
@@ -130,13 +131,16 @@ function HomeRoute() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [readiness, setReadiness] = useState<GlobalReadiness | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'error' | 'info'; title: string; body: string } | null>(null);
   const [creating, setCreating] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     void Promise.all([listProjects(), getGlobalReadiness()])
       .then(([nextProjects, nextReadiness]) => {
         setProjects(nextProjects);
         setReadiness(nextReadiness);
+        setNotice(null);
       })
       .catch((err: Error) => setError(err.message));
   }, []);
@@ -164,12 +168,45 @@ function HomeRoute() {
         await initializeProjectKnowledgeBase(project.id).catch(() => undefined);
       }
       setProjects((current) => [project, ...current]);
+      setNotice(null);
       navigate(`/projects/${project.id}/workbench`);
     } catch (err) {
       const message = err instanceof Error ? err.message : '创建项目失败。';
-      setError(message);
+      setNotice({
+        kind: 'error',
+        title: '创建项目失败',
+        body: message,
+      });
+      throw err;
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function handleDeleteProject(project: ProjectSummary) {
+    setDeletingProjectId(project.id);
+    try {
+      const result = await deleteProject(project.id);
+      setProjects((current) => current.filter((item) => item.id !== project.id));
+      if (result.warning) {
+        setNotice({
+          kind: 'info',
+          title: '证据层清理未完全完成',
+          body: result.warning,
+        });
+      } else {
+        setNotice(null);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '项目删除失败。';
+      setNotice({
+        kind: 'error',
+        title: '删除项目失败',
+        body: message,
+      });
+      throw err;
+    } finally {
+      setDeletingProjectId(null);
     }
   }
 
@@ -177,8 +214,11 @@ function HomeRoute() {
     <ProjectsPage
       projects={projects}
       readiness={readiness}
+      notice={notice}
       creating={creating}
+      deletingProjectId={deletingProjectId}
       onCreateProject={handleCreateProject}
+      onDeleteProject={handleDeleteProject}
     />
   );
 }

@@ -62,6 +62,8 @@ class EvidenceRuntime(Protocol):
 
     def delete_source(self, project_id: str, source_id: str) -> None: ...
 
+    def delete_project(self, project_id: str) -> None: ...
+
     def reindex_source(
         self,
         project_id: str,

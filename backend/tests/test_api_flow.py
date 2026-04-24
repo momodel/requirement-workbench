@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
-from app.models import EvidenceResult, ProviderIssue, ProviderReadiness
+from app.models import EvidenceResult, ProviderIssue, ProviderReadiness, StateItem
 from app.services import agent_runtime as agent_runtime_module
 
 LEGACY_SOURCE_FIELDS = {
@@ -1046,6 +1046,156 @@ def test_delete_source_tolerates_evidence_cleanup_failures(
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         assert sources_response.json() == []
+
+
+def test_delete_project_tolerates_evidence_cleanup_failures_and_cascades_local_data(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    assert not hasattr(app.state.services, "notebooklm")
+    monkeypatch.setattr(
+        app.state.services.evidence_runtime,
+        "delete_project",
+        lambda project_id: (_ for _ in ()).throw(
+            ProviderIssue(
+                provider="QDRANT_LLAMA_INDEX",
+                message="Qdrant collection 清理失败。",
+                status_code=503,
+            )
+        ),
+        raising=False,
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "待删除项目",
+                "scenario_type": "general",
+                "summary": "验证项目删除时本地级联清理仍会完成。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={
+                "upload_kind": "text",
+                "name": "待删除资料",
+                "text_content": "这是一条会跟着项目一起被删除的资料。",
+            },
+        )
+        assert upload_response.status_code == 201
+        source_id = upload_response.json()["id"]
+
+        knowledge_base = app.state.services.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider="QDRANT_LLAMA_INDEX",
+            external_knowledge_base_id=f"kb-{project_id}",
+            display_name="待删除项目 Evidence KB",
+            description="测试项目知识库",
+            status="ready",
+            status_error=None,
+        )
+        app.state.services.catalog.replace_source_chunks(
+            project_id=project_id,
+            source_id=source_id,
+            chunks=[
+                {
+                    "knowledge_base_id": knowledge_base.id,
+                    "chunk_order": 0,
+                    "modality": "text",
+                    "content": "项目删除测试 chunk",
+                    "embedding_status": "indexed",
+                    "index_error": None,
+                    "indexed_at": "2026-04-24T10:00:00+08:00",
+                }
+            ],
+        )
+        app.state.services.catalog.create_message(
+            project_id=project_id,
+            role="assistant",
+            content="这是一条会跟着项目一起被删除的消息。",
+        )
+        app.state.services.project_state.replace_category(
+            project_id=project_id,
+            category="current_understanding",
+            items=[
+                StateItem(
+                    id="state-delete-project",
+                    title="删除项目测试",
+                    body="验证 state_items 会跟随项目一起清理。",
+                )
+            ],
+        )
+        app.state.services.project_state.create_version(
+            project_id=project_id,
+            trigger_kind="project_delete_test",
+            summary="验证版本快照也会随项目一起删除。",
+        )
+
+        artifact_dir = app.state.services.settings.projects_dir / project_id / "artifacts" / "page_solution"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        artifact_path = artifact_dir / "index.html"
+        artifact_path.write_text("<html><body>delete me</body></html>", encoding="utf-8")
+        app.state.services.catalog.save_artifact(
+            project_id=project_id,
+            artifact_type="page_solution",
+            title="待删除页面方案",
+            summary="这份交付物会跟着项目一起删除。",
+            status="generated",
+            content_format="html",
+            storage_path=str(artifact_path),
+            body=None,
+        )
+
+        delete_response = client.delete(f"/api/projects/{project_id}")
+        assert delete_response.status_code == 200
+        deleted_payload = delete_response.json()
+        assert deleted_payload["id"] == project_id
+        assert deleted_payload["name"] == "待删除项目"
+        assert deleted_payload["deleted"] is True
+        assert deleted_payload["warning"] == "Qdrant collection 清理失败。"
+
+        project_response = client.get(f"/api/projects/{project_id}")
+        assert project_response.status_code == 404
+
+    assert not (app.state.services.settings.projects_dir / project_id).exists()
+
+    connection = sqlite3.connect(app.state.services.settings.sqlite_path)
+    try:
+        for table_name in (
+            "projects",
+            "sources",
+            "messages",
+            "state_items",
+            "version_snapshots",
+            "knowledge_bases",
+            "source_chunks",
+            "demo_artifacts",
+        ):
+            row = connection.execute(
+                f"SELECT COUNT(*) FROM {table_name} WHERE project_id = ?"
+                if table_name != "projects"
+                else "SELECT COUNT(*) FROM projects WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+            assert row is not None
+            assert row[0] == 0
+    finally:
+        connection.close()
+
+
+def test_delete_seed_project_is_rejected(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    with TestClient(app) as client:
+        delete_response = client.delete("/api/projects/seed-reconciliation")
+
+    assert delete_response.status_code == 409
+    assert delete_response.json()["detail"] == "默认 seed project 不能删除。"
 
 
 def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:

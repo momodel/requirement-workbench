@@ -353,6 +353,11 @@ class QdrantLlamaIndexEvidenceRuntime:
             chunks=[],
         )
 
+    def delete_project(self, project_id: str) -> None:
+        self.ensure_available()
+        self._require_project(project_id)
+        self.vector_store.delete_project(project_id)
+
     def reindex_source(
         self,
         project_id: str,
