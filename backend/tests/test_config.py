@@ -58,6 +58,7 @@ def test_load_local_env_file_sets_missing_values_only(tmp_path: Path, monkeypatc
     )
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
     monkeypatch.setenv("CLAUDE_MODEL", "already-set")
 
     _load_local_env_file(tmp_path)

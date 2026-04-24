@@ -51,6 +51,29 @@ class StubEvidenceRuntime:
         return EvidenceResult(summary="stub evidence", citations=[])
 
 
+class EvidenceRuntimeWithCitations:
+    def ensure_available(self) -> Path:
+        return Path("/tmp/evidence-runtime")
+
+    def query(
+        self,
+        project_id: str,
+        question: str,
+        *,
+        selected_source_ids: list[str] | None = None,
+    ) -> EvidenceResult:
+        return EvidenceResult(
+            summary="grounded evidence",
+            citations=[
+                ChatCitation(
+                    title="验收资料",
+                    snippet="订单金额需先剔除红包分摊，再映射到财务科目 660201。",
+                    source_id="src-evidence-1",
+                )
+            ],
+        )
+
+
 class StubArtifactGenerationService:
     def __init__(self, generated_artifacts: list[ArtifactRecord] | None = None) -> None:
         self.generated_artifacts = generated_artifacts or []
@@ -79,6 +102,42 @@ class EmptyPatchAgentRuntime:
                 citations=[ChatCitation(title="stub", snippet="stub", source_id=None)],
                 state_updates={
                     "current_understanding": [],
+                    "pending_items": [],
+                    "confirmed_items": [],
+                    "conflict_items": [],
+                    "mvp_items": [],
+                },
+                version_summary=None,
+                request_artifacts=[],
+            ),
+        )
+
+    async def generate_artifact(self, **kwargs):
+        raise AssertionError("this test should not generate artifacts")
+
+
+class EmptyCitationStructuredAgentRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def stream_assistant_text(self, turn: AgentTurnInput):
+        yield "这是带引用的结构化回复。"
+
+    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
+        yield (
+            "result",
+            AgentTurnResult(
+                assistant_message=assistant_message or "这是带引用的结构化回复。",
+                citations=[],
+                state_updates={
+                    "current_understanding": [
+                        SourceUpsert(
+                            title="红包分摊先剔除",
+                            body="涉及红包分摊时，订单金额需先扣减再映射财务科目。",
+                            source_ids=["src-evidence-1"],
+                            status="active",
+                        )
+                    ],
                     "pending_items": [],
                     "confirmed_items": [],
                     "conflict_items": [],
@@ -306,6 +365,47 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     assert agent_runtime.turns[0].evidence_summary == "stub evidence"
 
 
+def test_structured_turn_persists_evidence_citations_when_result_has_none(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        evidence_runtime=EvidenceRuntimeWithCitations(),
+        agent_runtime=EmptyCitationStructuredAgentRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="请总结当前结论", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert any(event_type == "citations" for event_type, _ in events)
+    messages = catalog.list_recent_messages("seed-reconciliation")
+    assistant_message = next(
+        message for message in messages if message.role == "assistant" and message.content == "这是带引用的结构化回复。"
+    )
+    assert assistant_message.source_refs == [
+        {
+            "title": "验收资料",
+            "snippet": "订单金额需先剔除红包分摊，再映射到财务科目 660201。",
+            "source_id": "src-evidence-1",
+        }
+    ]
+
+
 def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
@@ -349,6 +449,51 @@ def test_chat_turn_times_out_evidence_query_but_continues(tmp_path: Path) -> Non
     assert agent_runtime.turns
     assert "检索超时" in agent_runtime.turns[0].evidence_summary
     assert events[-1][0] == "done"
+
+
+def test_chat_only_turn_persists_evidence_citations_without_structured_patch(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        evidence_runtime=EvidenceRuntimeWithCitations(),
+        agent_runtime=StreamOnlyAgentRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="退款口径怎么处理", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert any(event_type == "citations" for event_type, _ in events)
+    assert not any(
+        event_type == "assistant_status" and payload["phase"] == "state_patch"
+        for event_type, payload in events
+    )
+    messages = catalog.list_recent_messages("seed-reconciliation")
+    assistant_message = next(
+        message for message in messages if message.role == "assistant" and message.content == "这是普通追问回复。"
+    )
+    assert assistant_message.source_refs == [
+        {
+            "title": "验收资料",
+            "snippet": "订单金额需先剔除红包分摊，再映射到财务科目 660201。",
+            "source_id": "src-evidence-1",
+        }
+    ]
 
 
 def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> None:

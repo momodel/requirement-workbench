@@ -339,7 +339,7 @@ def _normalize_generated_artifact_output_payload(raw) -> dict:
 def _coerce_html_artifact_payload(raw: str) -> dict:
     text = raw.strip()
     marker_match = re.search(
-        r"TITLE:\s*(?P<title>[^\n]+)\nSUMMARY:\s*(?P<summary>[^\n]+)\nHTML:\s*\n(?P<html>[\s\S]+)",
+        r"TITLE:\s*(?P<title>[^\n]+?)\s+SUMMARY:\s*(?P<summary>[^\n]+?)\s+HTML:\s*(?P<html>[\s\S]+)",
         text,
         re.I,
     )
@@ -431,6 +431,17 @@ class ClaudeAgentRuntime:
 4. 页面方案强调信息结构和页面分工，交互稿强调步骤、动作和页面衔接。
 5. 不要输出内部状态桶名，不要把方法论术语直接写进交付物。
         """.strip()
+
+    @staticmethod
+    def _explicit_state_request_notes(user_message: str) -> str:
+        notes: list[str] = []
+        if any(keyword in user_message for keyword in ("写入", "沉淀", "写进")):
+            notes.append("8. 用户本轮明确要求写入沉淀时，至少一个状态桶必须产出新增条目，不要把所有状态桶都返回空数组。")
+        if "当前理解" in user_message:
+            notes.append("9. 用户明确要求写入当前理解时，current_understanding 至少输出 1 条。")
+        if "待确认" in user_message or "确认项" in user_message:
+            notes.append("10. 用户明确要求列待确认项时，pending_items 至少输出 1 条；如果证据不足，就把真正待确认的问题写进去。")
+        return "\n".join(notes)
 
     def _artifact_state_summary(self, state: ProjectState) -> str:
         sections = [
@@ -591,6 +602,7 @@ class ClaudeAgentRuntime:
         )
         source_json = json.dumps(turn.source_summaries, ensure_ascii=False, indent=2)
         history_text = self._format_recent_messages(turn)
+        explicit_state_request_notes = self._explicit_state_request_notes(turn.user_message)
         return f"""
 你在客户需求转译台的一期正式运行时里工作。
 
@@ -650,6 +662,7 @@ class ClaudeAgentRuntime:
         )
         source_json = json.dumps(turn.source_summaries, ensure_ascii=False, indent=2)
         history_text = self._format_recent_messages(turn)
+        explicit_state_request_notes = self._explicit_state_request_notes(turn.user_message)
         return f"""
 你在客户需求转译台的一期正式运行时里工作。
 
@@ -701,6 +714,7 @@ class ClaudeAgentRuntime:
 5. request_artifacts 仅在用户本轮明确要求交付物时再填。
 6. citations 只整理当前证据检索已提供的内容，不要编造。
 7. 不要向用户炫耀方法论名词，要把分析结果翻译成自然业务语言。
+{explicit_state_request_notes}
         """.strip()
 
     @staticmethod

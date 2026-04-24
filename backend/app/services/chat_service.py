@@ -231,7 +231,7 @@ class ChatService:
                     project_id=project_id,
                     role="assistant",
                     content=streamed_assistant_message,
-                    source_refs=[],
+                    source_refs=[citation.model_dump() for citation in evidence_citations],
                     stream_group_id=stream_group_id,
                 )
                 assistant_saved = True
@@ -269,11 +269,12 @@ class ChatService:
                 if not streamed_assistant_message and final_assistant_message:
                     yield ("message_chunk", {"text": final_assistant_message})
                 if not assistant_saved:
+                    persisted_citations = result.citations or evidence_citations
                     self.catalog.create_message(
                         project_id=project_id,
                         role="assistant",
                         content=final_assistant_message,
-                        source_refs=[citation.model_dump() for citation in result.citations],
+                        source_refs=[citation.model_dump() for citation in persisted_citations],
                         stream_group_id=stream_group_id,
                     )
                     assistant_saved = True
@@ -350,7 +351,7 @@ class ChatService:
                     project_id=project_id,
                     role="assistant",
                     content=streamed_assistant_message,
-                    source_refs=[],
+                    source_refs=[citation.model_dump() for citation in evidence_citations],
                     stream_group_id=stream_group_id,
                 )
             if not streamed_assistant_message:
