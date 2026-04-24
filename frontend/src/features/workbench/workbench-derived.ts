@@ -114,6 +114,18 @@ function buildStateOverviewItem(
   };
 }
 
+
+function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
+  const latestByType = new Map<string, ArtifactRecord>();
+  for (const artifact of artifacts) {
+    const existing = latestByType.get(artifact.artifact_type);
+    if (!existing || toTimestamp(artifact.updated_at) > toTimestamp(existing.updated_at)) {
+      latestByType.set(artifact.artifact_type, artifact);
+    }
+  }
+  return Array.from(latestByType.values());
+}
+
 function buildArtifactOverviewItem(
   artifact: ArtifactRecord,
   recentArtifactIds: string[]
@@ -234,7 +246,7 @@ export function deriveStateOverviewSections(
   artifacts: ArtifactRecord[],
   recentInsightIds: string[] = []
 ): StateOverviewSection[] {
-  const artifactItems = artifacts.map((artifact) =>
+  const artifactItems = getLatestArtifactsByType(artifacts).map((artifact) =>
     buildArtifactOverviewItem(artifact, recentInsightIds)
   );
 

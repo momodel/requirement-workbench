@@ -2,10 +2,16 @@ fastapi==0.135.3
 uvicorn[standard]==0.34.0
 pydantic==2.11.3
 claude-agent-sdk==0.1.59
-notebooklm-py==0.3.4
 python-multipart==0.0.20
 pypdf==6.1.1
 python-docx==1.2.0
 openpyxl==3.1.5
+qdrant-client==1.14.2
+llama-index-core==0.12.37
+llama-index-vector-stores-qdrant==0.6.1
+llama-index-embeddings-fastembed==0.3.5
+fastembed==0.8.0
+docling==2.34.0
+tzdata==2025.2
 pytest==8.4.2
 httpx==0.28.1

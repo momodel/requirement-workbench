@@ -1,6 +1,9 @@
 import {
   AlertCircle,
   ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  List,
   Bot,
   CheckCircle2,
   FolderKanban,
@@ -43,7 +46,6 @@ import type {
   ArtifactRecord,
   MessageActionEvent,
   MessageRecord,
-  NotebookLibraryItem,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
@@ -67,20 +69,18 @@ type WorkbenchPageProps = {
   state: ProjectState;
   artifacts: ArtifactRecord[];
   recentInsightIds: string[];
-  notebookLibrary: NotebookLibraryItem[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
   sending: boolean;
   uploading: boolean;
   deletingSourceId: string | null;
   retryingSourceId: string | null;
-  bindingNotebook: boolean;
+  initializingKnowledgeBase: boolean;
   onSendMessage: (message: string) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
-  onRetrySourceSync: (sourceId: string) => Promise<void>;
-  onBindProjectNotebook: (payload: { sourceUrl?: string; notebookId?: string }) => Promise<void>;
-  onCreateAndBindProjectNotebook: () => Promise<void>;
+  onReindexSource: (sourceId: string) => Promise<void>;
+  onInitializeKnowledgeBase: () => Promise<boolean>;
 };
 
 function relativeTime(value: string) {
@@ -118,14 +118,31 @@ function parseStatusLabel(status: string) {
   return status;
 }
 
-function syncStatusLabel(status: string) {
-  if (status === 'synced') return '已同步';
-  if (status === 'pending_sync') return '待同步';
-  if (status === 'sync_failed') return '同步失败';
+function indexStatusLabel(status: string) {
+  if (status === 'indexed') return '已索引';
+  if (status === 'indexing') return '索引中';
+  if (status === 'pending') return '待索引';
+  if (status === 'index_failed') return '索引失败';
+  if (status === 'knowledge_base_missing') return '待初始化知识库';
+  if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
-  if (status === 'binding_required') return '未绑定';
-  if (status === 'not_configured') return '未配置';
   return status;
+}
+
+function sourceNormalizeStatus(source: SourceRecord): string {
+  return source.normalize_status ?? (source as unknown as { parse_status?: string }).parse_status ?? 'pending';
+}
+
+function sourceNormalizeSummary(source: SourceRecord): string | null {
+  return source.normalize_summary ?? (source as unknown as { parse_summary?: string | null }).parse_summary ?? null;
+}
+
+function sourceIndexStatus(source: SourceRecord): string {
+  return source.index_status ?? (source as unknown as { sync_status?: string }).sync_status ?? 'pending';
+}
+
+function sourceIndexError(source: SourceRecord): string | null {
+  return source.index_error ?? (source as unknown as { sync_error?: string | null }).sync_error ?? null;
 }
 
 function sanitizeStateBody(title: string, body: string) {
@@ -151,16 +168,6 @@ function sanitizeStateBody(title: string, body: string) {
   });
 
   return deduped.join('；') || body;
-}
-
-function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
-  const latest = new Map<string, ArtifactRecord>();
-  for (const artifact of artifacts) {
-    if (!latest.has(artifact.artifact_type)) {
-      latest.set(artifact.artifact_type, artifact);
-    }
-  }
-  return Array.from(latest.values());
 }
 
 function stageTone(
@@ -215,6 +222,46 @@ function getItemBody(item: StateOverviewItem) {
   return sanitizeStateBody(item.title, item.body);
 }
 
+
+function toArtifactRecord(item: StateOverviewItem): ArtifactRecord {
+  return {
+    id: item.id,
+    project_id: '',
+    artifact_type: item.artifactType ?? 'artifact',
+    title: item.title,
+    summary: item.body,
+    status: item.status,
+    content_format: item.contentFormat ?? 'document',
+    storage_path: null,
+    preview_url: item.previewUrl ?? null,
+    body: item.documentBody ?? null,
+    updated_at: item.updatedAt ?? '',
+  };
+}
+
+function itemTimestamp(item: StateOverviewItem) {
+  if (!item.updatedAt) return 0;
+  const timestamp = new Date(item.updatedAt).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getSectionLastUpdated(section: StateOverviewSection) {
+  const latestTimestamp = Math.max(0, ...section.items.map(itemTimestamp));
+  if (latestTimestamp === 0) return '暂无更新';
+  return relativeTime(new Date(latestTimestamp).toISOString());
+}
+
+function getRecentOverviewItems(sections: StateOverviewSection[]) {
+  return sections
+    .flatMap((section) =>
+      section.items
+        .filter((item) => item.isRecent)
+        .map((item) => ({ section, item }))
+    )
+    .sort((left, right) => itemTimestamp(right.item) - itemTimestamp(left.item))
+    .slice(0, 5);
+}
+
 function getArtifactMeta(item: StateOverviewItem) {
   if (item.kind !== 'artifact') {
     return null;
@@ -257,14 +304,14 @@ function SourcePreview({
       <div className="mt-4 space-y-3 text-sm text-muted">
         <div className="flex flex-wrap gap-2">
           <Badge>{source.source_kind}</Badge>
-          <Badge variant={statusVariant(source.parse_status)}>{`解析：${source.parse_status}`}</Badge>
-          <Badge variant={statusVariant(source.sync_status)}>{`同步：${source.sync_status}`}</Badge>
+          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>{`解析：${sourceNormalizeStatus(source)}`}</Badge>
+          <Badge variant={statusVariant(sourceIndexStatus(source))}>{`索引：${sourceIndexStatus(source)}`}</Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{source.parse_summary ?? '当前还没有解析摘要。'}</p>
-        {source.sync_error ? (
+        <p>{sourceNormalizeSummary(source) ?? '当前还没有解析摘要。'}</p>
+        {sourceIndexError(source) ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            {source.sync_error}
+            {sourceIndexError(source)}
           </div>
         ) : null}
       </div>
@@ -308,85 +355,225 @@ function WorkbenchStageRail({
   );
 }
 
-function StateSectionCard({
-  section,
-  onOpen,
-  onOpenItem,
+function ArtifactInlineActions({
+  item,
+  onOpenArtifact,
+  onOpenDocument,
 }: {
-  section: StateOverviewSection;
-  onOpen: () => void;
-  onOpenItem: (item: StateOverviewItem) => void;
+  item: StateOverviewItem;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
 }) {
-  const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+  if (item.kind !== 'artifact') return null;
+
+  const artifact = toArtifactRecord(item);
+  const isHtml = item.contentFormat === 'html';
 
   return (
-    <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
-      <button
-        type="button"
-        className="w-full text-left transition hover:text-accent"
-        aria-label={section.title}
-        onClick={onOpen}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-ink">{section.title}</h3>
-              {section.recentCount > 0 ? <Badge variant="accent">本轮新增</Badge> : null}
-            </div>
-            <p className="mt-1 text-xs leading-5 text-muted">{section.description}</p>
-          </div>
-          <Badge>{section.totalCount}</Badge>
-        </div>
-      </button>
-      <div className="mt-2.5 grid gap-2">
-        {previewItems.length === 0 ? (
-          <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
-            {getSectionEmptyText(section.id)}
-          </div>
-        ) : (
-          previewItems.map((item) => {
-            const artifactMeta = getArtifactMeta(item);
-
-            return (
-              <button
-                key={item.id}
-                type="button"
-                className={cn(
-                  'rounded-[16px] border bg-white p-3 text-left transition hover:border-accent/25 hover:bg-slate-50',
-                  item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
-                )}
-                onClick={() => onOpenItem(item)}
-              >
-              <div className="flex items-start justify-between gap-2">
-                {item.title === section.title ? (
-                  <div className="text-sm font-medium text-ink">{item.kind === 'artifact' ? item.title : '最新条目'}</div>
-                ) : (
-                  <div className="text-sm font-medium text-ink">{item.title}</div>
-                )}
-                {artifactMeta ? (
-                  <Badge variant="default">{artifactMeta.typeLabel}</Badge>
-                ) : null}
-              </div>
-              <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted">
-                {artifactMeta ? (
-                  <>
-                    <span>{artifactMeta.formatLabel}</span>
-                    <span>{artifactMeta.statusLabel}</span>
-                  </>
-                ) : null}
-                <span>{`形成于 ${WORKBENCH_STAGE_LABELS[item.formedStage]}`}</span>
-                {item.updatedAt ? <span>{relativeTime(item.updatedAt)}</span> : null}
-              </div>
-              </button>
-            );
-          })
-        )}
-      </div>
-    </div>
+    <Button
+      type="button"
+      size="sm"
+      variant="secondary"
+      className="h-7 px-2.5 text-xs"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (isHtml) {
+          onOpenArtifact(artifact);
+          return;
+        }
+        onOpenDocument(artifact);
+      }}
+    >
+      {isHtml ? '预览' : '正文'}
+    </Button>
   );
 }
 
+function StateSectionCard({
+  section,
+  defaultOpen,
+  onOpen,
+  onOpenItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  section: StateOverviewSection;
+  defaultOpen: boolean;
+  onOpen: () => void;
+  onOpenItem: (item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+
+  useEffect(() => {
+    setIsExpanded(defaultOpen);
+  }, [defaultOpen, section.id]);
+
+  return (
+    <div className="rounded-[14px] border border-line bg-slate-50/80 px-2.5 py-2">
+      <div className="flex min-h-8 items-center gap-2">
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white hover:text-accent"
+          aria-label={`${isExpanded ? '收起' : '展开'} ${section.title}`}
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((open) => !open)}
+        >
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+
+        <button
+          type="button"
+          className="grid min-w-0 flex-1 grid-cols-[minmax(86px,1fr)_auto] items-center gap-2 text-left transition hover:text-accent"
+          aria-label={section.title}
+          onClick={onOpen}
+          title={section.description}
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
+              {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
+            </div>
+            <div className="truncate text-[11px] text-muted" title={section.description}>{section.description}</div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
+            <Badge>{section.totalCount}</Badge>
+            {section.recentCount > 0 ? <Badge variant="accent">+{section.recentCount}</Badge> : null}
+            <span className="hidden max-w-[96px] truncate xl:inline" title={getSectionLastUpdated(section)}>
+              {getSectionLastUpdated(section)}
+            </span>
+          </div>
+        </button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 shrink-0 rounded-full p-0"
+          aria-label={`查看全部 ${section.title}`}
+          onClick={onOpen}
+        >
+          <List className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      {isExpanded ? (
+        <div className="mt-2 grid gap-2 border-t border-line/70 pt-2">
+          {previewItems.length === 0 ? (
+            <div className="rounded-[12px] border border-dashed border-line bg-white/80 p-2.5 text-sm text-muted">
+              {getSectionEmptyText(section.id)}
+            </div>
+          ) : (
+            previewItems.map((item) => {
+              const artifactMeta = getArtifactMeta(item);
+
+              return (
+                <div
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    'rounded-[12px] border bg-white p-2.5 text-left transition hover:border-accent/25 hover:bg-slate-50',
+                    item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
+                  )}
+                  onClick={() => onOpenItem(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenItem(item);
+                    }
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    {item.title === section.title ? (
+                      <div className="text-sm font-medium text-ink">{item.kind === 'artifact' ? item.title : '最新条目'}</div>
+                    ) : (
+                      <div className="text-sm font-medium text-ink">{item.title}</div>
+                    )}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {artifactMeta ? <Badge variant="default">{artifactMeta.typeLabel}</Badge> : null}
+                      <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+                    </div>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+                    {artifactMeta ? (
+                      <>
+                        <span>{artifactMeta.formatLabel}</span>
+                        <span>{artifactMeta.statusLabel}</span>
+                      </>
+                    ) : null}
+                    <span>{`形成于 ${WORKBENCH_STAGE_LABELS[item.formedStage]}`}</span>
+                    {item.updatedAt ? <span>{relativeTime(item.updatedAt)}</span> : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+function RecentUpdatesCard({
+  items,
+  onOpenItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  items: Array<{ section: StateOverviewSection; item: StateOverviewItem }>;
+  onOpenItem: (section: StateOverviewSection, item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  return (
+    <div className="rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">本轮更新</div>
+          <div className="truncate text-[11px] text-muted">最近新增或改动，先看这里。</div>
+        </div>
+        <Badge variant="accent">{items.length}</Badge>
+      </div>
+      {items.length === 0 ? (
+        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
+          本轮还没有新增沉淀。
+        </div>
+      ) : (
+        <div className="mt-2 grid gap-1.5 border-t border-accent/10 pt-2">
+          {items.map(({ section, item }) => (
+            <div
+              key={`${section.id}-${item.id}`}
+              role="button"
+              tabIndex={0}
+              className="rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
+              onClick={() => onOpenItem(section, item)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onOpenItem(section, item);
+                }
+              }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <Badge variant="default">{section.title}</Badge>
+                    <span className="truncate text-sm font-medium text-ink">{item.title}</span>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                </div>
+                <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function StateSectionDrawer({
   section,
   activeItem,
@@ -646,29 +833,24 @@ export function WorkbenchPage({
   state,
   artifacts,
   recentInsightIds,
-  notebookLibrary,
-  notices,
+    notices,
   sending,
   uploading,
   deletingSourceId,
   retryingSourceId,
-  bindingNotebook,
+  initializingKnowledgeBase,
   onSendMessage,
   onUploadTextSource,
   onUploadFileSource,
   onDeleteSource,
-  onRetrySourceSync,
-  onBindProjectNotebook,
-  onCreateAndBindProjectNotebook,
+  onReindexSource,
+  onInitializeKnowledgeBase,
 }: WorkbenchPageProps) {
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isBindingDialogOpen, setIsBindingDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
-  const [notebookUrl, setNotebookUrl] = useState('');
-  const [selectedNotebookId, setSelectedNotebookId] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
@@ -681,8 +863,6 @@ export function WorkbenchPage({
   const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
   const lastMessageStatus = messages[messages.length - 1]?.status_label ?? '';
 
-  const latestVersions = state.versions.slice(0, 3);
-  const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
   const stageState = useMemo(
     () => deriveStageState(state, recentInsightIds),
     [recentInsightIds, state]
@@ -699,15 +879,15 @@ export function WorkbenchPage({
     () => activeSection?.items.find((item) => item.id === activeSectionItemId) ?? null,
     [activeSection, activeSectionItemId]
   );
-  const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
+  const recentOverviewItems = useMemo(() => getRecentOverviewItems(overviewSections), [overviewSections]);
   const referencedSourceCount = sources.filter(
-    (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
+    (source) => sourceIndexStatus(source).includes('indexed') || sourceIndexStatus(source).includes('ready')
   ).length;
   const pendingSourceCount = sources.filter(
     (source) =>
-      source.parse_status.includes('pending') ||
-      source.sync_status.includes('pending') ||
-      source.sync_status.includes('queued')
+      sourceNormalizeStatus(source).includes('pending') ||
+      sourceIndexStatus(source).includes('pending') ||
+      sourceIndexStatus(source).includes('queued')
   ).length;
   const totalInsightCount =
     state.current_understanding.length +
@@ -756,27 +936,6 @@ export function WorkbenchPage({
     setIsImportDialogOpen(false);
   }
 
-  async function handleBindNotebook() {
-    const url = notebookUrl.trim();
-    if (!url) return;
-    await onBindProjectNotebook({ sourceUrl: url });
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleBindExistingNotebook() {
-    if (!selectedNotebookId) return;
-    await onBindProjectNotebook({ notebookId: selectedNotebookId });
-    setSelectedNotebookId('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleCreateAndBindNotebook() {
-    await onCreateAndBindProjectNotebook();
-    setSelectedNotebookId('');
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
@@ -805,7 +964,7 @@ export function WorkbenchPage({
               {readiness ? (
                 <>
                   <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude: ${readiness.claude.status}`}</Badge>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{`NotebookLM: ${readiness.notebooklm.status}`}</Badge>
+                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{`项目知识库: ${readiness.evidence?.status ?? 'unknown'}`}</Badge>
                 </>
               ) : null}
               <Button variant="ghost" size="sm" asChild>
@@ -832,7 +991,7 @@ export function WorkbenchPage({
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">项目知识库</CardTitle>
-                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已同步 · ${pendingSourceCount} 待处理`}</div>
+                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已索引 · ${pendingSourceCount} 待处理`}</div>
               </div>
             </CardHeader>
             <CardContent
@@ -866,7 +1025,7 @@ export function WorkbenchPage({
                 <div className="grid gap-2.5">
                   {sources.map((source) => {
                     const canRetrySync =
-                      source.sync_status === 'sync_failed' || source.sync_status === 'error';
+                      sourceIndexStatus(source) === 'index_failed' || sourceIndexStatus(source) === 'error';
 
                     return (
                       <div
@@ -897,11 +1056,11 @@ export function WorkbenchPage({
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                aria-label={`重试同步 ${source.name}`}
+                                aria-label={`重建索引 ${source.name}`}
                                 disabled={retryingSourceId === source.id}
                                 onClick={async (event) => {
                                   event.stopPropagation();
-                                  await onRetrySourceSync(source.id);
+                                  await onReindexSource(source.id);
                                 }}
                               >
                                 {retryingSourceId === source.id ? (
@@ -932,11 +1091,11 @@ export function WorkbenchPage({
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge>{source.source_kind}</Badge>
-                          <Badge variant={statusVariant(source.parse_status)}>
-                            {parseStatusLabel(source.parse_status)}
+                          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>
+                            {parseStatusLabel(sourceNormalizeStatus(source))}
                           </Badge>
-                          <Badge variant={statusVariant(source.sync_status)}>
-                            {syncStatusLabel(source.sync_status)}
+                          <Badge variant={statusVariant(sourceIndexStatus(source))}>
+                            {indexStatusLabel(sourceIndexStatus(source))}
                           </Badge>
                         </div>
                       </div>
@@ -1087,55 +1246,31 @@ export function WorkbenchPage({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3 px-3 pb-3 pt-0">
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-ink">交付物</h3>
-                  <Badge>{latestArtifacts.length}</Badge>
-                </div>
-                <div className="mt-2.5 grid gap-2.5">
-                  <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs leading-6 text-muted">
-                    文档稿、页面方案和交互稿都改为通过聊天逐步产出。直接在中间对话里提出“整理成文档稿”“来一版页面方案”“生成交互稿”即可，这里只展示已经形成的结果。
-                  </div>
-                  {artifactHistoryCount > 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs text-muted">
-                      {`当前已折叠 ${artifactHistoryCount} 个历史版本，侧栏默认只显示每类最新交付物。`}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-1.5 px-3 pb-3 pt-0">
+              <RecentUpdatesCard
+                items={recentOverviewItems}
+                onOpenItem={(section, item) => {
+                  setActiveSectionId(section.id);
+                  setActiveSectionItemId(item.id);
+                }}
+                onOpenArtifact={setActiveArtifact}
+                onOpenDocument={setActiveDocument}
+              />
 
               {overviewSections.map((section) => (
                 <StateSectionCard
                   key={section.id}
-                  section={
-                    section.id === 'artifacts'
-                      ? { ...section, items: section.items.slice(0, 3) }
-                      : section.id === 'versions'
-                        ? { ...section, items: section.items.slice(0, 2) }
-                        : section
-                  }
+                  section={section}
+                  defaultOpen={section.recentCount > 0}
                   onOpen={() => setActiveSectionId(section.id)}
                   onOpenItem={(item) => {
                     setActiveSectionId(section.id);
                     setActiveSectionItemId(item.id);
                   }}
+                  onOpenArtifact={setActiveArtifact}
+                  onOpenDocument={setActiveDocument}
                 />
               ))}
-
-              {latestVersions.length > 0 ? (
-                <div className="rounded-[20px] border border-line bg-white p-3.5">
-                  <div className="text-sm font-semibold text-ink">最近更新</div>
-                  <div className="mt-2.5 grid gap-2.5">
-                    {latestVersions.map((version) => (
-                      <div key={version.id} className="rounded-[16px] border border-line bg-slate-50 p-3">
-                        <div className="text-sm font-medium text-ink">{version.title}</div>
-                        <p className="mt-1.5 text-sm leading-6 text-muted">{version.body}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
             </CardContent>
           </Card>
         </section>
@@ -1206,7 +1341,7 @@ export function WorkbenchPage({
         <DialogContent className="w-[min(640px,92vw)]">
           <DialogHeader>
             <DialogTitle>运行状态</DialogTitle>
-            <DialogDescription>这里放运行链路和项目绑定状态，不占用知识库主区域。</DialogDescription>
+            <DialogDescription>这里放运行链路和项目知识库状态，不占用知识库主区域。</DialogDescription>
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
@@ -1226,27 +1361,27 @@ export function WorkbenchPage({
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-medium text-ink">NotebookLM</div>
-                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.notebooklm.summary}</p>
-                    {readiness.notebooklm.detail ? (
+                    <div className="font-medium text-ink">项目知识库</div>
+                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.evidence?.summary ?? '项目知识库状态未返回。'}</p>
+                    {readiness.evidence?.detail ? (
                       <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
-                        {readiness.notebooklm.detail}
+                        {readiness.evidence?.detail}
                       </p>
                     ) : null}
                   </div>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
+                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{readiness.evidence?.status ?? 'unknown'}</Badge>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button
                     variant="secondary"
                     onClick={() => {
                       setIsRuntimeDialogOpen(false);
-                      setIsBindingDialogOpen(true);
+                      void onInitializeKnowledgeBase();
                     }}
-                    disabled={bindingNotebook}
+                    disabled={initializingKnowledgeBase}
                   >
-                    {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    绑定项目 Notebook
+                    {initializingKnowledgeBase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    初始化项目知识库
                   </Button>
                 </div>
               </div>
@@ -1292,96 +1427,7 @@ export function WorkbenchPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isBindingDialogOpen} onOpenChange={setIsBindingDialogOpen}>
-        <DialogContent className="w-[min(640px,92vw)]">
-          <DialogHeader>
-            <DialogTitle>绑定项目 Notebook</DialogTitle>
-            <DialogDescription>
-              为当前项目绑定专属的 NotebookLM notebook，后面所有 grounding 都走这个项目自己的 notebook。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">已登记的 Notebook</div>
-              <div className="mt-3 grid gap-3">
-                {notebookLibrary.length === 0 ? (
-                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                    当前项目内还没有可用的 Notebook 列表。你可以直接粘贴 NotebookLM 链接完成绑定，或者直接创建一个项目专属 Notebook。
-                  </div>
-                ) : (
-                  notebookLibrary.map((notebook) => (
-                    <button
-                      key={notebook.id}
-                      type="button"
-                      className={cn(
-                        'rounded-[18px] border p-4 text-left transition',
-                        selectedNotebookId === notebook.id
-                          ? 'border-accent bg-accentSoft'
-                          : 'border-line bg-slate-50 hover:border-accent/30 hover:bg-white'
-                      )}
-                      onClick={() => setSelectedNotebookId(notebook.id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-ink">{notebook.name}</div>
-                          <p className="mt-2 text-sm leading-6 text-muted">{notebook.description}</p>
-                        </div>
-                        <Badge variant={selectedNotebookId === notebook.id ? 'accent' : 'default'}>
-                          {selectedNotebookId === notebook.id ? '已选择' : `使用 ${notebook.use_count} 次`}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {notebook.topics.map((topic) => (
-                          <Badge key={`${notebook.id}-${topic}`}>
-                            {topic}
-                          </Badge>
-                        ))}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button onClick={handleBindExistingNotebook} disabled={bindingNotebook || !selectedNotebookId}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  绑定已登记 Notebook
-                </Button>
-              </div>
-            </div>
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">为当前项目创建专属 Notebook</div>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                直接用当前项目名创建新的 NotebookLM notebook，并自动完成项目绑定。后续新需求项目也走这条正式能力。
-              </p>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={handleCreateAndBindNotebook} disabled={bindingNotebook}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  创建并绑定 Notebook
-                </Button>
-              </div>
-            </div>
-            <Input
-              id="notebook-url"
-              name="notebook-url"
-              value={notebookUrl}
-              onChange={(event) => setNotebookUrl(event.target.value)}
-              placeholder="https://notebooklm.google.com/notebook/..."
-            />
-            <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
-              这里绑定的是项目级 notebook，不再依赖全局默认 notebook。绑定完成后，后续上传到当前项目的资料会按后端标准化结果自动同步到这个 notebook。
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleBindNotebook} disabled={bindingNotebook || !notebookUrl.trim()}>
-                {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                绑定项目 Notebook
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+
     </main>
   );
 }

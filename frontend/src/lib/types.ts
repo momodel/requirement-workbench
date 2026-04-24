@@ -15,28 +15,17 @@ export type CreateProjectRequest = {
   summary: string;
 };
 
-export type NotebookBindingRecord = {
-  project_id: string;
-  notebook_id: string;
-  provider: string;
-  sync_status: string;
-  last_synced_at: string | null;
-  source_url: string | null;
-};
-
-export type CreateNotebookBindingResponse = {
-  notebook: NotebookLibraryItem;
-  binding: NotebookBindingRecord;
-};
-
-export type NotebookLibraryItem = {
+export type KnowledgeBaseRecord = {
   id: string;
-  name: string;
-  url: string;
-  description: string;
-  topics: string[];
-  use_count: number;
-  last_used: string | null;
+  project_id: string;
+  provider: string;
+  external_knowledge_base_id: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  status_error: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProviderReadiness = {
@@ -49,14 +38,14 @@ export type ProviderReadiness = {
 
 export type GlobalReadiness = {
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
+  evidence: ProviderReadiness;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
-  notebook_binding: NotebookBindingRecord | null;
+  evidence: ProviderReadiness;
+  knowledge_base: KnowledgeBaseRecord | null;
 };
 
 export type SourceRecord = {
@@ -67,11 +56,11 @@ export type SourceRecord = {
   upload_kind: string;
   storage_path: string | null;
   normalized_path: string | null;
-  notebook_import_mode: string | null;
-  parse_status: string;
-  parse_summary: string | null;
-  sync_status: string;
-  sync_error: string | null;
+  index_input_mode: string | null;
+  normalize_status: string;
+  normalize_summary: string | null;
+  index_status: string;
+  index_error: string | null;
   created_at: string;
 };
 
@@ -139,20 +128,6 @@ export type ChatStreamRequest = {
   selected_source_ids: string[];
   request_artifact_types: Array<'document' | 'page_solution' | 'interaction_flow'>;
   client_context?: Record<string, unknown>;
-};
-
-export type BindNotebookRequest = {
-  source_url?: string;
-  notebook_id?: string;
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
-};
-
-export type CreateNotebookRequest = {
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
 };
 
 export type ChatCitation = {

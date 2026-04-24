@@ -82,7 +82,6 @@ def test_save_generated_output_normalizes_page_solution_title(tmp_path: Path) ->
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
         projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
     )
     init_db(settings)
     service = ArtifactGenerationService(settings)
@@ -117,7 +116,6 @@ def test_save_generated_output_prefixes_interaction_flow_title_when_missing(tmp_
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
         projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
     )
     init_db(settings)
     service = ArtifactGenerationService(settings)
@@ -151,7 +149,6 @@ def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(t
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
         projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
         claude_artifact_timeout_seconds=5.0,
     )
     init_db(settings)

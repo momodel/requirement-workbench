@@ -1,27 +1,36 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, AsyncIterator, Protocol
+from typing import AsyncIterator, Protocol
 
 from ..models import (
     AgentTurnInput,
-    ArtifactRecord,
+    AgentTurnResult,
     ArtifactType,
     EvidenceResult,
     GeneratedArtifactOutput,
+    KnowledgeBaseRecord,
+    ProjectReadiness,
     ProjectState,
     ProjectSummary,
-    StateItem,
+    ProviderReadiness,
+    SourceChunkRecord,
 )
 
 
 class AgentRuntime(Protocol):
     def ensure_available(self) -> None: ...
 
-    def run_streaming_turn(
+    def stream_assistant_text(
         self,
         turn: AgentTurnInput,
-    ) -> AsyncIterator[tuple[str, Any]]: ...
+    ) -> AsyncIterator[str]: ...
+
+    def run_turn(
+        self,
+        turn: AgentTurnInput,
+        assistant_message: str | None = None,
+    ) -> AsyncIterator[tuple[str, str | AgentTurnResult]]: ...
 
     async def generate_artifact(
         self,
@@ -29,25 +38,42 @@ class AgentRuntime(Protocol):
         project: ProjectSummary,
         state: ProjectState,
         artifact_type: ArtifactType,
-        additional_instruction: str | None = None,
     ) -> GeneratedArtifactOutput: ...
-
-    async def commit_artifacts(
-        self,
-        *,
-        project: ProjectSummary,
-        state: ProjectState,
-        artifact_types: list[ArtifactType],
-        assistant_message: str | None = None,
-    ) -> tuple[list[ArtifactRecord], list[StateItem]]: ...
 
 
 class EvidenceRuntime(Protocol):
     def ensure_available(self) -> Path: ...
 
+    def get_global_readiness(self) -> ProviderReadiness: ...
+
+    def get_project_readiness(
+        self,
+        project_id: str,
+        claude: ProviderReadiness | None = None,
+    ) -> ProviderReadiness | ProjectReadiness: ...
+
+    def ensure_project_knowledge_base(self, project_id: str) -> KnowledgeBaseRecord: ...
+
+    def index_source(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> list[SourceChunkRecord]: ...
+
+    def delete_source(self, project_id: str, source_id: str) -> None: ...
+
+    def delete_project(self, project_id: str) -> None: ...
+
+    def reindex_source(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> list[SourceChunkRecord]: ...
+
     def query(
         self,
         project_id: str,
         question: str,
+        *,
         selected_source_ids: list[str] | None = None,
     ) -> EvidenceResult: ...

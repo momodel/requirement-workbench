@@ -55,14 +55,14 @@ def test_normalize_structured_output_payload_accepts_model_variant_shapes() -> N
             },
             {
                 "content": "业务字段与财务科目映射口径存在不一致",
-                "source": "NotebookLM grounding",
+                "source": "项目知识库 grounding",
             },
         ],
         "pending_items": [
             {
                 "id": "P001",
                 "question": "退款和冲销是否都纳入一期？",
-                "source": "NotebookLM grounding",
+                "source": "项目知识库 grounding",
             }
         ],
         "confirmed_items": None,
@@ -86,9 +86,9 @@ def test_normalize_structured_output_payload_accepts_model_variant_shapes() -> N
     assert output.current_understanding[2].title == "订单与财务入账记录需要逐笔对齐"
     assert "项目摘要" in output.current_understanding[2].body
     assert output.current_understanding[3].title == "业务字段与财务科目映射口径存在不一致"
-    assert "NotebookLM grounding" in output.current_understanding[3].body
+    assert "项目知识库 grounding" in output.current_understanding[3].body
     assert output.pending_items[0].title == "退款和冲销是否都纳入一期？"
-    assert "NotebookLM grounding" in output.pending_items[0].body
+    assert "项目知识库 grounding" in output.pending_items[0].body
     assert output.conflict_items[0].title == "退款负单与冲销凭证对象模型不一致"
     assert output.request_artifacts == []
 
@@ -198,7 +198,6 @@ def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch)
             sqlite_dir=Path("/tmp/project/data/sqlite"),
             sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
             projects_dir=Path("/tmp/project/data/projects"),
-            notebooklm_home_dir=Path("/tmp/project/data/notebooklm"),
             claude_cli_path="/usr/local/bin/claude",
             claude_model=None,
         )
@@ -219,8 +218,8 @@ def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch)
 
     readiness = runtime.get_readiness()
 
-    assert readiness.status == "ready_default_model"
-    assert "默认模型" in readiness.summary
+    assert readiness.status == "not_configured"
+    assert "未配置模型" in readiness.summary
 
 
 def test_claude_readiness_reports_auth_required(monkeypatch) -> None:
@@ -231,7 +230,6 @@ def test_claude_readiness_reports_auth_required(monkeypatch) -> None:
             sqlite_dir=Path("/tmp/project/data/sqlite"),
             sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
             projects_dir=Path("/tmp/project/data/projects"),
-            notebooklm_home_dir=Path("/tmp/project/data/notebooklm"),
             claude_cli_path="/usr/local/bin/claude",
             claude_model="sonnet",
         )
@@ -263,7 +261,6 @@ def test_runtime_uses_project_root_as_claude_cwd(tmp_path: Path) -> None:
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
         )
     )
     options = runtime._build_options(
@@ -282,7 +279,6 @@ def test_runtime_builds_isolated_claude_options(tmp_path: Path) -> None:
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -310,7 +306,6 @@ def test_runtime_uses_bypass_permissions_when_mcp_tools_enabled(tmp_path: Path) 
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -334,7 +329,6 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -363,7 +357,7 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
             user_message="客户说需要自动核对订单和财务科目金额。",
             selected_source_ids=[],
             source_summaries=["订单字段说明", "财务科目口径说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="项目知识库摘要",
             evidence_citations=[],
             request_artifact_types=[],
         )
@@ -382,7 +376,6 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -411,7 +404,7 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
             user_message="请继续分析逐笔对账场景。",
             selected_source_ids=[],
             source_summaries=["订单字段说明", "财务科目口径说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="项目知识库摘要",
             evidence_citations=[],
             request_artifact_types=[],
         )
@@ -431,7 +424,6 @@ def test_loop_prompt_distinguishes_discussion_from_real_actions(tmp_path: Path) 
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -467,7 +459,7 @@ def test_loop_prompt_distinguishes_discussion_from_real_actions(tmp_path: Path) 
     )
 
     assert "如果只是讨论、评审、头脑风暴、要计划、要求“不要直接开始改”，通常只聊天" in prompt
-    assert "`query_notebook_evidence`" in prompt
+    assert "`query_project_evidence`" in prompt
     assert "`update_project_state`" in prompt
     assert "`create_version_snapshot`" in prompt
     assert "`generate_artifact`" in prompt
@@ -481,7 +473,6 @@ def test_structured_prompt_requires_artifact_request_to_match_assistant_commitme
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -510,7 +501,7 @@ def test_structured_prompt_requires_artifact_request_to_match_assistant_commitme
             user_message="做啊",
             selected_source_ids=[],
             source_summaries=["订单字段说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="项目知识库摘要",
             evidence_citations=[],
             request_artifact_types=[],
         ),
@@ -530,7 +521,6 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -559,7 +549,7 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
             user_message="我前一个问题是啥？",
             selected_source_ids=[],
             source_summaries=["订单字段说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="项目知识库摘要",
             evidence_citations=[],
             request_artifact_types=[],
             recent_messages=[
@@ -596,7 +586,6 @@ def test_artifact_prompt_uses_compact_state_summary(tmp_path: Path) -> None:
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -673,7 +662,6 @@ def test_artifact_prompt_uses_shorter_artifact_specific_guidance(tmp_path: Path)
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_model="glm-5",
         )
     )
@@ -718,7 +706,6 @@ def test_stream_assistant_text_uses_stream_event_text_deltas(monkeypatch, tmp_pa
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -812,7 +799,6 @@ def test_run_turn_wraps_invalid_structured_output_as_provider_issue(
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -901,7 +887,6 @@ def test_run_turn_returns_plain_result_when_provider_only_finishes_text(
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -992,7 +977,6 @@ def test_run_turn_emits_tool_status_events_from_stream_events(
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -1125,7 +1109,6 @@ def test_run_turn_uses_tool_side_effects_as_primary_result(
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -1251,7 +1234,6 @@ def test_commit_artifacts_registers_in_process_artifact_tool(monkeypatch, tmp_pa
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
@@ -1359,7 +1341,6 @@ def test_generate_artifact_tool_creates_artifact_and_version(tmp_path: Path) -> 
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
         projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
         claude_cli_path="/usr/local/bin/claude",
         claude_model="glm-5",
     )
@@ -1414,7 +1395,6 @@ def test_generate_artifact_retries_html_parse_failure_once(
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
             projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
             claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )

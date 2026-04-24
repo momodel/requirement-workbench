@@ -1,0 +1,21 @@
+event: assistant_status
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:39:04.535464+08:00", "phase": "agent_started", "label": "已接收问题，正在启动分析"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:39:12.983993+08:00", "text": "直接生"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:39:12.984518+08:00", "text": "成交互"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:39:12.984643+08:00", "text": "稿"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:39:12.984777+08:00", "text": "。"}
+
+event: error
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:40:48.571340+08:00", "provider": "CLAUDE_AGENT_SDK", "message": "Claude 回复超时，当前轮对话已中止。请稍后重试。"}
+
+event: done
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:40:48.572093+08:00", "stream_group_id": "stream-099fa0c5cc"}
+

@@ -1,0 +1,51 @@
+event: assistant_status
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:37:52.153857+08:00", "phase": "agent_started", "label": "已接收问题，正在启动分析"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:37:59.617096+08:00", "text": "好的，"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:37:59.642813+08:00", "text": "我来"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:37:59.668759+08:00", "text": "生成交"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:37:59.692808+08:00", "text": "互稿"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.149078+08:00", "text": "交付物"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.250311+08:00", "text": "。这"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.270893+08:00", "text": "需要覆盖"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.292611+08:00", "text": "完整的使用"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.320666+08:00", "text": "路径，"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.345563+08:00", "text": "我会创建"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.430668+08:00", "text": "一个可"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.453528+08:00", "text": "点击预"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.472786+08:00", "text": "览的"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.495576+08:00", "text": " HTML"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.521232+08:00", "text": " 交互"}
+
+event: message_chunk
+data: {"project_id": "project-b069e87f56", "created_at": "2026-04-24T19:38:03.600700+08:00", "text": "原型。"}
+

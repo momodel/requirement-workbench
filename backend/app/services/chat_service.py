@@ -15,15 +15,21 @@ class ChatService:
         self,
         catalog: ProjectCatalog,
         project_state: ProjectStateService,
-        notebooklm: EvidenceRuntime,
+        evidence_runtime: EvidenceRuntime,
         agent_runtime: AgentRuntime,
         artifact_generation: ArtifactGenerationService,
     ):
         self.catalog = catalog
         self.project_state = project_state
-        self.notebooklm = notebooklm
+        self.evidence_runtime = evidence_runtime
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
+
+    async def _query_evidence_with_timeout(self, *args, **kwargs):
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.evidence_runtime.query, *args, **kwargs),
+            timeout=self.catalog.settings.evidence_query_timeout_seconds,
+        )
 
     def _stream_timeout_for_phase(self, phase: str | None) -> float:
         base_timeout = self.catalog.settings.claude_stream_timeout_seconds
@@ -36,10 +42,10 @@ class ChatService:
                 self.catalog.settings.claude_artifact_timeout_seconds + 15,
             )
 
-        if phase == "tool_running:query_notebook_evidence":
+        if phase == "tool_running:query_project_evidence":
             return max(
                 base_timeout,
-                self.catalog.settings.notebooklm_query_timeout_seconds + 10,
+                self.catalog.settings.evidence_query_timeout_seconds + 10,
             )
 
         return base_timeout
@@ -68,7 +74,7 @@ class ChatService:
             user_message=payload.message,
             selected_source_ids=payload.selected_source_ids,
             source_summaries=[source.parse_summary or source.name for source in selected_sources],
-            evidence_summary="当前还没有调用 NotebookLM 证据工具。",
+            evidence_summary="当前还没有调用项目知识库检索工具。",
             evidence_citations=[],
             request_artifact_types=payload.request_artifact_types,
             recent_messages=self.catalog.list_recent_messages(project_id, limit=12),

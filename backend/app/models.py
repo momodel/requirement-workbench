@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 STATE_CATEGORIES = (
@@ -47,48 +47,42 @@ class CreateProjectRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=1000)
 
 
-class NotebookBindingRecord(BaseModel):
-    project_id: str
-    notebook_id: str
-    provider: str
-    sync_status: str
-    last_synced_at: str | None = None
-    source_url: str | None = None
-
-
-class NotebookLibraryItem(BaseModel):
+class KnowledgeBaseRecord(BaseModel):
     id: str
-    name: str
-    url: str
-    description: str
-    topics: list[str] = Field(default_factory=list)
-    use_count: int = 0
-    last_used: str | None = None
+    project_id: str
+    provider: str
+    external_knowledge_base_id: str
+    display_name: str | None = None
+    description: str | None = None
+    status: str
+    status_error: str | None = None
+    created_at: str
+    updated_at: str
 
 
-class BindNotebookRequest(BaseModel):
-    source_url: str | None = Field(default=None, min_length=1)
-    notebook_id: str | None = Field(default=None, min_length=1)
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_binding_target(self) -> "BindNotebookRequest":
-        if not self.source_url and not self.notebook_id:
-            raise ValueError("source_url 和 notebook_id 至少要提供一个。")
-        return self
-
-
-class CreateNotebookRequest(BaseModel):
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
+class SourceChunkRecord(BaseModel):
+    id: str
+    project_id: str
+    source_id: str
+    knowledge_base_id: str | None = None
+    chunk_order: int
+    modality: str
+    content: str
+    locator_json: str | None = None
+    content_hash: str
+    embedding_status: str = "pending"
+    index_error: str | None = None
+    indexed_at: str | None = None
+    created_at: str
+    updated_at: str
 
 
-class CreateNotebookBindingResponse(BaseModel):
-    notebook: NotebookLibraryItem
-    binding: NotebookBindingRecord
+class EvidenceHit(BaseModel):
+    source_id: str | None = None
+    source_chunk_id: str | None = None
+    citation_title: str | None = None
+    snippet: str
+    score: float | None = None
 
 
 class ProviderReadiness(BaseModel):
@@ -102,16 +96,16 @@ class ProviderReadiness(BaseModel):
 class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
-    notebook_binding: NotebookBindingRecord | None = None
-
+    evidence: ProviderReadiness
+    knowledge_base: KnowledgeBaseRecord | None = None
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
-
+    evidence: ProviderReadiness
 
 class SourceRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     project_id: str
     name: str
@@ -119,12 +113,47 @@ class SourceRecord(BaseModel):
     upload_kind: str
     storage_path: str | None = None
     normalized_path: str | None = None
-    notebook_import_mode: str | None = None
-    parse_status: str
-    parse_summary: str | None = None
-    sync_status: str = "pending"
-    sync_error: str | None = None
+    index_input_mode: str | None = None
+    normalize_status: str
+    normalize_summary: str | None = None
+    index_status: str = "pending"
+    index_error: str | None = None
     created_at: str
+
+    def model_dump_neutral(self) -> dict[str, Any]:
+        return self.model_dump()
+
+    @property
+    def parse_status(self) -> str:
+        return self.normalize_status
+
+    @property
+    def parse_summary(self) -> str | None:
+        return self.normalize_summary
+
+    @property
+    def sync_status(self) -> str:
+        return self.index_status
+
+    @property
+    def sync_error(self) -> str | None:
+        return self.index_error
+
+    @property
+    def notebook_import_mode(self) -> str | None:
+        return self.index_input_mode
+
+
+class SourceContentRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    project_id: str
+    source_name: str
+    content_status: Literal["full_text", "summary_only", "unavailable"]
+    content_origin: Literal["normalized_path", "storage_path", "normalize_summary"] | None = None
+    content: str | None = None
+    detail: str | None = None
 
 
 class MessageRecord(BaseModel):

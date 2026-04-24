@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 import re
@@ -41,7 +42,7 @@ from ..models import (
     SourceUpsert,
 )
 from .artifact_generation import ArtifactGenerationService
-from .notebooklm_service import NotebookLMService
+from .evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
 from .runtime_contracts import EvidenceRuntime
@@ -443,7 +444,7 @@ class ClaudeAgentRuntime:
         self.catalog = ProjectCatalog(settings)
         self.project_state_service = ProjectStateService(self.catalog)
         self.artifact_generation_service = ArtifactGenerationService(settings)
-        self.evidence_runtime = evidence_runtime or NotebookLMService(settings)
+        self.evidence_runtime = evidence_runtime or QdrantLlamaIndexEvidenceRuntime(settings, catalog=self.catalog)
 
     def _build_options(
         self,
@@ -625,10 +626,10 @@ class ClaudeAgentRuntime:
 
         return ProviderReadiness(
             provider="CLAUDE_AGENT_SDK",
-            status="ready_default_model",
-            summary="Claude Agent SDK 已可用，但当前走 Claude CLI 默认模型。",
-            detail="建议补充 CLAUDE_MODEL，把部署环境模型锁定下来。",
-            action_label="锁定 Claude 模型",
+            status="not_configured",
+            summary="Claude Agent SDK 未配置模型。",
+            detail="请设置 CLAUDE_MODEL，避免主链路依赖 Claude CLI 默认模型。",
+            action_label="配置 CLAUDE_MODEL",
         )
 
     def _build_prompt(self, turn: AgentTurnInput) -> str:
@@ -663,7 +664,7 @@ class ClaudeAgentRuntime:
 {selected_source_ids}
 
 可用工具：
-1. `query_notebook_evidence`
+1. `query_project_evidence`
    - 需要 source-grounded 证据、引用或核对资料说法时再调用
    - 不要用它代替最终项目裁决
 2. `update_project_state`
@@ -683,7 +684,7 @@ class ClaudeAgentRuntime:
 输出与动作要求：
 1. 正文只输出面向用户的自然中文，不要输出 JSON、HTML、Markdown 标题、工具痕迹、内部状态桶名字。
 2. 如果只是讨论、评审、头脑风暴、要计划、要求“不要直接开始改”，通常只聊天，不写沉淀、不打快照、不生成交付物。
-3. 如果需要 grounded 证据，请先调用 `query_notebook_evidence`，再基于结果回答。
+3. 如果需要 grounded 证据，请先调用 `query_project_evidence`，再基于结果回答。
 4. 如果本轮确实形成了新增理解、待确认项、已确认事实、冲突或 MVP，再调用 `update_project_state`，只写本轮增量。
 5. 只有命中关键里程碑时才调用 `create_version_snapshot`。
 6. 只有需要真实交付物时才调用 `generate_artifact`。
@@ -739,10 +740,10 @@ class ClaudeAgentRuntime:
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+项目知识库 grounding：
 {turn.evidence_summary}
 
-NotebookLM citations：
+项目知识库 citations：
 {citations_json}
 
 方法论执行提醒：
@@ -796,10 +797,10 @@ NotebookLM citations：
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+项目知识库 grounding：
 {turn.evidence_summary}
 
-NotebookLM citations：
+项目知识库 citations：
 {citations_json}
 
 刚刚已经流式发送给用户的助手回复：
@@ -859,9 +860,9 @@ NotebookLM citations：
             return None
 
         tool_name = str(content_block.get("name") or "").strip()
-        if tool_name.endswith("query_notebook_evidence"):
+        if tool_name.endswith("query_project_evidence"):
             return {
-                "phase": "tool_running:query_notebook_evidence",
+                "phase": "tool_running:query_project_evidence",
                 "label": "正在检索资料证据",
             }
         if tool_name.endswith("update_project_state"):
@@ -1136,7 +1137,7 @@ NotebookLM citations：
 
         return update_project_state_tool
 
-    def _make_query_notebook_evidence_tool(
+    def _make_query_project_evidence_tool(
         self,
         *,
         project_id: str,
@@ -1144,8 +1145,8 @@ NotebookLM citations：
         evidence_results: list[dict],
     ):
         @tool(
-            "query_notebook_evidence",
-            "基于当前项目的 NotebookLM 资料库查询 grounded 证据和 citations。",
+            "query_project_evidence",
+            "基于当前项目知识库查询 grounded 证据和 citations。",
             {
                 "type": "object",
                 "properties": {
@@ -1159,7 +1160,7 @@ NotebookLM citations：
                 "additionalProperties": False,
             },
         )
-        async def query_notebook_evidence_tool(args: dict) -> dict:
+        async def query_project_evidence_tool(args: dict) -> dict:
             try:
                 question = str(args.get("question") or "").strip()
                 if not question:
@@ -1177,14 +1178,14 @@ NotebookLM citations：
                             self.evidence_runtime.query,
                             project_id,
                             question,
-                            selected_source_ids or None,
+                            selected_source_ids=selected_source_ids or None,
                         ),
-                        timeout=self.settings.notebooklm_query_timeout_seconds,
+                        timeout=self.settings.evidence_query_timeout_seconds,
                     )
                 except asyncio.TimeoutError as exc:
                     raise ProviderIssue(
-                        provider="NOTEBOOKLM_PY",
-                        message="NotebookLM 查询超时，当前证据工具暂不可用。",
+                        provider="QDRANT_LLAMAINDEX",
+                        message="项目知识库检索超时，当前证据工具暂不可用。",
                     ) from exc
                 evidence_payload = {
                     "summary": evidence.summary,
@@ -1208,7 +1209,7 @@ NotebookLM citations：
                     "is_error": True,
                 }
 
-        return query_notebook_evidence_tool
+        return query_project_evidence_tool
 
     def _make_create_version_snapshot_tool(
         self,
@@ -1369,7 +1370,7 @@ NotebookLM citations：
         generated_artifacts: list[ArtifactRecord],
         generated_versions: list[StateItem],
     ) -> dict[str, McpSdkServerConfig]:
-        evidence_tool = self._make_query_notebook_evidence_tool(
+        evidence_tool = self._make_query_project_evidence_tool(
             project_id=project.id,
             default_selected_source_ids=default_selected_source_ids,
             evidence_results=evidence_results,
@@ -1459,7 +1460,7 @@ NotebookLM citations：
                 generated_versions=generated_versions,
             ),
             allowed_tools=[
-                "query_notebook_evidence",
+                "query_project_evidence",
                 "update_project_state",
                 "create_version_snapshot",
                 "generate_artifact",
@@ -1536,7 +1537,7 @@ NotebookLM citations：
             yield (
                 "assistant_status",
                 {
-                    "phase": "tool_completed:query_notebook_evidence",
+                    "phase": "tool_completed:query_project_evidence",
                     "label": "已拿到资料证据",
                 },
             )

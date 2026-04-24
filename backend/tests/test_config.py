@@ -4,8 +4,8 @@ from pathlib import Path
 from app.config import AppSettings, _load_local_env_file
 
 
-def test_from_env_defaults_notebooklm_home_to_repo_data_dir(monkeypatch: object) -> None:
-    monkeypatch.delenv("NOTEBOOKLM_HOME", raising=False)
+def test_from_env_defaults_qdrant_path_to_repo_data_dir(monkeypatch: object) -> None:
+    monkeypatch.delenv("REQUIREMENT_WORKBENCH_QDRANT_PATH", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_DATA_DIR", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_SQLITE_DIR", raising=False)
     monkeypatch.delenv("REQUIREMENT_WORKBENCH_SQLITE_PATH", raising=False)
@@ -13,7 +13,7 @@ def test_from_env_defaults_notebooklm_home_to_repo_data_dir(monkeypatch: object)
 
     settings = AppSettings.from_env()
 
-    assert settings.notebooklm_home_dir == settings.data_dir / "notebooklm"
+    assert settings.qdrant_path == settings.data_dir / "qdrant"
 
 
 def test_load_local_env_file_sets_missing_values_only(tmp_path: Path, monkeypatch) -> None:

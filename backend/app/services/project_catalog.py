@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -11,10 +13,11 @@ from ..db import connection_scope
 from ..models import (
     ArtifactRecord,
     CreateProjectRequest,
+    KnowledgeBaseRecord,
     MessageRecord,
-    NotebookBindingRecord,
     ProjectSummary,
     SourceRecord,
+    SourceChunkRecord,
     StateCategory,
     StateItem,
     STATE_CATEGORIES,
@@ -25,9 +28,118 @@ def now_iso(settings: AppSettings = DEFAULT_SETTINGS) -> str:
     return datetime.now(ZoneInfo(settings.default_timezone)).isoformat()
 
 
+def source_chunk_content_hash(content: str, locator_json: str | None) -> str:
+    return hashlib.sha256(
+        f"{content}\n{locator_json or ''}".encode("utf-8")
+    ).hexdigest()
+
+
 class ProjectCatalog:
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
         self.settings = settings
+
+    @staticmethod
+    def _build_source_record(
+        *,
+        source_id: str,
+        project_id: str,
+        name: str,
+        source_kind: str,
+        upload_kind: str,
+        storage_path: str | None,
+        normalized_path: str | None,
+        index_input_mode: str | None,
+        normalize_status: str,
+        normalize_summary: str | None,
+        index_status: str,
+        index_error: str | None,
+        created_at: str,
+    ) -> SourceRecord:
+        return SourceRecord(
+            id=source_id,
+            project_id=project_id,
+            name=name,
+            source_kind=source_kind,
+            upload_kind=upload_kind,
+            storage_path=storage_path,
+            normalized_path=normalized_path,
+            index_input_mode=index_input_mode,
+            normalize_status=normalize_status,
+            normalize_summary=normalize_summary,
+            index_status=index_status,
+            index_error=index_error,
+            created_at=created_at,
+        )
+
+    @staticmethod
+    def _knowledge_base_from_row(row: dict | None) -> KnowledgeBaseRecord | None:
+        if not row:
+            return None
+        return KnowledgeBaseRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _source_chunk_from_row(row: dict) -> SourceChunkRecord:
+        return SourceChunkRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _validate_source_chunk_ownership(
+        *,
+        connection,
+        project_id: str,
+        source_id: str,
+        chunks: list[dict],
+    ) -> None:
+        source_row = connection.execute(
+            """
+            SELECT project_id
+            FROM sources
+            WHERE id = ?
+            """,
+            (source_id,),
+        ).fetchone()
+        if not source_row:
+            raise LookupError("Source not found")
+        if source_row["project_id"] != project_id:
+            raise ValueError("source_id does not belong to the provided project_id")
+
+        knowledge_base_ids = {
+            knowledge_base_id
+            for chunk in chunks
+            if (knowledge_base_id := chunk.get("knowledge_base_id")) is not None
+        }
+        knowledge_base_projects = {}
+        if knowledge_base_ids:
+            rows = connection.execute(
+                f"""
+                SELECT id, project_id
+                FROM knowledge_bases
+                WHERE id IN ({",".join("?" for _ in knowledge_base_ids)})
+                """,
+                tuple(knowledge_base_ids),
+            ).fetchall()
+            knowledge_base_projects = {
+                row["id"]: row["project_id"] for row in rows
+            }
+
+        for chunk in chunks:
+            chunk_project_id = chunk.get("project_id")
+            if chunk_project_id is not None and chunk_project_id != project_id:
+                raise ValueError("chunk project_id does not match the provided project_id")
+
+            chunk_source_id = chunk.get("source_id")
+            if chunk_source_id is not None and chunk_source_id != source_id:
+                raise ValueError("chunk source_id does not match the provided source_id")
+
+            knowledge_base_id = chunk.get("knowledge_base_id")
+            if knowledge_base_id is None:
+                continue
+            knowledge_base_project_id = knowledge_base_projects.get(knowledge_base_id)
+            if knowledge_base_project_id is None:
+                raise LookupError("Knowledge base not found")
+            if knowledge_base_project_id != project_id:
+                raise ValueError(
+                    "knowledge_base_id does not belong to the provided project_id"
+                )
 
     def list_projects(self) -> list[ProjectSummary]:
         with connection_scope(self.settings) as connection:
@@ -85,6 +197,39 @@ class ProjectCatalog:
             )
         return project
 
+    def delete_project(self, project_id: str) -> ProjectSummary:
+        project = self.get_project(project_id)
+        if not project:
+            raise LookupError("Project not found")
+        if project.seed_key:
+            raise ValueError("默认 seed project 不能删除。")
+
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                "DELETE FROM projects WHERE id = ?",
+                (project_id,),
+            )
+
+        return project
+
+    def cleanup_project_files(self, project_id: str) -> str | None:
+        projects_root = self.settings.projects_dir.resolve()
+        project_dir = (self.settings.projects_dir / project_id).resolve()
+        try:
+            project_dir.relative_to(projects_root)
+        except ValueError:
+            return "项目目录不在受控 projects 目录内，已跳过文件清理。"
+
+        if not project_dir.exists():
+            return None
+
+        try:
+            shutil.rmtree(project_dir)
+        except OSError as exc:
+            return f"项目已从本地数据库删除，但项目目录清理失败：{exc}"
+
+        return None
+
     def upsert_project(self, project: ProjectSummary) -> None:
         with connection_scope(self.settings) as connection:
             connection.execute(
@@ -121,25 +266,35 @@ class ProjectCatalog:
         upload_kind: str,
         storage_path: str | None,
         normalized_path: str | None,
-        notebook_import_mode: str | None,
-        parse_status: str,
-        parse_summary: str | None,
-        sync_status: str,
-        sync_error: str | None,
+        index_input_mode: str | None = None,
+        normalize_status: str | None = None,
+        normalize_summary: str | None = None,
+        index_status: str | None = None,
+        index_error: str | None = None,
+        notebook_import_mode: str | None = None,
+        parse_status: str | None = None,
+        parse_summary: str | None = None,
+        sync_status: str | None = None,
+        sync_error: str | None = None,
     ) -> SourceRecord:
-        source = SourceRecord(
-            id=f"src-{uuid.uuid4().hex[:10]}",
+        index_input_mode = index_input_mode if index_input_mode is not None else notebook_import_mode
+        normalize_status = normalize_status if normalize_status is not None else parse_status or "pending"
+        normalize_summary = normalize_summary if normalize_summary is not None else parse_summary
+        index_status = index_status if index_status is not None else sync_status or "pending"
+        index_error = index_error if index_error is not None else sync_error
+        source = self._build_source_record(
+            source_id=f"src-{uuid.uuid4().hex[:10]}",
             project_id=project_id,
             name=name,
             source_kind=source_kind,
             upload_kind=upload_kind,
             storage_path=storage_path,
             normalized_path=normalized_path,
-            notebook_import_mode=notebook_import_mode,
-            parse_status=parse_status,
-            parse_summary=parse_summary,
-            sync_status=sync_status,
-            sync_error=sync_error,
+            index_input_mode=index_input_mode,
+            normalize_status=normalize_status,
+            normalize_summary=normalize_summary,
+            index_status=index_status,
+            index_error=index_error,
             created_at=now_iso(self.settings),
         )
         with connection_scope(self.settings) as connection:
@@ -147,7 +302,9 @@ class ProjectCatalog:
                 """
                 INSERT INTO sources (
                   id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                  notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                  index_input_mode, normalize_status, normalize_summary, index_status,
+                  index_error,
+                  created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -159,11 +316,11 @@ class ProjectCatalog:
                     source.upload_kind,
                     source.storage_path,
                     source.normalized_path,
-                    source.notebook_import_mode,
-                    source.parse_status,
-                    source.parse_summary,
-                    source.sync_status,
-                    source.sync_error,
+                    index_input_mode,
+                    normalize_status,
+                    normalize_summary,
+                    index_status,
+                    index_error,
                     source.created_at,
                 ),
             )
@@ -177,8 +334,9 @@ class ProjectCatalog:
         with connection_scope(self.settings) as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                SELECT id, project_id, name, source_kind, upload_kind, storage_path,
+                       normalized_path, index_input_mode, normalize_status,
+                       normalize_summary, index_status, index_error, created_at
                 FROM sources
                 WHERE project_id = ?
                 ORDER BY datetime(created_at) ASC
@@ -191,8 +349,9 @@ class ProjectCatalog:
         with connection_scope(self.settings) as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                SELECT id, project_id, name, source_kind, upload_kind, storage_path,
+                       normalized_path, index_input_mode, normalize_status,
+                       normalize_summary, index_status, index_error, created_at
                 FROM sources
                 WHERE id = ?
                 """,
@@ -226,12 +385,12 @@ class ProjectCatalog:
 
         return source
 
-    def update_source_sync_status(
+    def update_source_index_status(
         self,
         *,
         source_id: str,
-        sync_status: str,
-        sync_error: str | None,
+        index_status: str,
+        index_error: str | None,
     ) -> SourceRecord:
         timestamp = now_iso(self.settings)
         with connection_scope(self.settings) as connection:
@@ -245,10 +404,14 @@ class ProjectCatalog:
             connection.execute(
                 """
                 UPDATE sources
-                SET sync_status = ?, sync_error = ?
+                SET index_status = ?, index_error = ?
                 WHERE id = ?
                 """,
-                (sync_status, sync_error, source_id),
+                (
+                    index_status,
+                    index_error,
+                    source_id,
+                ),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -259,27 +422,235 @@ class ProjectCatalog:
             raise LookupError("Source not found after sync update")
         return updated
 
-    def bulk_update_source_sync_status(
+    def bulk_update_source_index_status(
         self,
         *,
         project_id: str,
-        sync_status: str,
-        sync_error: str | None,
+        index_status: str,
+        index_error: str | None,
     ) -> None:
         timestamp = now_iso(self.settings)
         with connection_scope(self.settings) as connection:
             connection.execute(
                 """
                 UPDATE sources
-                SET sync_status = ?, sync_error = ?
+                SET index_status = ?, index_error = ?
                 WHERE project_id = ?
                 """,
-                (sync_status, sync_error, project_id),
+                (
+                    index_status,
+                    index_error,
+                    project_id,
+                ),
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
                 (timestamp, project_id),
             )
+
+    def upsert_knowledge_base(
+        self,
+        *,
+        project_id: str,
+        provider: str,
+        external_knowledge_base_id: str,
+        display_name: str | None,
+        description: str | None,
+        status: str,
+        status_error: str | None,
+    ) -> KnowledgeBaseRecord:
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            existing = connection.execute(
+                """
+                SELECT id, created_at
+                FROM knowledge_bases
+                WHERE project_id = ? AND provider = ?
+                """,
+                (project_id, provider),
+            ).fetchone()
+
+            record_id = existing["id"] if existing else f"kb-{uuid.uuid4().hex[:10]}"
+            created_at = existing["created_at"] if existing else timestamp
+
+            connection.execute(
+                """
+                INSERT INTO knowledge_bases (
+                  id, project_id, provider, external_knowledge_base_id, display_name,
+                  description, status, status_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                  project_id = excluded.project_id,
+                  provider = excluded.provider,
+                  external_knowledge_base_id = excluded.external_knowledge_base_id,
+                  display_name = excluded.display_name,
+                  description = excluded.description,
+                  status = excluded.status,
+                  status_error = excluded.status_error,
+                  updated_at = excluded.updated_at
+                """,
+                (
+                    record_id,
+                    project_id,
+                    provider,
+                    external_knowledge_base_id,
+                    display_name,
+                    description,
+                    status,
+                    status_error,
+                    created_at,
+                    timestamp,
+                ),
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
+        return KnowledgeBaseRecord(
+            id=record_id,
+            project_id=project_id,
+            provider=provider,
+            external_knowledge_base_id=external_knowledge_base_id,
+            display_name=display_name,
+            description=description,
+            status=status,
+            status_error=status_error,
+            created_at=created_at,
+            updated_at=timestamp,
+        )
+
+    def get_knowledge_base(
+        self,
+        *,
+        project_id: str,
+        provider: str,
+    ) -> KnowledgeBaseRecord | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, provider, external_knowledge_base_id, display_name,
+                       description, status, status_error, created_at, updated_at
+                FROM knowledge_bases
+                WHERE project_id = ? AND provider = ?
+                """,
+                (project_id, provider),
+            ).fetchone()
+        return self._knowledge_base_from_row(row)
+
+    def replace_source_chunks(
+        self,
+        *,
+        project_id: str,
+        source_id: str,
+        chunks: list[dict],
+    ) -> list[SourceChunkRecord]:
+        timestamp = now_iso(self.settings)
+        records: list[SourceChunkRecord] = []
+
+        for chunk in chunks:
+            content = chunk["content"]
+            locator_json = chunk.get("locator_json")
+            records.append(
+                SourceChunkRecord(
+                    id=chunk.get("id") or f"chunk-{uuid.uuid4().hex[:10]}",
+                    project_id=project_id,
+                    source_id=source_id,
+                    knowledge_base_id=chunk.get("knowledge_base_id"),
+                    chunk_order=int(chunk["chunk_order"]),
+                    modality=chunk.get("modality") or "text",
+                    content=content,
+                    locator_json=locator_json,
+                    content_hash=chunk.get("content_hash")
+                    or source_chunk_content_hash(content, locator_json),
+                    embedding_status=chunk.get("embedding_status") or "pending",
+                    index_error=chunk.get("index_error"),
+                    indexed_at=chunk.get("indexed_at"),
+                    created_at=chunk.get("created_at") or timestamp,
+                    updated_at=chunk.get("updated_at") or timestamp,
+                )
+            )
+
+        with connection_scope(self.settings) as connection:
+            self._validate_source_chunk_ownership(
+                connection=connection,
+                project_id=project_id,
+                source_id=source_id,
+                chunks=chunks,
+            )
+            connection.execute(
+                """
+                DELETE FROM source_chunks
+                WHERE project_id = ? AND source_id = ?
+                """,
+                (project_id, source_id),
+            )
+            for record in records:
+                connection.execute(
+                    """
+                    INSERT INTO source_chunks (
+                      id, project_id, source_id, knowledge_base_id, chunk_order, modality,
+                      content, locator_json, content_hash, embedding_status, index_error,
+                      indexed_at, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.id,
+                        record.project_id,
+                        record.source_id,
+                        record.knowledge_base_id,
+                        record.chunk_order,
+                        record.modality,
+                        record.content,
+                        record.locator_json,
+                        record.content_hash,
+                        record.embedding_status,
+                        record.index_error,
+                        record.indexed_at,
+                        record.created_at,
+                        record.updated_at,
+                    ),
+                )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
+        return records
+
+    def list_source_chunks(
+        self,
+        *,
+        project_id: str,
+        source_id: str | None = None,
+        knowledge_base_id: str | None = None,
+    ) -> list[SourceChunkRecord]:
+        where_clauses = ["project_id = ?"]
+        parameters: list[str] = [project_id]
+
+        if source_id is not None:
+            where_clauses.append("source_id = ?")
+            parameters.append(source_id)
+        if knowledge_base_id is not None:
+            where_clauses.append("knowledge_base_id = ?")
+            parameters.append(knowledge_base_id)
+
+        with connection_scope(self.settings) as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, project_id, source_id, knowledge_base_id, chunk_order, modality,
+                       content, locator_json, content_hash, embedding_status, index_error,
+                       indexed_at, created_at, updated_at
+                FROM source_chunks
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY chunk_order ASC, datetime(created_at) ASC, id ASC
+                """,
+                tuple(parameters),
+            ).fetchall()
+
+        return [self._source_chunk_from_row(dict(row)) for row in rows]
 
     def create_message(
         self,
@@ -651,48 +1022,3 @@ class ProjectCatalog:
             body=body,
             updated_at=timestamp,
         )
-
-    def upsert_notebook_binding(
-        self,
-        *,
-        project_id: str,
-        notebook_id: str,
-        provider: str,
-        sync_status: str,
-        source_url: str | None = None,
-    ) -> None:
-        timestamp = now_iso(self.settings)
-        with connection_scope(self.settings) as connection:
-            connection.execute(
-                """
-                INSERT INTO notebook_bindings (project_id, notebook_id, provider, sync_status, last_synced_at, source_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(project_id) DO UPDATE SET
-                  notebook_id = excluded.notebook_id,
-                  provider = excluded.provider,
-                  sync_status = excluded.sync_status,
-                  last_synced_at = excluded.last_synced_at,
-                  source_url = excluded.source_url
-                """,
-                (project_id, notebook_id, provider, sync_status, timestamp, source_url),
-            )
-        return NotebookBindingRecord(
-            project_id=project_id,
-            notebook_id=notebook_id,
-            provider=provider,
-            sync_status=sync_status,
-            last_synced_at=timestamp,
-            source_url=source_url,
-        )
-
-    def get_notebook_binding(self, project_id: str) -> NotebookBindingRecord | None:
-        with connection_scope(self.settings) as connection:
-            row = connection.execute(
-                """
-                SELECT project_id, notebook_id, provider, sync_status, last_synced_at, source_url
-                FROM notebook_bindings
-                WHERE project_id = ?
-                """,
-                (project_id,),
-            ).fetchone()
-        return NotebookBindingRecord.model_validate(dict(row)) if row else None

@@ -1,0 +1,84 @@
+[
+  {
+    "id": "01-grounded-overview",
+    "returncode": 0,
+    "seconds": 42.94,
+    "events": {
+      "assistant_status": 6,
+      "message_chunk": 300,
+      "citations": 1,
+      "current_understanding_patch": 1,
+      "pending_items_patch": 1,
+      "done": 1
+    },
+    "has_error_event": false,
+    "has_citations": true,
+    "has_artifact_patch": false,
+    "has_state_patch": true
+  },
+  {
+    "id": "02-mvp-scope",
+    "returncode": 0,
+    "seconds": 52.17,
+    "events": {
+      "assistant_status": 9,
+      "message_chunk": 331,
+      "citations": 1,
+      "current_understanding_patch": 1,
+      "pending_items_patch": 1,
+      "conflict_items_patch": 1,
+      "mvp_items_patch": 1,
+      "done": 1
+    },
+    "has_error_event": false,
+    "has_citations": true,
+    "has_artifact_patch": false,
+    "has_state_patch": true
+  },
+  {
+    "id": "03-document-artifact",
+    "returncode": 0,
+    "seconds": 51.16,
+    "events": {
+      "assistant_status": 4,
+      "message_chunk": 116,
+      "version_patch": 1,
+      "artifact_patch": 1,
+      "done": 1
+    },
+    "has_error_event": false,
+    "has_citations": false,
+    "has_artifact_patch": true,
+    "has_state_patch": true
+  },
+  {
+    "id": "04-page-solution-artifact",
+    "returncode": 0,
+    "seconds": 188.44,
+    "events": {
+      "assistant_status": 7,
+      "message_chunk": 286,
+      "citations": 1,
+      "version_patch": 1,
+      "artifact_patch": 1,
+      "done": 1
+    },
+    "has_error_event": false,
+    "has_citations": true,
+    "has_artifact_patch": true,
+    "has_state_patch": true
+  },
+  {
+    "id": "05-interaction-artifact",
+    "returncode": -15,
+    "seconds": 16.88,
+    "events": {
+      "assistant_status": 1,
+      "message_chunk": 16
+    },
+    "has_error_event": false,
+    "has_citations": false,
+    "has_artifact_patch": false,
+    "has_state_patch": false
+  }
+]

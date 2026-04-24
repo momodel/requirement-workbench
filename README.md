@@ -4,7 +4,7 @@
 
 主产品是一个面向需求分析的三栏工作台：
 
-- 左栏 `Sources`：项目知识库，负责资料导入、解析、同步、引用
+- 左栏 `Sources`：项目知识库，负责资料导入、解析、索引、引用
 - 中栏 `Chat`：用户和主智能体的需求分析对话，支持流式输出和引用依据
 - 右栏 `Project State`：沉淀总集，聚合理解项、待确认项、冲突、MVP、版本快照和交付物
 
@@ -18,9 +18,9 @@
 
 - 项目列表页和三栏工作台
 - 真实 FastAPI + SQLite + 本地文件落盘
-- source 文本导入、文件上传、多文件上传、删除、失败后重试同步
-- 项目级 NotebookLM notebook 的创建、绑定、查看 readiness
-- 真实 `notebooklm-py` 接入，认证态保存在项目内 `data/notebooklm/`
+- source 文本导入、文件上传、多文件上传、删除、失败后重试索引
+- 项目级 knowledge base 的初始化、查看 readiness
+- 真实 `Docling + Qdrant + LlamaIndex` 接入，Qdrant 本地数据默认保存在项目内 `data/qdrant/`
 - 真实 `Claude Agent SDK` Python 依赖和运行时接入
 - SSE 聊天流
 - assistant Markdown 渲染
@@ -39,15 +39,15 @@
 - 后端：`FastAPI`
 - 存储：`SQLite + data/projects/`
 - 主智能体：`Claude Agent SDK`
-- 证据层：`NotebookLM`，当前 provider 为 `notebooklm-py`
+- 证据层：`项目知识库`，当前 provider 为 `Docling + Qdrant + LlamaIndex`
 - 后端 CAS 全局规则：`backend/CLAUDE.md`
 - 后端方法论 skill：`backend/.claude/skills/requirement-analysis-methodology/`
-- 后端 NotebookLM 工作流：`backend/.claude/skills/notebooklm-evidence-workflow/`
+- 后端 RAG 证据工作流：`backend/.claude/skills/rag-evidence-workflow/`
 - 后端交付物约束：`backend/.claude/skills/artifact-generation-guidelines/`
 
 说明：
 
-- `Claude Agent SDK` 和 `NotebookLM` 都走真实 provider，不允许静默 fallback 成本地假实现
+- `Claude Agent SDK` 和 `项目知识库` 都走真实 provider，不允许静默 fallback 成本地假实现
 - 失败就报失败，未配置就报未配置
 - `Claude Agent SDK` 在这个项目里以 `backend/` 作为 project cwd 运行，因此只读取 `backend/CLAUDE.md` 和 `backend/.claude/skills/**`
 - `archive/legacy-demo/` 是新版 UI 和交互的参考基线，不是当前主路径代码
@@ -66,7 +66,7 @@
 │   ├── requirements.txt
 │   └── .env.local.example
 ├── data/
-│   ├── notebooklm/                 # 项目内 NotebookLM 认证和本地数据
+│   ├── qdrant/                    # 项目内向量索引数据
 │   ├── projects/                   # source / artifact 落盘
 │   └── sqlite/                     # SQLite 数据库
 ├── docs/
@@ -83,7 +83,7 @@
 - Python `3.11+`
 - Node.js `18+`
 - 一个可用的 `claude` CLI，或者在环境变量里显式配置 `CLAUDE_CODE_CLI_PATH`
-- 可正常联网，供 Claude provider 和 NotebookLM 使用
+- 可正常联网，供 Claude provider 和 项目知识库 使用
 
 ## 5 分钟启动
 
@@ -138,30 +138,24 @@ which claude
 
 如果 `which claude` 没输出，就需要配 `CLAUDE_CODE_CLI_PATH`。
 
-### 4. 做 NotebookLM 认证
+### 4. 配置项目内 RAG
 
-NotebookLM 认证态要求放在项目内，不用系统全局目录。
+项目知识库不再依赖外部笔记本登录。默认使用本地 Qdrant 路径和 FastEmbed embedding。
 
-在 `backend/` 下执行：
-
-```bash
-cd backend
-source .venv/bin/activate
-NOTEBOOKLM_HOME=../data/notebooklm ./.venv/bin/notebooklm login
-```
-
-认证完成后可以检查状态：
+可选配置写入 `backend/.env.local`：
 
 ```bash
-cd backend
-source .venv/bin/activate
-NOTEBOOKLM_HOME=../data/notebooklm ./.venv/bin/notebooklm status
+REQUIREMENT_WORKBENCH_QDRANT_PATH=../data/qdrant
+REQUIREMENT_WORKBENCH_EVIDENCE_BACKEND=qdrant_llamaindex
+REQUIREMENT_WORKBENCH_EMBEDDER_BACKEND=fastembed
+REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS=15
 ```
 
 说明：
 
-- 认证态保存在 `data/notebooklm/`
-- 这是项目级运行数据，后续做服务化部署时也沿用这个思路
+- Qdrant 本地索引默认保存在 `data/qdrant/`
+- 上传 source 后会先落原文，再标准化、切 chunk、写入向量索引
+- 缺依赖、embedding 初始化失败或 Qdrant 不可用时，readiness 会明确报错
 
 ### 5. 启动后端
 
@@ -194,17 +188,13 @@ npm run dev -- --host 127.0.0.1 --port 4173
 建议按这条顺序快速验一遍：
 
 1. 打开首页，确认项目列表能正常加载
-2. 看首页或工作台的 provider readiness，确认 `Claude` 和 `NotebookLM` 不是未配置状态
+2. 看首页或工作台的 provider readiness，确认 `Claude` 和 `项目知识库 RAG` 不是未配置状态
 3. 进入 seed project 的工作台，确认三栏都能显示
-4. 在左栏导入一段文本资料，确认只在 source 区出现局部 loading
+4. 在左栏导入一段文本资料，确认 source 进入解析、索引并显示已索引
 5. 发一条消息，确认中栏能收到 SSE 流式输出，右栏会逐步更新
 6. 打开右栏 artifact，确认文档稿能在抽屉看，HTML artifact 能在大预览层看
 
-如果是新项目，还要多做一步：
-
-1. 进入项目工作台
-2. 如果提示 `binding_required`，先创建并绑定项目专属 NotebookLM notebook
-3. 再开始上传资料和提问
+如果是新项目，进入工作台后先初始化项目 knowledge base，再上传资料和提问。
 
 ## 开发入口
 
@@ -246,35 +236,37 @@ pip install -r requirements.txt
 - 让 `claude` 出现在 `PATH`
 - 或在 `backend/.env.local` 配 `CLAUDE_CODE_CLI_PATH`
 
-### 3. `NOTEBOOKLM_PY 未配置或项目未绑定 notebook`
+### 3. `RAG provider 未配置或项目 knowledge base 未初始化`
 
-先分两类看：
+先分三类看：
 
-- 全局未认证：先执行 `notebooklm login`
-- 项目未绑定：进入工作台后先创建并绑定项目专属 notebook
+- 缺依赖：确认 `backend/requirements.txt` 已安装
+- Qdrant 不可用：确认 `REQUIREMENT_WORKBENCH_QDRANT_PATH` 或 `REQUIREMENT_WORKBENCH_QDRANT_URL` 可用
+- 项目未初始化：进入工作台后初始化项目 knowledge base
 
-### 4. `NotebookLM 查询超时`
+### 4. `项目知识库检索超时`
 
 当前代码默认超时是 `30` 秒，可在 `backend/.env.local` 调整：
 
 ```bash
-NOTEBOOKLM_QUERY_TIMEOUT_SECONDS=30
+REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS=15
 ```
 
-如果网络不稳定，优先先确认：
+如果检索不稳定，优先确认：
 
-- `notebooklm status` 是否正常
-- 当前项目是否已绑定 notebook
-- 最近上传的资料是否已完成同步
+- Qdrant 路径或服务是否可用
+- embedding 模型是否初始化成功
+- 当前项目是否已初始化 knowledge base
+- 最近上传的资料是否已完成索引
 
-### 5. 某个 source 变成 `sync_failed`
+### 5. 某个 source 变成 `index_failed`
 
-这表示 source 已入库，但同步到 NotebookLM 失败。
+这表示 source 已入库，但写入 RAG 索引失败。
 
-当前 UI 已支持在 source 卡片上重试同步。重试前先确认：
+当前 UI 已支持在 source 卡片上重试索引。重试前先确认：
 
-- NotebookLM 认证正常
-- 项目 notebook 已绑定
+- Qdrant 路径或服务可用
+- embedding 模型可用
 - 该 source 的标准化结果已生成
 
 ## 归档和参考资产

@@ -12,7 +12,7 @@
 
 - `../backend/CLAUDE.md`
 - `../backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
-- `../backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+- `../backend/.claude/skills/rag-evidence-workflow/SKILL.md`
 - `../backend/.claude/skills/artifact-generation-guidelines/SKILL.md`
 
 ## 当前工作基线

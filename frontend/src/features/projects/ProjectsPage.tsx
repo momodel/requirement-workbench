@@ -22,6 +22,10 @@ function readinessVariant(status: string) {
   return 'default' as const;
 }
 
+function evidenceReadiness(readiness: GlobalReadiness) {
+  return readiness.evidence;
+}
+
 export function ProjectsPage({
   projects,
   readiness,
@@ -82,7 +86,7 @@ export function ProjectsPage({
               <div className="flex flex-wrap gap-3">
                 <Badge variant="accent">Project-first</Badge>
                 <Badge>FastAPI + SQLite + SSE</Badge>
-                <Badge>Claude Agent SDK / notebooklm-py</Badge>
+                <Badge>Claude Agent SDK / 项目内 RAG</Badge>
               </div>
             </div>
 
@@ -124,10 +128,10 @@ export function ProjectsPage({
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-medium text-ink">NotebookLM</div>
-                      <div className="mt-1 leading-6 text-muted">{readiness.notebooklm.summary}</div>
+                      <div className="font-medium text-ink">Evidence Runtime</div>
+                      <div className="mt-1 leading-6 text-muted">{evidenceReadiness(readiness)?.summary ?? '证据运行时状态未返回。'}</div>
                     </div>
-                    <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
+                    <Badge variant={readinessVariant(evidenceReadiness(readiness)?.status ?? 'unknown')}>{evidenceReadiness(readiness)?.status ?? 'unknown'}</Badge>
                   </div>
                 </div>
               ) : null}

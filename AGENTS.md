@@ -19,8 +19,8 @@
 
 - `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
   - 适用：需求分析链路、状态沉淀、版本快照、artifact 触发
-- `backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
-  - 适用：source ingestion、NotebookLM 导入、grounding、citation
+- `backend/.claude/skills/rag-evidence-workflow/SKILL.md`
+  - 适用：source ingestion、项目知识库索引、grounding、citation
 - `backend/.claude/skills/artifact-generation-guidelines/SKILL.md`
   - 适用：文档稿、页面方案、交互稿的生成边界
 
@@ -36,12 +36,12 @@
 ## 正式技术路线
 
 - 主智能体：`Claude Agent SDK`
-- 证据层：`notebooklm-py`
+- 证据层：`Docling + Qdrant + LlamaIndex + 项目内 EvidenceRuntime`
 
 不要做这些事：
 
 - 用本地规则拼接结果，却命名成 `ClaudeAgentRuntime`
-- 用本地摘要服务，却命名成 `NotebookLMService`
+- 用本地摘要服务，却命名成 `EvidenceRuntime`
 - 在文档、注释、UI 里把 stub 写成“已接入正式 provider”
 - 未配置时做静默 fallback
 
@@ -74,7 +74,7 @@
   - 超时与错误处理
   - 事件转发
 - 宿主不应该替模型做大量业务判断，例如：
-  - 先固定查 NotebookLM 再聊天
+  - 先固定查 项目知识库 再聊天
   - 根据关键词猜要不要写沉淀
   - 根据 assistant 文本二次推断要不要生成 artifact
   - 用一长串 if / else 模拟需求分析流程
@@ -119,9 +119,9 @@
 
 - `Claude Agent SDK` 可调用
 - `CLAUDE_MODEL` 已配置
-- 项目内 `notebooklm-py` provider 可调用
-- 项目内 NotebookLM 认证已完成
-- 当前项目已绑定自己的 notebook
+- 项目内 `Docling + Qdrant + LlamaIndex` provider 可调用
+- 项目内 项目知识库 认证已完成
+- 当前项目已初始化自己的 knowledge base
 
 ## 实现中持续检查
 

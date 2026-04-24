@@ -6,9 +6,7 @@ import { ProjectsPage } from './features/projects/ProjectsPage';
 import { WorkbenchPage } from './features/workbench/WorkbenchPage';
 import { getArtifactDisplayLabel } from './lib/artifact-display';
 import {
-  bindProjectNotebook,
   createProject,
-  createAndBindProjectNotebook,
   deleteProjectSource,
   getGlobalReadiness,
   getProject,
@@ -16,10 +14,10 @@ import {
   getProjectState,
   listArtifacts,
   listMessages,
-  listProjectNotebookLibrary,
   listProjects,
   listSources,
-  retryProjectSourceSync,
+  initProjectKnowledgeBase,
+  reindexProjectSource,
   streamChat,
   uploadFileSources,
   uploadTextSource,
@@ -29,7 +27,6 @@ import type {
   GlobalReadiness,
   MessageActionEvent,
   MessageRecord,
-  NotebookLibraryItem,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
@@ -43,7 +40,6 @@ type WorkbenchData = {
   messages: MessageRecord[];
   state: ProjectState | null;
   artifacts: ArtifactRecord[];
-  notebookLibrary: NotebookLibraryItem[];
 };
 
 type Notice = {
@@ -196,8 +192,8 @@ function HomeRoute() {
     setCreating(true);
     try {
       const project = await createProject(payload);
-      if (readiness?.notebooklm.status === 'ready') {
-        await createAndBindProjectNotebook(project.id);
+      if (readiness?.evidence.status === 'ready') {
+        await initProjectKnowledgeBase(project.id);
       }
       setProjects((current) => [project, ...current]);
       navigate(`/projects/${project.id}/workbench`);
@@ -227,18 +223,17 @@ function WorkbenchRoute() {
     messages: [],
     state: null,
     artifacts: [],
-    notebookLibrary: [],
   });
   const [loading, setLoading] = useState(true);
   const [readiness, setReadiness] = useState<ProjectReadiness | null>(null);
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [bindingNotebook, setBindingNotebook] = useState(false);
+  const [initializingKnowledgeBase, setInitializingKnowledgeBase] = useState(false);
   const [deletingSourceId, setDeletingSourceId] = useState<string | null>(null);
   const [retryingSourceId, setRetryingSourceId] = useState<string | null>(null);
   const [notices, setNotices] = useState<Notice[]>([]);
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
-  const autoBindAttemptedProjectId = useRef<string | null>(null);
+  const autoInitAttemptedProjectId = useRef<string | null>(null);
   const recentInsightTimerRef = useRef<number | null>(null);
 
   function markRecentInsights(items: StateItem[]) {
@@ -278,31 +273,7 @@ function WorkbenchRoute() {
         artifacts,
       }));
 
-      void Promise.allSettled([
-        listProjectNotebookLibrary(projectId),
-        getProjectReadiness(projectId),
-      ]).then(([notebookLibraryResult, readinessResult]) => {
-        if (notebookLibraryResult.status === 'fulfilled') {
-          setData((current) => ({
-            ...current,
-            notebookLibrary: notebookLibraryResult.value,
-          }));
-        } else {
-          const message =
-            notebookLibraryResult.reason instanceof Error
-              ? notebookLibraryResult.reason.message
-              : 'Notebook 列表加载失败。';
-          setNotices((current) => [
-            {
-              id: `notebook-library-${Date.now()}`,
-              kind: 'info',
-              title: 'Notebook 列表加载较慢',
-              body: message,
-            },
-            ...current,
-          ]);
-        }
-
+      void Promise.allSettled([getProjectReadiness(projectId)]).then(([readinessResult]) => {
         if (readinessResult.status === 'fulfilled') {
           setReadiness(readinessResult.value);
         } else {
@@ -340,7 +311,7 @@ function WorkbenchRoute() {
   }
 
   useEffect(() => {
-    autoBindAttemptedProjectId.current = null;
+    autoInitAttemptedProjectId.current = null;
     setRecentInsightIds([]);
     void loadWorkbench();
   }, [projectId]);
@@ -354,48 +325,49 @@ function WorkbenchRoute() {
   }, []);
 
   useEffect(() => {
-    if (!data.project || bindingNotebook || readiness?.notebooklm.status !== 'binding_required') {
+    const evidenceReadiness = readiness?.evidence;
+    if (!data.project || initializingKnowledgeBase || evidenceReadiness?.status !== 'ready' || readiness?.knowledge_base) {
       return;
     }
-    if (autoBindAttemptedProjectId.current === projectId) {
+    if (autoInitAttemptedProjectId.current === projectId) {
       return;
     }
 
-    autoBindAttemptedProjectId.current = projectId;
-    void ensureProjectNotebookBinding();
-  }, [bindingNotebook, data.project, projectId, readiness?.notebooklm.status]);
+    autoInitAttemptedProjectId.current = projectId;
+    void ensureProjectKnowledgeBase();
+  }, [initializingKnowledgeBase, data.project, projectId, readiness?.evidence?.status, readiness?.knowledge_base]);
 
-  async function ensureProjectNotebookBinding() {
-    if (bindingNotebook || readiness?.notebooklm.status !== 'binding_required') {
+  async function ensureProjectKnowledgeBase() {
+    if (readiness?.evidence?.status !== 'ready' || readiness.knowledge_base) {
       return true;
     }
 
-    setBindingNotebook(true);
+    setInitializingKnowledgeBase(true);
     try {
-      await createAndBindProjectNotebook(projectId);
+      await initProjectKnowledgeBase(projectId);
       await loadWorkbench({ silent: true });
       return true;
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : '自动创建并绑定项目 Notebook 失败。';
+        error instanceof Error ? error.message : '项目知识库初始化失败。';
       setNotices((current) => [
         {
-          id: `auto-bind-${Date.now()}`,
+          id: `kb-init-${Date.now()}`,
           kind: 'error',
-          title: '项目 Notebook 自动绑定失败',
+          title: '项目知识库初始化失败',
           body: message,
         },
         ...current,
       ]);
       return false;
     } finally {
-      setBindingNotebook(false);
+      setInitializingKnowledgeBase(false);
     }
   }
 
   async function handleSendMessage(message: string) {
-    const notebookReady = await ensureProjectNotebookBinding();
-    if (!notebookReady) {
+    const knowledgeBaseReady = await ensureProjectKnowledgeBase();
+    if (!knowledgeBaseReady) {
       return;
     }
 
@@ -744,66 +716,21 @@ function WorkbenchRoute() {
   async function handleRetrySourceSync(sourceId: string) {
     setRetryingSourceId(sourceId);
     try {
-      await retryProjectSourceSync(projectId, sourceId);
+      await reindexProjectSource(projectId, sourceId);
       await loadWorkbench({ silent: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : '资料重试同步失败。';
+      const message = error instanceof Error ? error.message : '资料重建索引失败。';
       setNotices((current) => [
         {
           id: `retry-source-${Date.now()}`,
           kind: 'error',
-          title: '重试同步失败',
+          title: '重建索引失败',
           body: message,
         },
         ...current,
       ]);
     } finally {
       setRetryingSourceId(null);
-    }
-  }
-
-  async function handleBindProjectNotebook(payload: { sourceUrl?: string; notebookId?: string }) {
-    setBindingNotebook(true);
-    try {
-      await bindProjectNotebook(projectId, {
-        source_url: payload.sourceUrl,
-        notebook_id: payload.notebookId,
-      });
-      await loadWorkbench({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '绑定项目 notebook 失败。';
-      setNotices((current) => [
-        {
-          id: `binding-${Date.now()}`,
-          kind: 'error',
-          title: '绑定项目 notebook 失败',
-          body: message,
-        },
-        ...current,
-      ]);
-    } finally {
-      setBindingNotebook(false);
-    }
-  }
-
-  async function handleCreateAndBindProjectNotebook() {
-    setBindingNotebook(true);
-    try {
-      await createAndBindProjectNotebook(projectId);
-      await loadWorkbench({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '创建并绑定项目 Notebook 失败。';
-      setNotices((current) => [
-        {
-          id: `bind-create-${Date.now()}`,
-          kind: 'error',
-          title: '创建并绑定项目 Notebook 失败',
-          body: message,
-        },
-        ...current,
-      ]);
-    } finally {
-      setBindingNotebook(false);
     }
   }
 
@@ -830,20 +757,18 @@ function WorkbenchRoute() {
       state={data.state}
       artifacts={data.artifacts}
       recentInsightIds={recentInsightIds}
-      notebookLibrary={data.notebookLibrary}
       notices={cleanedNotices}
       sending={sending}
       uploading={uploading}
       deletingSourceId={deletingSourceId}
       retryingSourceId={retryingSourceId}
-      bindingNotebook={bindingNotebook}
+      initializingKnowledgeBase={initializingKnowledgeBase}
       onSendMessage={handleSendMessage}
         onUploadTextSource={handleUploadTextSource}
         onUploadFileSource={handleUploadFileSource}
         onDeleteSource={handleDeleteSource}
-        onRetrySourceSync={handleRetrySourceSync}
-        onBindProjectNotebook={handleBindProjectNotebook}
-        onCreateAndBindProjectNotebook={handleCreateAndBindProjectNotebook}
+        onReindexSource={handleRetrySourceSync}
+        onInitializeKnowledgeBase={ensureProjectKnowledgeBase}
       />
   );
 }

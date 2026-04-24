@@ -18,20 +18,19 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
         claude_stream_timeout_seconds=0.1,
         claude_artifact_timeout_seconds=0.3,
-        notebooklm_query_timeout_seconds=0.2,
+        evidence_query_timeout_seconds=0.2,
     )
 
 
 class StubEvidenceRuntime:
     def ensure_available(self):
-        return Path("/tmp/notebooklm")
+        return Path("/tmp/qdrant")
 
     def query(self, project_id: str, question: str, selected_source_ids=None):
-        raise AssertionError("ChatService 不应直接调用 NotebookLM。")
+        raise AssertionError("ChatService 不应直接调用证据 runtime。")
 
 
 class StubArtifactGenerationService:
@@ -48,7 +47,7 @@ class StreamingAgentRuntime:
         yield (
             "assistant_status",
             {
-                "phase": "tool_running:query_notebook_evidence",
+                "phase": "tool_running:query_project_evidence",
                 "label": "正在检索资料证据",
             },
         )
@@ -149,7 +148,7 @@ def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_mess
     service = ChatService(
         catalog=catalog,
         project_state=ProjectStateService(catalog),
-        notebooklm=StubEvidenceRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
         agent_runtime=StreamingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -195,7 +194,7 @@ def test_chat_service_emits_error_and_done_when_runtime_fails(tmp_path: Path) ->
     service = ChatService(
         catalog=catalog,
         project_state=ProjectStateService(catalog),
-        notebooklm=StubEvidenceRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
         agent_runtime=FailingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -220,17 +219,17 @@ def test_chat_service_emits_error_and_done_when_runtime_fails(tmp_path: Path) ->
     assert "Claude 调用失败" in events[1][1]["message"]
 
 
-def test_chat_service_never_queries_notebooklm_directly(tmp_path: Path) -> None:
+def test_chat_service_never_queries_evidence_runtime_directly(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    notebooklm = StubEvidenceRuntime()
+    evidence_runtime = StubEvidenceRuntime()
     service = ChatService(
         catalog=catalog,
         project_state=ProjectStateService(catalog),
-        notebooklm=notebooklm,
+        evidence_runtime=evidence_runtime,
         agent_runtime=StreamingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -258,7 +257,7 @@ def test_chat_service_extends_timeout_while_generating_artifact(tmp_path: Path) 
     service = ChatService(
         catalog=catalog,
         project_state=ProjectStateService(catalog),
-        notebooklm=StubEvidenceRuntime(),
+        evidence_runtime=StubEvidenceRuntime(),
         agent_runtime=SlowArtifactRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )

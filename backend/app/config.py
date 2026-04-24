@@ -35,17 +35,24 @@ class AppSettings:
     sqlite_dir: Path
     sqlite_path: Path
     projects_dir: Path
-    notebooklm_home_dir: Path
+    qdrant_path: Path | None = None
+    qdrant_url: str | None = None
+    qdrant_collection_prefix: str = "project"
+    evidence_backend: str = "qdrant_llamaindex"
+    embedder_backend: str = "fastembed"
+    evidence_query_timeout_seconds: float = 15.0
+    evidence_top_k: int = 6
     claude_cli_path: str | None = None
     claude_model: str | None = None
     claude_max_turns: int = 6
     claude_stream_timeout_seconds: float = 90.0
     claude_structured_timeout_seconds: float = 45.0
     claude_artifact_timeout_seconds: float = 180.0
-    notebooklm_query_timeout_seconds: float = 30.0
-    notebooklm_default_notebook_id: str | None = None
-    notebooklm_mode: str = "real"
     default_timezone: str = "Asia/Shanghai"
+
+    def __post_init__(self) -> None:
+        if self.qdrant_path is None:
+            self.qdrant_path = self.data_dir / "qdrant"
 
     @property
     def cas_project_dir(self) -> Path:
@@ -67,9 +74,7 @@ class AppSettings:
         projects_dir = Path(
             os.getenv("REQUIREMENT_WORKBENCH_PROJECTS_DIR", data_dir / "projects")
         )
-        notebooklm_home_dir = Path(
-            os.getenv("NOTEBOOKLM_HOME", data_dir / "notebooklm")
-        )
+        qdrant_path = Path(os.getenv("REQUIREMENT_WORKBENCH_QDRANT_PATH", data_dir / "qdrant"))
 
         return cls(
             root_dir=root_dir,
@@ -77,7 +82,23 @@ class AppSettings:
             sqlite_dir=sqlite_dir,
             sqlite_path=sqlite_path,
             projects_dir=projects_dir,
-            notebooklm_home_dir=notebooklm_home_dir,
+            qdrant_path=qdrant_path,
+            qdrant_url=os.getenv("REQUIREMENT_WORKBENCH_QDRANT_URL"),
+            qdrant_collection_prefix=os.getenv("REQUIREMENT_WORKBENCH_QDRANT_COLLECTION_PREFIX", "project"),
+            evidence_backend=os.getenv("REQUIREMENT_WORKBENCH_EVIDENCE_BACKEND", "qdrant_llamaindex"),
+            embedder_backend=os.getenv("REQUIREMENT_WORKBENCH_EMBEDDER_BACKEND", "fastembed"),
+            evidence_query_timeout_seconds=float(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS",
+                    os.getenv("EVIDENCE_QUERY_TIMEOUT_SECONDS", "15"),
+                )
+            ),
+            evidence_top_k=int(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_EVIDENCE_TOP_K",
+                    os.getenv("EVIDENCE_TOP_K", "6"),
+                )
+            ),
             claude_cli_path=os.getenv("CLAUDE_CODE_CLI_PATH"),
             claude_model=os.getenv("CLAUDE_MODEL"),
             claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "6")),
@@ -90,11 +111,6 @@ class AppSettings:
             claude_artifact_timeout_seconds=float(
                 os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS", "180")
             ),
-            notebooklm_query_timeout_seconds=float(
-                os.getenv("NOTEBOOKLM_QUERY_TIMEOUT_SECONDS", "30")
-            ),
-            notebooklm_default_notebook_id=os.getenv("NOTEBOOKLM_DEFAULT_NOTEBOOK_ID"),
-            notebooklm_mode=os.getenv("NOTEBOOKLM_MODE", "real").strip().lower() or "real",
             default_timezone=os.getenv("REQUIREMENT_WORKBENCH_TIMEZONE", "Asia/Shanghai"),
         )
 

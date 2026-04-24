@@ -19,11 +19,11 @@ CREATE TABLE IF NOT EXISTS sources (
   upload_kind TEXT NOT NULL,
   storage_path TEXT,
   normalized_path TEXT,
-  notebook_import_mode TEXT,
-  parse_status TEXT NOT NULL,
-  parse_summary TEXT,
-  sync_status TEXT NOT NULL DEFAULT 'pending',
-  sync_error TEXT,
+  index_input_mode TEXT,
+  normalize_status TEXT,
+  normalize_summary TEXT,
+  index_status TEXT,
+  index_error TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -57,13 +57,34 @@ CREATE TABLE IF NOT EXISTS version_snapshots (
   created_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS notebook_bindings (
-  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
-  notebook_id TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   provider TEXT NOT NULL,
-  sync_status TEXT NOT NULL,
-  last_synced_at TEXT,
-  source_url TEXT
+  external_knowledge_base_id TEXT NOT NULL,
+  display_name TEXT,
+  description TEXT,
+  status TEXT NOT NULL,
+  status_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS source_chunks (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  knowledge_base_id TEXT REFERENCES knowledge_bases(id) ON DELETE SET NULL,
+  chunk_order INTEGER NOT NULL,
+  modality TEXT NOT NULL,
+  content TEXT NOT NULL,
+  locator_json TEXT,
+  content_hash TEXT NOT NULL,
+  embedding_status TEXT NOT NULL DEFAULT 'pending',
+  index_error TEXT,
+  indexed_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS demo_artifacts (
@@ -87,3 +108,12 @@ CREATE INDEX IF NOT EXISTS idx_state_items_project_id ON state_items(project_id)
 CREATE INDEX IF NOT EXISTS idx_state_items_category ON state_items(category);
 CREATE INDEX IF NOT EXISTS idx_versions_project_id ON version_snapshots(project_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_project_id ON demo_artifacts(project_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_project_id ON knowledge_bases(project_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_bases_status ON knowledge_bases(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bases_project_provider ON knowledge_bases(project_id, provider);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_project_id ON source_chunks(project_id);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_source_id ON source_chunks(source_id);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_knowledge_base_id ON source_chunks(knowledge_base_id);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_embedding_status ON source_chunks(embedding_status);
+CREATE INDEX IF NOT EXISTS idx_source_chunks_content_hash ON source_chunks(content_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_source_chunks_source_chunk_order ON source_chunks(source_id, chunk_order);
