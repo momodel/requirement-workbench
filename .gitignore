@@ -22,3 +22,6 @@ data/projects/*
 !data/projects/.gitkeep
 data/notebooklm/*
 data/notebooklm-skill/*
+.playwright-mcp/
+data/qdrant/*
+!data/qdrant/.gitkeep
