@@ -137,11 +137,17 @@ class QdrantLlamaIndexVectorStore:
     def _collection_exists(self, collection_name: str) -> bool:
         client = self._get_client()
         if hasattr(client, "collection_exists"):
-            return bool(client.collection_exists(collection_name))
+            try:
+                return bool(client.collection_exists(collection_name))
+            except Exception as exc:
+                raise self._wrap_error(exc, "检查 collection 是否存在") from exc
         try:
             client.get_collection(collection_name)
-        except Exception:
-            return False
+        except Exception as exc:
+            message = str(exc).lower()
+            if "not found" in message or "doesn't exist" in message or "404" in message:
+                return False
+            raise self._wrap_error(exc, "检查 collection 是否存在") from exc
         return True
 
     def _embed_text(self, text: str, *, query: bool) -> list[float]:

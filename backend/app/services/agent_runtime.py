@@ -289,6 +289,10 @@ def _normalize_structured_output_payload(raw) -> dict:
 
     normalized = dict(raw)
     state_patch = raw.get("state_patch") if isinstance(raw.get("state_patch"), dict) else {}
+    if not state_patch and isinstance(raw.get("project_state_patch"), dict):
+        state_patch = raw.get("project_state_patch") or {}
+    if not state_patch and isinstance(raw.get("project_state"), dict):
+        state_patch = raw.get("project_state") or {}
 
     def state_value(key: str):
         if key in raw and raw.get(key) not in (None, ""):

@@ -601,6 +601,20 @@ def test_global_readiness_reports_missing_fastembed_runtime_dependency(
     )
 
 
+def test_ensure_collection_wraps_remote_connection_error(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    store = QdrantLlamaIndexVectorStore(settings)
+
+    class FailingClient:
+        def collection_exists(self, collection_name: str) -> bool:
+            raise RuntimeError("ConnectError")
+
+    store._client = FailingClient()
+
+    with pytest.raises(ProviderIssue, match="检查 collection 是否存在"):
+        store.ensure_collection("project-1")
+
+
 def test_vector_store_upsert_uses_qdrant_compatible_point_ids(tmp_path: Path, monkeypatch) -> None:
     settings = make_settings(tmp_path)
     store = QdrantLlamaIndexVectorStore(settings)

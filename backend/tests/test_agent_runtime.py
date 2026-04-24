@@ -122,6 +122,69 @@ def test_normalize_structured_output_payload_flattens_state_patch_shape() -> Non
     assert output.pending_items[0].title == "退款和冲销是否纳入一期范围？"
 
 
+def test_normalize_structured_output_payload_accepts_project_state_patch_alias() -> None:
+    raw = {
+        "assistant_message": "已写入沉淀。",
+        "project_state_patch": {
+            "current_understanding": [
+                {
+                    "title": "红包分摊先剔除再映射 660201",
+                    "body": "订单金额在进入对账前需要先剔除红包分摊。",
+                    "source_ids": ["src-rule-1"],
+                    "status": "active",
+                }
+            ],
+            "pending_items": [
+                {
+                    "title": "结算单是否沿用同样口径",
+                    "body": "需要确认结算单与退款单是否有独立规则。",
+                    "source_ids": ["src-rule-1"],
+                    "status": "active",
+                }
+            ],
+            "confirmed_items": [],
+            "conflict_items": [],
+            "mvp_items": [],
+        },
+        "citations": [],
+        "request_artifacts": [],
+    }
+
+    normalized = _normalize_structured_output_payload(raw)
+    output = AgentStructuredOutput.model_validate(normalized)
+
+    assert output.current_understanding[0].title == "红包分摊先剔除再映射 660201"
+    assert output.current_understanding[0].source_ids == ["src-rule-1"]
+    assert output.pending_items[0].title == "结算单是否沿用同样口径"
+
+
+def test_normalize_structured_output_payload_accepts_project_state_alias() -> None:
+    raw = {
+        "assistant_message": "已写入沉淀。",
+        "project_state": {
+            "current_understanding": [
+                "红包分摊先剔除再映射 660201：订单金额在进入对账前需要先剔除红包分摊。"
+            ],
+            "pending_items": [
+                "结算单是否沿用同样口径：需要确认结算单与退款单是否有独立规则。"
+            ],
+            "confirmed_items": [],
+            "conflict_items": [],
+            "mvp_items": [],
+            "versions": [],
+            "artifacts": [],
+        },
+        "citations": [],
+        "request_artifacts": [],
+    }
+
+    normalized = _normalize_structured_output_payload(raw)
+    output = AgentStructuredOutput.model_validate(normalized)
+
+    assert output.current_understanding[0].title == "红包分摊先剔除再映射 660201"
+    assert output.pending_items[0].title == "结算单是否沿用同样口径"
+
+
 def test_normalize_generated_artifact_output_payload_unwraps_content_shape() -> None:
     raw = {
         "type": "interaction_flow",
