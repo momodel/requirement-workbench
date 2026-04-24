@@ -2087,6 +2087,55 @@ describe('App', () => {
     expect(screen.getByText('预览内容来自标准化正文。')).toBeInTheDocument();
   });
 
+  it('keeps the source detail preview constrained to the viewport with its own scroll area', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    installFetchMock({
+      ...seedWorkbenchRoutes({
+        sources: [
+          {
+            id: 'src-scroll-preview',
+            project_id: 'seed-reconciliation',
+            name: 'Snipaste_2026-04-24_13-46-26.png',
+            source_kind: 'image',
+            upload_kind: 'file',
+            storage_path: '/tmp/ocr.png',
+            normalized_path: '/tmp/ocr.normalized.md',
+            index_input_mode: 'normalized_text',
+            normalize_status: 'parsed',
+            normalize_summary: '| name | code-reviewer',
+            index_status: 'indexed',
+            index_error: null,
+            created_at: '2026-04-24T13:47:13+08:00',
+          },
+        ],
+      }),
+      '/api/projects/seed-reconciliation/sources/src-scroll-preview/content': {
+        source_id: 'src-scroll-preview',
+        project_id: 'seed-reconciliation',
+        source_name: 'Snipaste_2026-04-24_13-46-26.png',
+        content_status: 'full_text',
+        content_origin: 'normalized_path',
+        content: '长正文 '.repeat(400),
+        detail: '预览内容来自标准化正文。',
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' });
+    await user.click(screen.getByRole('button', { name: 'Snipaste_2026-04-24_13-46-26.png' }));
+
+    const previewPanel = await screen.findByTestId('source-preview-panel');
+    const previewScrollArea = await screen.findByTestId('source-preview-scroll-area');
+
+    expect(previewPanel).toHaveClass('overflow-hidden');
+    expect(previewPanel).toHaveClass('flex');
+    expect(previewScrollArea).toHaveClass('overflow-y-auto');
+    expect(previewScrollArea).toHaveClass('min-h-0');
+  });
+
   it('shows an in-progress note while source reindex is still running', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 

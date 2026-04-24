@@ -308,10 +308,11 @@ function SourcePreview({
   const statusNote = sourceStatusNote(source);
   return createPortal(
     <div
-      className="fixed z-50 w-[420px] max-w-[calc(100vw-1rem)] rounded-[24px] border border-line bg-white p-5 shadow-panel"
-      style={{ top: position.top, left: position.left }}
+      data-testid="source-preview-panel"
+      className="fixed z-50 flex w-[420px] max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-[24px] border border-line bg-white shadow-panel"
+      style={{ top: 16, bottom: 16, left: position.left }}
     >
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-5 py-5">
         <div>
           <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted">File Preview</div>
           <h3 className="mt-2 text-lg font-semibold text-ink">{source.name}</h3>
@@ -320,70 +321,75 @@ function SourcePreview({
           关闭
         </Button>
       </div>
-      <div className="mt-4 space-y-3 text-sm text-muted">
-        <div className="flex flex-wrap gap-2">
-          <Badge>{source.source_kind}</Badge>
-          <Badge variant={statusVariant(source.normalize_status)}>{`标准化：${parseStatusLabel(source.normalize_status)}`}</Badge>
-          <Badge variant={statusVariant(source.index_status)}>{`入库：${indexStatusLabel(source.index_status)}`}</Badge>
-        </div>
-        <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
-          <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">摘要</div>
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{sourceSummaryText(source)}</p>
-        </div>
-        <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">完整内容</div>
-            {contentRecord ? (
-              <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
-                {sourceContentOriginLabel(contentRecord.content_origin)}
-              </Badge>
-            ) : null}
+      <div
+        data-testid="source-preview-scroll-area"
+        className="min-h-0 flex-1 overflow-y-auto px-5 py-4 pr-4 text-sm text-muted"
+      >
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge>{source.source_kind}</Badge>
+            <Badge variant={statusVariant(source.normalize_status)}>{`标准化：${parseStatusLabel(source.normalize_status)}`}</Badge>
+            <Badge variant={statusVariant(source.index_status)}>{`入库：${indexStatusLabel(source.index_status)}`}</Badge>
           </div>
-          <div className="mt-3">
-            {loading ? (
-              <div className="flex items-center gap-2 rounded-[16px] border border-line bg-white p-3 text-sm text-muted">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                正在加载完整正文。
-              </div>
-            ) : error ? (
-              <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                {error}
-              </div>
-            ) : contentRecord?.content ? (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
-                    {sourceContentStatusLabel(contentRecord.content_status)}
-                  </Badge>
-                  <span className="text-xs text-muted">{sourceContentOriginLabel(contentRecord.content_origin)}</span>
+          <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
+          <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">摘要</div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{sourceSummaryText(source)}</p>
+          </div>
+          <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">完整内容</div>
+              {contentRecord ? (
+                <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
+                  {sourceContentOriginLabel(contentRecord.content_origin)}
+                </Badge>
+              ) : null}
+            </div>
+            <div className="mt-3">
+              {loading ? (
+                <div className="flex items-center gap-2 rounded-[16px] border border-line bg-white p-3 text-sm text-muted">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  正在加载完整正文。
                 </div>
-                <pre className="max-h-[340px] overflow-y-auto whitespace-pre-wrap break-words rounded-[16px] border border-line bg-white p-3 font-mono text-[12px] leading-6 text-ink">
-                  {contentRecord.content}
-                </pre>
-              </div>
-            ) : (
-              <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
-                当前没有可展示的正文。
-              </div>
-            )}
-            {contentRecord?.detail ? (
-              <p className="mt-2 text-xs leading-5 text-muted">{contentRecord.detail}</p>
-            ) : null}
+              ) : error ? (
+                <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  {error}
+                </div>
+              ) : contentRecord?.content ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
+                      {sourceContentStatusLabel(contentRecord.content_status)}
+                    </Badge>
+                    <span className="text-xs text-muted">{sourceContentOriginLabel(contentRecord.content_origin)}</span>
+                  </div>
+                  <pre className="max-h-[340px] overflow-y-auto whitespace-pre-wrap break-words rounded-[16px] border border-line bg-white p-3 font-mono text-[12px] leading-6 text-ink">
+                    {contentRecord.content}
+                  </pre>
+                </div>
+              ) : (
+                <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                  当前没有可展示的正文。
+                </div>
+              )}
+              {contentRecord?.detail ? (
+                <p className="mt-2 text-xs leading-5 text-muted">{contentRecord.detail}</p>
+              ) : null}
+            </div>
           </div>
+          {statusNote ? (
+            <div
+              className={cn(
+                'rounded-2xl border p-3',
+                statusNote.tone === 'danger' && 'border-amber-200 bg-amber-50 text-amber-800',
+                statusNote.tone === 'warning' && 'border-sky-200 bg-sky-50 text-sky-800',
+                statusNote.tone === 'info' && 'border-slate-200 bg-slate-50 text-slate-700'
+              )}
+            >
+              {statusNote.text}
+            </div>
+          ) : null}
         </div>
-        {statusNote ? (
-          <div
-            className={cn(
-              'rounded-2xl border p-3',
-              statusNote.tone === 'danger' && 'border-amber-200 bg-amber-50 text-amber-800',
-              statusNote.tone === 'warning' && 'border-sky-200 bg-sky-50 text-sky-800',
-              statusNote.tone === 'info' && 'border-slate-200 bg-slate-50 text-slate-700'
-            )}
-          >
-            {statusNote.text}
-          </div>
-        ) : null}
       </div>
     </div>,
     document.body
@@ -761,8 +767,8 @@ export function WorkbenchPage({
                             onClick={async (event) => {
                               const rect = event.currentTarget.getBoundingClientRect();
                               await handleOpenSourcePreview(source, {
-                                top: Math.min(rect.top, window.innerHeight - 300),
-                                left: Math.min(rect.right + 12, window.innerWidth - 440),
+                                top: rect.top,
+                                left: Math.max(8, Math.min(rect.right + 12, window.innerWidth - 440)),
                               });
                             }}
                           >
