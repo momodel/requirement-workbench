@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -27,6 +29,24 @@ from .services.project_state import ProjectStateService
 from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
 from .services.seed_projects import ensure_seed_project
 from .services.source_ingestion import SourceIngestionService
+
+
+def _configure_windows_asyncio_policy() -> None:
+    if sys.platform != "win32":
+        return
+
+    proactor_policy_cls = getattr(asyncio, "WindowsProactorEventLoopPolicy", None)
+    if proactor_policy_cls is None:
+        return
+
+    current_policy = asyncio.get_event_loop_policy()
+    if isinstance(current_policy, proactor_policy_cls):
+        return
+
+    asyncio.set_event_loop_policy(proactor_policy_cls())
+
+
+_configure_windows_asyncio_policy()
 
 
 @dataclass(slots=True)

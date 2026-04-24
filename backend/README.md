@@ -21,3 +21,5 @@
 - 仅启动后端并不会自动让项目进入“可检索”状态；knowledge base 初始化完成且至少一条 source 已完成索引后，Evidence 检索才真正可用
 - `CLAUDE_MODEL` 是 Claude runtime 的硬前置条件，缺失时 readiness 和执行入口都会拒绝继续
 - 仍需按 `docs/planning/fullstack-phase1-todo.md` 继续完成真实环境 provider readiness 验收与收尾联调
+- Windows 下 Claude 聊天和 artifact 生成依赖 `Claude Agent SDK` 拉起本地 `claude` CLI 子进程；后端必须通过 `app.main:app` 启动，应用入口会自动切到支持 subprocess 的 `ProactorEventLoopPolicy`
+- 如果 Windows 上曾经启动过旧的 backend / `uvicorn --reload` worker，更新代码后要先彻底关掉旧进程，再重新启动；否则聊天接口可能继续沿用旧的事件循环配置并报 `asyncio 事件循环不支持 subprocess`

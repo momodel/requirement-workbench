@@ -3,6 +3,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 
 import pytest
+from claude_agent_sdk._errors import CLIConnectionError
 
 from app.config import AppSettings
 from app.services import agent_runtime as agent_runtime_module
@@ -908,6 +909,71 @@ def test_run_turn_wraps_invalid_structured_output_as_provider_issue(
         asyncio.run(collect())
 
     assert "无法解析的结构化结果" in exc_info.value.message
+
+
+def test_stream_assistant_text_wraps_cli_connection_error_as_provider_issue(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model="glm-5",
+        )
+    )
+
+    monkeypatch.setattr(runtime, "ensure_available", lambda: None)
+
+    async def fake_query(*, prompt, options):
+        raise CLIConnectionError("Failed to start Claude Code: ") from NotImplementedError()
+        if False:
+            yield None
+
+    monkeypatch.setattr(agent_runtime_module, "query", fake_query)
+
+    async def collect():
+        chunks = []
+        async for chunk in runtime.stream_assistant_text(
+            AgentTurnInput(
+                project=ProjectSummary(
+                    id="project-1",
+                    name="集团业财逐笔对账需求分析",
+                    scenario_type="reconciliation",
+                    summary="分析业财逐笔对账需求。",
+                    status="active",
+                    created_at="2026-04-16T10:00:00+08:00",
+                    updated_at="2026-04-16T10:00:00+08:00",
+                    seed_key="reconciliation",
+                ),
+                state=ProjectState(
+                    current_understanding=[],
+                    pending_items=[],
+                    confirmed_items=[],
+                    conflict_items=[],
+                    mvp_items=[],
+                    versions=[],
+                    artifacts=[],
+                ),
+                user_message="继续分析",
+                selected_source_ids=[],
+                source_summaries=[],
+                evidence_summary="",
+                evidence_citations=[],
+                request_artifact_types=[],
+            )
+        ):
+            chunks.append(chunk)
+        return chunks
+
+    with pytest.raises(ProviderIssue) as exc_info:
+        asyncio.run(collect())
+
+    assert "不支持 subprocess" in exc_info.value.message
 
 
 def test_generate_artifact_retries_html_parse_failure_once(

@@ -174,6 +174,13 @@ cd backend
 ./.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 9300 --reload
 ```
 
+Windows 补充说明：
+
+- Claude 聊天和 artifact 生成会通过 `Claude Agent SDK` 拉起本地 `claude` CLI 子进程。
+- 当前后端会在 `app.main` 导入时自动切到支持 subprocess 的 `ProactorEventLoopPolicy`，所以在 Windows 下要用上面这条命令启动 `app.main:app`，不要绕开项目入口自己换事件循环实现。
+- 如果你在修复前已经启动过旧的 backend 进程，或者还留着旧的 `uvicorn --reload` worker，请先彻底关掉旧进程，再重新启动后端。否则即使代码已经更新，聊天接口也可能继续报：
+  `Claude Agent SDK 无法启动 Claude Code 子进程。当前运行环境的 asyncio 事件循环不支持 subprocess。`
+
 后端启动后会自动：
 
 - 初始化 SQLite
@@ -292,6 +299,29 @@ pip install -r requirements.txt
 
 - 让 `claude` 出现在 `PATH`
 - 或在 `backend/.env.local` 配 `CLAUDE_CODE_CLI_PATH`
+
+### 2a. Windows 下出现“asyncio 事件循环不支持 subprocess”
+
+如果聊天或 artifact 生成时报下面这类错误：
+
+```text
+Claude Agent SDK 无法启动 Claude Code 子进程。
+当前运行环境的 asyncio 事件循环不支持 subprocess。
+Windows 下请使用 ProactorEventLoopPolicy 后再启动后端。
+```
+
+按这个顺序处理：
+
+1. 确认你是用项目内后端入口启动的，而不是其他临时脚本：
+
+```bash
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 9300 --reload
+```
+
+2. 关闭所有旧的 backend / uvicorn 进程，再重新启动。
+3. 不要在 Windows 下把后端跑在自定义的 selector 事件循环实现上。
+4. 如果仍然报错，再检查当前实际运行的进程是不是这份仓库里的 `backend/.venv\Scripts\python.exe` 启动的。
 
 ### 3. `Claude 显示未配置`
 

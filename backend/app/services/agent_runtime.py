@@ -9,6 +9,7 @@ from typing import AsyncIterator
 
 from claude_agent_sdk import (
     AssistantMessage,
+    CLIConnectionError,
     CLINotFoundError,
     ClaudeAgentOptions,
     ResultMessage,
@@ -486,6 +487,24 @@ class ClaudeAgentRuntime:
                 message="缺少 CLAUDE_MODEL，先补充模型配置后再继续。",
             )
 
+    @staticmethod
+    def _wrap_cli_connection_error(exc: CLIConnectionError) -> ProviderIssue:
+        if isinstance(exc.__cause__, NotImplementedError):
+            return ProviderIssue(
+                provider="CLAUDE_AGENT_SDK",
+                message=(
+                    "Claude Agent SDK 无法启动 Claude Code 子进程。"
+                    "当前运行环境的 asyncio 事件循环不支持 subprocess。"
+                    "Windows 下请使用 ProactorEventLoopPolicy 后再启动后端。"
+                ),
+            )
+
+        message = str(exc).strip() or "Claude Agent SDK 无法连接 Claude Code CLI。"
+        return ProviderIssue(
+            provider="CLAUDE_AGENT_SDK",
+            message=message,
+        )
+
     def resolved_cli_path(self) -> str:
         cli_path = self.settings.claude_cli_path
         if cli_path:
@@ -805,6 +824,8 @@ class ClaudeAgentRuntime:
                 provider="CLAUDE_AGENT_SDK",
                 message=f"未找到 Claude Code CLI：{exc}",
             ) from exc
+        except CLIConnectionError as exc:
+            raise self._wrap_cli_connection_error(exc) from exc
         except FileNotFoundError as exc:
             raise ProviderIssue(
                 provider="CLAUDE_AGENT_SDK",
@@ -946,6 +967,8 @@ class ClaudeAgentRuntime:
                 provider="CLAUDE_AGENT_SDK",
                 message=f"未找到 Claude Code CLI：{exc}",
             ) from exc
+        except CLIConnectionError as exc:
+            raise self._wrap_cli_connection_error(exc) from exc
         except FileNotFoundError as exc:
             raise ProviderIssue(
                 provider="CLAUDE_AGENT_SDK",
@@ -1034,6 +1057,8 @@ class ClaudeAgentRuntime:
                 provider="CLAUDE_AGENT_SDK",
                 message=f"未找到 Claude Code CLI：{exc}",
             ) from exc
+        except CLIConnectionError as exc:
+            raise self._wrap_cli_connection_error(exc) from exc
         except FileNotFoundError as exc:
             raise ProviderIssue(
                 provider="CLAUDE_AGENT_SDK",
