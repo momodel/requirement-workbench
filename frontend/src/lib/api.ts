@@ -10,6 +10,7 @@ import type {
   ProjectState,
   ProjectReadiness,
   ProjectSummary,
+  SourceContentRecord,
   SourceRecord,
   SseEventPayload,
 } from './types';
@@ -145,6 +146,30 @@ function assertSourceRecordList(value: unknown, context: string): asserts value 
   });
 }
 
+function assertSourceContentRecord(value: unknown, context: string): asserts value is SourceContentRecord {
+  if (!isJsonObject(value)) {
+    throw new Error(`${context} returned an invalid source content payload: expected an object.`);
+  }
+
+  const requiredStringFields = ['source_id', 'project_id', 'source_name', 'content_status'] as const;
+  for (const fieldName of requiredStringFields) {
+    if (typeof value[fieldName] !== 'string' || value[fieldName].length === 0) {
+      throw new Error(
+        `${context} returned an invalid source content payload: missing canonical field "${fieldName}".`
+      );
+    }
+  }
+
+  const nullableStringFields = ['content_origin', 'content', 'detail'] as const;
+  for (const fieldName of nullableStringFields) {
+    if (!hasNullableStringField(value, fieldName)) {
+      throw new Error(
+        `${context} returned an invalid source content payload: missing canonical field "${fieldName}".`
+      );
+    }
+  }
+}
+
 export function listProjects() {
   return fetchJson<ProjectSummary[]>('/api/projects');
 }
@@ -196,6 +221,13 @@ export function getProjectKnowledgeBase(projectId: string) {
 export function listSources(projectId: string) {
   return fetchJson<unknown>(`/api/projects/${projectId}/sources`).then((payload) => {
     assertSourceRecordList(payload, 'Source list');
+    return payload;
+  });
+}
+
+export function getProjectSourceContent(projectId: string, sourceId: string) {
+  return fetchJson<unknown>(`/api/projects/${projectId}/sources/${sourceId}/content`).then((payload) => {
+    assertSourceContentRecord(payload, 'Source content');
     return payload;
   });
 }

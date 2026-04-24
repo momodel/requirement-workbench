@@ -4,7 +4,12 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 
-from ..models import ProviderIssue
+from ..models import ProviderIssue, SourceContentRecord
+from ..services.evidence_indexing import (
+    TEXT_LIKE_SOURCE_KINDS,
+    TEXT_LIKE_SUFFIXES,
+    TEXT_LIKE_UPLOAD_KINDS,
+)
 
 router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"])
 
@@ -14,6 +19,88 @@ def _serialize_source_record(source_record):
     if hasattr(source_record, "model_dump"):
         return source_record.model_dump()
     return dict(source_record)
+
+
+def _can_preview_raw_text(source) -> bool:
+    source_kind = source.source_kind.strip().lower()
+    upload_kind = source.upload_kind.strip().lower()
+    if source_kind == "url" or upload_kind == "url":
+        return False
+
+    if source_kind in TEXT_LIKE_SOURCE_KINDS or upload_kind in TEXT_LIKE_UPLOAD_KINDS:
+        return True
+
+    candidate_path = source.storage_path or source.normalized_path or source.name
+    return Path(candidate_path).suffix.lower() in TEXT_LIKE_SUFFIXES
+
+
+def _read_preview_text(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+    normalized = text.strip()
+    return normalized or None
+
+
+def _build_source_content_record(source) -> SourceContentRecord:
+    normalized_path = Path(source.normalized_path) if source.normalized_path else None
+    if normalized_path and normalized_path.exists():
+        content = _read_preview_text(normalized_path)
+        if content:
+            return SourceContentRecord(
+                source_id=source.id,
+                project_id=source.project_id,
+                source_name=source.name,
+                content_status="full_text",
+                content_origin="normalized_path",
+                content=content,
+                detail="预览内容来自标准化正文。",
+            )
+
+    storage_path = Path(source.storage_path) if source.storage_path else None
+    if storage_path and storage_path.exists() and _can_preview_raw_text(source):
+        content = _read_preview_text(storage_path)
+        if content:
+            return SourceContentRecord(
+                source_id=source.id,
+                project_id=source.project_id,
+                source_name=source.name,
+                content_status="full_text",
+                content_origin="storage_path",
+                content=content,
+                detail="预览内容来自原始文本资料。",
+            )
+
+    summary = source.normalize_summary.strip() if source.normalize_summary else ""
+    if summary:
+        if source.normalize_status == "pending":
+            detail = "资料已登记，但当前还没有生成可展示的完整正文；这里返回的是当前摘要。"
+        elif source.normalize_status in {"failed", "error"}:
+            detail = "标准化失败，当前只能展示已有摘要，完整正文不可用。"
+        else:
+            detail = "当前预览没有拿到完整正文，因此先返回标准化摘要。"
+
+        return SourceContentRecord(
+            source_id=source.id,
+            project_id=source.project_id,
+            source_name=source.name,
+            content_status="summary_only",
+            content_origin="normalize_summary",
+            content=summary,
+            detail=detail,
+        )
+
+    return SourceContentRecord(
+        source_id=source.id,
+        project_id=source.project_id,
+        source_name=source.name,
+        content_status="unavailable",
+        content_origin=None,
+        content=None,
+        detail="当前资料还没有可展示的正文或摘要。",
+    )
 
 
 def _resolve_index_outcome(services, project_id: str, normalized_source) -> tuple[str, str | None]:
@@ -124,6 +211,20 @@ def list_sources(project_id: str, request: Request):
         _serialize_source_record(source_record)
         for source_record in request.app.state.services.catalog.list_sources(project_id)
     ]
+
+
+@router.get("/{source_id}/content")
+def get_source_content(project_id: str, source_id: str, request: Request):
+    services = request.app.state.services
+    project = services.catalog.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    source = services.catalog.get_source(source_id)
+    if not source or source.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Source not found")
+
+    return _build_source_content_record(source).model_dump()
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

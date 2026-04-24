@@ -124,6 +124,18 @@ class SourceRecord(BaseModel):
         return self.model_dump()
 
 
+class SourceContentRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    project_id: str
+    source_name: str
+    content_status: Literal["full_text", "summary_only", "unavailable"]
+    content_origin: Literal["normalized_path", "storage_path", "normalize_summary"] | None = None
+    content: str | None = None
+    detail: str | None = None
+
+
 class MessageRecord(BaseModel):
     id: str
     role: str

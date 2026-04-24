@@ -270,6 +270,103 @@ def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None
             assert source["normalize_status"] == "parsed"
 
 
+def test_source_content_endpoint_returns_full_text_for_text_upload(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "资料预览测试",
+                "scenario_type": "general",
+                "summary": "验证 source content 返回完整文本",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        text_content = (
+            "第一段：这里是为了验证预览读取完整正文而不是摘要。\n\n"
+            "第二段：正文长度需要明显超过 240 个字符，因此我继续补充一些背景说明，"
+            "包括业务规则、字段口径、异常处理和人工兜底动作，让这段文本足够长。"
+            "第三段：最后一段应该仍然能在预览接口里完整返回，而不是只保留前 240 个字符。"
+        )
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={
+                "upload_kind": "text",
+                "name": "长文本资料",
+                "text_content": text_content,
+            },
+        )
+        assert upload_response.status_code == 201
+        source_id = upload_response.json()["id"]
+
+        content_response = client.get(
+            f"/api/projects/{project_id}/sources/{source_id}/content"
+        )
+
+    assert content_response.status_code == 200
+    payload = content_response.json()
+    assert payload["source_id"] == source_id
+    assert payload["content_status"] == "full_text"
+    assert payload["content_origin"] == "normalized_path"
+    assert payload["content"] == text_content
+    assert "第三段：最后一段应该仍然能在预览接口里完整返回" in payload["content"]
+
+
+def test_source_content_endpoint_returns_full_docling_text_for_image_upload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    normalized_markdown = (
+        "| name | description |\n"
+        "| --- | --- |\n"
+        "| code-reviewer | 这是 OCR 识别出来的完整正文，用来验证图片导入后的预览不会只剩摘要。 |\n\n"
+        "补充段落：这里继续追加更多说明文字，让内容长度明显超过摘要截断上限。"
+        "最终这句“超过 240 字后的正文仍然可见”必须出现在预览接口返回值里。"
+    )
+    monkeypatch.setattr(
+        app.state.services.source_ingestion.docling_normalizer,
+        "normalize_to_markdown",
+        lambda _path: normalized_markdown,
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "图片预览测试",
+                "scenario_type": "general",
+                "summary": "验证图片 OCR 预览返回完整正文",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "截图资料"},
+            files={"file": ("ocr-sample.png", b"fake-png-binary", "image/png")},
+        )
+        assert upload_response.status_code == 201
+        source_id = upload_response.json()["id"]
+
+        content_response = client.get(
+            f"/api/projects/{project_id}/sources/{source_id}/content"
+        )
+
+    assert content_response.status_code == 200
+    payload = content_response.json()
+    assert payload["source_id"] == source_id
+    assert payload["content_status"] == "full_text"
+    assert payload["content_origin"] == "normalized_path"
+    assert payload["content"] == normalized_markdown
+    assert "超过 240 字后的正文仍然可见" in payload["content"]
+
+
 def test_project_knowledge_base_init_and_get_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_evidence_runtime(app, monkeypatch)

@@ -32,6 +32,7 @@ import {
 } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
 import { Textarea } from '../../components/ui/textarea';
+import { getProjectSourceContent } from '../../lib/api';
 import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
@@ -40,6 +41,7 @@ import type {
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
+  SourceContentRecord,
   SourceRecord,
   StateItem,
 } from '../../lib/types';
@@ -168,6 +170,19 @@ function indexStatusLabel(status: string) {
   return status;
 }
 
+function sourceContentStatusLabel(status: SourceContentRecord['content_status']) {
+  if (status === 'full_text') return '完整正文';
+  if (status === 'summary_only') return '仅摘要';
+  return '暂无正文';
+}
+
+function sourceContentOriginLabel(origin: SourceContentRecord['content_origin']) {
+  if (origin === 'normalized_path') return '标准化正文';
+  if (origin === 'storage_path') return '原始文本';
+  if (origin === 'normalize_summary') return '标准化摘要';
+  return '正文不可用';
+}
+
 function sourceSummaryText(source: SourceRecord) {
   const summary = source.normalize_summary?.trim();
   if (summary) return summary;
@@ -278,16 +293,22 @@ function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
 function SourcePreview({
   source,
   position,
+  contentRecord,
+  loading,
+  error,
   onClose,
 }: {
   source: SourceRecord;
   position: { top: number; left: number };
+  contentRecord: SourceContentRecord | null;
+  loading: boolean;
+  error: string | null;
   onClose: () => void;
 }) {
   const statusNote = sourceStatusNote(source);
   return createPortal(
     <div
-      className="fixed z-50 w-[360px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
+      className="fixed z-50 w-[420px] max-w-[calc(100vw-1rem)] rounded-[24px] border border-line bg-white p-5 shadow-panel"
       style={{ top: position.top, left: position.left }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -306,7 +327,51 @@ function SourcePreview({
           <Badge variant={statusVariant(source.index_status)}>{`入库：${indexStatusLabel(source.index_status)}`}</Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{sourceSummaryText(source)}</p>
+        <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
+          <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">摘要</div>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink">{sourceSummaryText(source)}</p>
+        </div>
+        <div className="rounded-[18px] border border-line bg-slate-50/70 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">完整内容</div>
+            {contentRecord ? (
+              <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
+                {sourceContentOriginLabel(contentRecord.content_origin)}
+              </Badge>
+            ) : null}
+          </div>
+          <div className="mt-3">
+            {loading ? (
+              <div className="flex items-center gap-2 rounded-[16px] border border-line bg-white p-3 text-sm text-muted">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在加载完整正文。
+              </div>
+            ) : error ? (
+              <div className="rounded-[16px] border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                {error}
+              </div>
+            ) : contentRecord?.content ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant={contentRecord.content_status === 'full_text' ? 'success' : 'default'}>
+                    {sourceContentStatusLabel(contentRecord.content_status)}
+                  </Badge>
+                  <span className="text-xs text-muted">{sourceContentOriginLabel(contentRecord.content_origin)}</span>
+                </div>
+                <pre className="max-h-[340px] overflow-y-auto whitespace-pre-wrap break-words rounded-[16px] border border-line bg-white p-3 font-mono text-[12px] leading-6 text-ink">
+                  {contentRecord.content}
+                </pre>
+              </div>
+            ) : (
+              <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                当前没有可展示的正文。
+              </div>
+            )}
+            {contentRecord?.detail ? (
+              <p className="mt-2 text-xs leading-5 text-muted">{contentRecord.detail}</p>
+            ) : null}
+          </div>
+        </div>
         {statusNote ? (
           <div
             className={cn(
@@ -448,11 +513,15 @@ export function WorkbenchPage({
   const [urlSourceName, setUrlSourceName] = useState('退款规则链接');
   const [sourceUrl, setSourceUrl] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
+  const [sourcePreviewContent, setSourcePreviewContent] = useState<SourceContentRecord | null>(null);
+  const [sourcePreviewLoading, setSourcePreviewLoading] = useState(false);
+  const [sourcePreviewError, setSourcePreviewError] = useState<string | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
   const [activeDocument, setActiveDocument] = useState<ArtifactRecord | null>(null);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const sourcePreviewRequestIdRef = useRef(0);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
 
   const latestVersions = state.versions.slice(0, 3);
@@ -519,6 +588,44 @@ export function WorkbenchPage({
 
   async function handleInitializeKnowledgeBase() {
     await onInitializeKnowledgeBase();
+  }
+
+  async function handleOpenSourcePreview(
+    source: SourceRecord,
+    position: { top: number; left: number }
+  ) {
+    const requestId = ++sourcePreviewRequestIdRef.current;
+    setSelectedSource(source);
+    setSourcePreviewPosition(position);
+    setSourcePreviewContent(null);
+    setSourcePreviewError(null);
+    setSourcePreviewLoading(true);
+
+    try {
+      const contentRecord = await getProjectSourceContent(project.id, source.id);
+      if (sourcePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      setSourcePreviewContent(contentRecord);
+    } catch (error) {
+      if (sourcePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+      const message = error instanceof Error ? error.message : '资料正文加载失败。';
+      setSourcePreviewError(message);
+    } finally {
+      if (sourcePreviewRequestIdRef.current === requestId) {
+        setSourcePreviewLoading(false);
+      }
+    }
+  }
+
+  function handleCloseSourcePreview() {
+    sourcePreviewRequestIdRef.current += 1;
+    setSelectedSource(null);
+    setSourcePreviewContent(null);
+    setSourcePreviewError(null);
+    setSourcePreviewLoading(false);
   }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -651,13 +758,12 @@ export function WorkbenchPage({
                           <button
                             type="button"
                             className="min-w-0 flex-1 text-left"
-                            onClick={(event) => {
+                            onClick={async (event) => {
                               const rect = event.currentTarget.getBoundingClientRect();
-                              setSourcePreviewPosition({
+                              await handleOpenSourcePreview(source, {
                                 top: Math.min(rect.top, window.innerHeight - 300),
-                                left: Math.min(rect.right + 12, window.innerWidth - 380),
+                                left: Math.min(rect.right + 12, window.innerWidth - 440),
                               });
-                              setSelectedSource(source);
                             }}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -970,7 +1076,10 @@ export function WorkbenchPage({
         <SourcePreview
           source={selectedSource}
           position={sourcePreviewPosition}
-          onClose={() => setSelectedSource(null)}
+          contentRecord={sourcePreviewContent}
+          loading={sourcePreviewLoading}
+          error={sourcePreviewError}
+          onClose={handleCloseSourcePreview}
         />
       ) : null}
 

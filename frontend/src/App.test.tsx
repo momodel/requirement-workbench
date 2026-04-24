@@ -2037,6 +2037,56 @@ describe('App', () => {
     });
   });
 
+  it('loads full source content in the preview instead of only showing the summary snippet', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const fullContent =
+      '第一段：这是完整正文的开头，用于说明当前资料已经成功标准化。\\n\\n' +
+      '第二段：这里继续补充业务说明、规则边界和异常处理，让内容长度明显超过左栏摘要的展示范围。\\n\\n' +
+      '第三段尾声：这里必须能看到 240 字之后的正文，否则就说明预览仍然只显示摘要。';
+
+    installFetchMock({
+      ...seedWorkbenchRoutes({
+        sources: [
+          {
+            id: 'src-long-preview',
+            project_id: 'seed-reconciliation',
+            name: 'Superpowers README',
+            source_kind: 'text',
+            upload_kind: 'text',
+            storage_path: '/tmp/Superpowers README.txt',
+            normalized_path: '/tmp/Superpowers README.txt',
+            index_input_mode: 'direct_text',
+            normalize_status: 'parsed',
+            normalize_summary: '第一段：这是左栏摘要，只应该出现在列表卡片，不应该替代完整正文预览。',
+            index_status: 'indexed',
+            index_error: null,
+            created_at: '2026-04-24T13:39:38+08:00',
+          },
+        ],
+      }),
+      '/api/projects/seed-reconciliation/sources/src-long-preview/content': {
+        source_id: 'src-long-preview',
+        project_id: 'seed-reconciliation',
+        source_name: 'Superpowers README',
+        content_status: 'full_text',
+        content_origin: 'normalized_path',
+        content: fullContent,
+        detail: '预览内容来自标准化正文。',
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' });
+    await user.click(screen.getByRole('button', { name: 'Superpowers README' }));
+
+    expect(await screen.findByText('完整内容')).toBeInTheDocument();
+    expect(await screen.findByText(/第三段尾声：这里必须能看到 240 字之后的正文/)).toBeInTheDocument();
+    expect(screen.getByText('预览内容来自标准化正文。')).toBeInTheDocument();
+  });
+
   it('shows an in-progress note while source reindex is still running', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
