@@ -10,6 +10,7 @@ import {
   Loader2,
   MonitorCog,
   PanelRight,
+  Paperclip,
   Send,
   Sparkles,
   Trash2,
@@ -1153,6 +1154,7 @@ export function WorkbenchPage({
   const [pendingChatImages, setPendingChatImages] = useState<PendingChatImage[]>([]);
   const pendingChatImagesRef = useRef<PendingChatImage[]>([]);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
+  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
   const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
@@ -1679,6 +1681,29 @@ export function WorkbenchPage({
                       className="min-h-[76px] pr-16"
                     />
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted hover:text-terracotta"
+                        aria-label="添加图片"
+                        onClick={() => chatImageInputRef.current?.click()}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      <input
+                        ref={chatImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={async (event) => {
+                          const files = Array.from(event.target.files ?? []);
+                          if (files.length > 0) {
+                            await handleSelectChatImages(files);
+                          }
+                          event.target.value = '';
+                        }}
+                      />
                       <Button
                         onClick={handleSend}
                         disabled={sending || (!composer.trim() && pendingChatImages.length === 0)}
