@@ -152,6 +152,7 @@ def test_request_submit_task_uses_documented_body_parameter_contract(
         payload={
             "appkey": "aliyun-app-key",
             "file_link": "https://audio.example.com/call.mp3",
+            "enable_sample_rate_adaptive": True,
             "version": "4.0",
             "enable_words": False,
         },
@@ -176,6 +177,7 @@ def test_request_submit_task_uses_documented_body_parameter_contract(
                 {
                     "appkey": "aliyun-app-key",
                     "file_link": "https://audio.example.com/call.mp3",
+                    "enable_sample_rate_adaptive": True,
                     "version": "4.0",
                     "enable_words": False,
                 },
@@ -305,6 +307,7 @@ def test_submit_task_sends_required_payload_and_returns_task_id(
         "appkey": "aliyun-app-key",
         "file_link": "https://audio.example.com/audio/project-1/src-1/call.mp3",
         "version": "4.0",
+        "enable_sample_rate_adaptive": True,
         "enable_words": False,
         "enable_timestamp_alignment": True,
         "source_name": "call.mp3",

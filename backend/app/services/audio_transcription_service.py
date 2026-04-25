@@ -200,6 +200,7 @@ class AudioTranscriptionService:
                 "appkey": self.settings.aliyun_app_key,
                 "file_link": file_url,
                 "version": "4.0",
+                "enable_sample_rate_adaptive": True,
                 "enable_words": False,
                 "enable_timestamp_alignment": True,
                 "source_name": source_name,

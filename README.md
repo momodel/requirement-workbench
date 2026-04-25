@@ -138,7 +138,48 @@ which claude
 
 如果 `which claude` 没输出，就需要配 `CLAUDE_CODE_CLI_PATH`。
 
-### 4. 配置项目内 RAG
+### 4. 配置音频 ASR + 七牛（可选，仅音频上传需要）
+
+如果当前要验证“音频上传 -> 七牛对象存储 -> 阿里云转写 -> normalized text -> 项目内索引”这条链路，还需要在 `backend/.env.local` 里补音频 provider 配置。
+
+阿里云转写：
+
+```bash
+REQUIREMENT_WORKBENCH_ALIYUN_AK_ID=你的AccessKeyId
+REQUIREMENT_WORKBENCH_ALIYUN_AK_SECRET=你的AccessKeySecret
+REQUIREMENT_WORKBENCH_ALIYUN_APP_KEY=你的AppKey
+REQUIREMENT_WORKBENCH_ALIYUN_FILETRANS_REGION=cn-shanghai
+REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_BACKEND=aliyun_filetrans
+REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_TIMEOUT_SECONDS=300
+REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_POLL_INTERVAL_SECONDS=2
+```
+
+七牛对象存储：
+
+```bash
+REQUIREMENT_WORKBENCH_QINIU_ACCESS_KEY=你的QiniuAccessKey
+REQUIREMENT_WORKBENCH_QINIU_SECRET_KEY=你的QiniuSecretKey
+REQUIREMENT_WORKBENCH_QINIU_BUCKET=你的Bucket
+REQUIREMENT_WORKBENCH_QINIU_DOMAIN=https://你的公开访问域名
+REQUIREMENT_WORKBENCH_QINIU_KEY_PREFIX=audio
+```
+
+说明：
+
+- 这部分只在“音频 source 正式链路”里需要，文本 / PDF / 图片 / XLSX / URL 不依赖它
+- 当前实现不做静默 fallback；未配置时，音频 source 会明确返回 `not_configured` / `normalization_failed`
+- 七牛 `Domain` 必须是阿里云 FileTrans 可访问的公开地址，否则转写任务无法读取音频文件
+
+音频链路排障脚本放在 `backend/scripts/`：
+
+```bash
+cd backend
+source .venv/bin/activate
+python scripts/check_audio_pipeline_config.py
+python scripts/probe_audio_pipeline.py --url https://your-public-audio-url/test.mp3 --source-name test.mp3
+```
+
+### 5. 配置项目内 RAG
 
 项目知识库不再依赖外部笔记本登录。默认使用本地 Qdrant 路径和 FastEmbed embedding。
 
@@ -157,7 +198,7 @@ REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS=15
 - 上传 source 后会先落原文，再标准化、切 chunk、写入向量索引
 - 缺依赖、embedding 初始化失败或 Qdrant 不可用时，readiness 会明确报错
 
-### 5. 启动后端
+### 6. 启动后端
 
 ```bash
 cd backend
@@ -171,7 +212,7 @@ source .venv/bin/activate
 - 初始化数据目录
 - 确保 seed project 存在
 
-### 6. 启动前端
+### 7. 启动前端
 
 ```bash
 cd frontend
@@ -258,6 +299,22 @@ REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS=15
 - embedding 模型是否初始化成功
 - 当前项目是否已初始化 knowledge base
 - 最近上传的资料是否已完成索引
+
+### 6. 音频上传显示 `not_configured` 或 `normalization_failed`
+
+先确认是不是音频 provider 没配齐。
+
+当前音频主链路至少依赖：
+
+- 七牛：`REQUIREMENT_WORKBENCH_QINIU_ACCESS_KEY`
+- 七牛：`REQUIREMENT_WORKBENCH_QINIU_SECRET_KEY`
+- 七牛：`REQUIREMENT_WORKBENCH_QINIU_BUCKET`
+- 七牛：`REQUIREMENT_WORKBENCH_QINIU_DOMAIN`
+- 阿里云：`REQUIREMENT_WORKBENCH_ALIYUN_AK_ID`
+- 阿里云：`REQUIREMENT_WORKBENCH_ALIYUN_AK_SECRET`
+- 阿里云：`REQUIREMENT_WORKBENCH_ALIYUN_APP_KEY`
+
+如果这些变量缺失，当前实现会诚实报错，不会伪装成“正在处理中”。
 
 ### 5. 某个 source 变成 `index_failed`
 
