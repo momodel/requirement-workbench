@@ -469,6 +469,43 @@ def test_wait_for_result_raises_on_dict_sentence_missing_required_fields(
     assert exc_info.value.message == "阿里云转写结果格式异常。"
 
 
+@pytest.mark.parametrize(
+    ("label", "sentence"),
+    [
+        (
+            "nan_begin",
+            {"BeginTime": float("nan"), "EndTime": 2345, "Text": "hello"},
+        ),
+        (
+            "pos_inf_end",
+            {"BeginTime": 1234, "EndTime": float("inf"), "Text": "hello"},
+        ),
+        (
+            "neg_inf_begin",
+            {"BeginTime": float("-inf"), "EndTime": 2345, "Text": "hello"},
+        ),
+    ],
+)
+def test_wait_for_result_raises_on_non_finite_timestamp_sentence_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    label: str,
+    sentence: dict[str, object],
+) -> None:
+    service = AudioTranscriptionService(make_settings(tmp_path))
+    monkeypatch.setattr(
+        service,
+        "_request",
+        lambda **_: {"StatusText": "SUCCESS", "Result": {"Sentences": [sentence]}},
+    )
+
+    with pytest.raises(ProviderIssue) as exc_info:
+        service._wait_for_result(f"task-{label}")
+
+    assert exc_info.value.provider == ALIYUN_FILETRANS
+    assert exc_info.value.message == "阿里云转写结果格式异常。"
+
+
 def test_wait_for_result_raises_on_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

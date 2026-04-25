@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -140,13 +141,13 @@ class AudioTranscriptionService:
         if value is None or isinstance(value, bool):
             return False
         if isinstance(value, (int, float)):
-            return True
+            return math.isfinite(float(value))
         if isinstance(value, str) and value.strip():
             try:
-                float(value)
+                numeric_value = float(value)
             except ValueError:
                 return False
-            return True
+            return math.isfinite(numeric_value)
         return False
 
     @staticmethod
