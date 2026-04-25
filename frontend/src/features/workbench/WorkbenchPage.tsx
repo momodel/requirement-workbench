@@ -93,6 +93,25 @@ function relativeTime(value: string) {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function compactRelativeTime(value: string) {
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return value;
+  const delta = Date.now() - ts;
+  if (delta < 0) return '刚刚';
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < minute) return '刚刚';
+  if (delta < hour) return `${Math.floor(delta / minute)} 分钟前`;
+  if (delta < day) {
+    const d = new Date(ts);
+    return `今天 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (delta < 7 * day) return `${Math.floor(delta / day)} 天前`;
+  const d = new Date(ts);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function statusVariant(status: string) {
   if (status.includes('failed') || status.includes('error') || status.includes('not_configured')) {
     return 'danger' as const;
@@ -486,7 +505,12 @@ function SourceFileRow({
               </>
             )}
             <span className="shrink-0">·</span>
-            <span className="min-w-0 truncate text-muted">{relativeTime(source.created_at)}</span>
+            <span
+              className="min-w-0 truncate text-muted"
+              title={relativeTime(source.created_at)}
+            >
+              {compactRelativeTime(source.created_at)}
+            </span>
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
