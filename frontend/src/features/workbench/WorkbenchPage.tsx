@@ -192,24 +192,6 @@ function sourceKindLabel(sourceKind: string) {
   return sourceKind.replace(/^file:/, '').toUpperCase();
 }
 
-const KIND_TO_EXTS: Record<string, readonly string[]> = {
-  markdown: ['.md', '.markdown'],
-  text: ['.txt'],
-  pdf: ['.pdf'],
-  spreadsheet: ['.xlsx', '.xls', '.csv'],
-  docx: ['.docx', '.doc'],
-  image: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'],
-  audio: ['.mp3', '.wav', '.m4a', '.flac', '.ogg'],
-};
-
-function isKindRedundantWithName(source: SourceRecord): boolean {
-  const name = source.name.toLowerCase();
-  const kind = source.source_kind.toLowerCase().replace(/^file:/, '');
-  const exts = KIND_TO_EXTS[kind];
-  if (!exts) return false;
-  return exts.some((ext) => name.endsWith(ext));
-}
-
 function indexStatusLabel(status: string) {
   if (status === 'indexed') return '已索引';
   if (status === 'indexing') return '索引中';
@@ -223,10 +205,10 @@ function indexStatusLabel(status: string) {
 
 function sourceWikiBadge(source: SourceRecord) {
   const status = source.wiki_sync_status;
-  if (!status) return null;
-  if (status === 'maintained') {
-    return { label: 'wiki ok', dotClass: 'bg-[#3d6b50]', textClass: 'text-[#3d6b50]' };
-  }
+  // Only surface non-default wiki states so the row stays compact when wiki
+  // maintenance succeeded. The "boring" maintained state is implied by
+  // "已索引" already; only call out in-flight or failure cases.
+  if (!status || status === 'maintained') return null;
   if (status === 'maintaining') {
     return { label: 'wiki 写入中', dotClass: 'bg-[#7a5a1d]', textClass: 'text-[#7a5a1d]' };
   }
@@ -498,12 +480,6 @@ function SourceFileRow({
                 </span>
               </>
             ) : null}
-            {isKindRedundantWithName(source) ? null : (
-              <>
-                <span className="shrink-0">·</span>
-                <span className="shrink-0 text-muted">{sourceKindLabel(source.source_kind)}</span>
-              </>
-            )}
             <span className="shrink-0">·</span>
             <span
               className="min-w-0 truncate text-muted"
