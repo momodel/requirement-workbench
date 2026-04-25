@@ -178,10 +178,15 @@ function buildStatusAction(payload: {
   };
 }
 
+const SEED_PROJECT_ID = 'seed-reconciliation';
+
 function HomeRoute() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [readiness, setReadiness] = useState<GlobalReadiness | null>(null);
+  const [seedProject, setSeedProject] = useState<ProjectSummary | null>(null);
+  const [seedState, setSeedState] = useState<ProjectState | null>(null);
+  const [seedArtifacts, setSeedArtifacts] = useState<ArtifactRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -192,6 +197,17 @@ function HomeRoute() {
         setReadiness(nextReadiness);
       })
       .catch((err: Error) => setError(err.message));
+
+    // Seed project preview is optional — failures must not block the home page.
+    void Promise.allSettled([
+      getProject(SEED_PROJECT_ID),
+      getProjectState(SEED_PROJECT_ID),
+      listArtifacts(SEED_PROJECT_ID),
+    ]).then(([projectResult, stateResult, artifactsResult]) => {
+      if (projectResult.status === 'fulfilled') setSeedProject(projectResult.value);
+      if (stateResult.status === 'fulfilled') setSeedState(stateResult.value);
+      if (artifactsResult.status === 'fulfilled') setSeedArtifacts(artifactsResult.value);
+    });
   }, []);
 
   if (error) {
@@ -230,6 +246,9 @@ function HomeRoute() {
     <ProjectsPage
       projects={projects}
       readiness={readiness}
+      seedProject={seedProject}
+      seedState={seedState}
+      seedArtifacts={seedArtifacts}
       creating={creating}
       onCreateProject={handleCreateProject}
     />
