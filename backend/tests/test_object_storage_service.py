@@ -86,6 +86,43 @@ def test_upload_audio_source_returns_stable_object_metadata(
     assert result.url == "https://audio.example.com/audio/project-1/src-1/call.mp3"
 
 
+def test_upload_audio_source_returns_url_safe_public_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    source_path = settings.projects_dir / "project-1" / "sources" / "需求访谈 #1.mp3"
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_bytes(b"ID3")
+
+    class FakeAuth:
+        def __init__(self, access_key: str, secret_key: str) -> None:
+            self.access_key = access_key
+            self.secret_key = secret_key
+
+        def upload_token(self, bucket: str, key: str, expires: int) -> str:
+            return "upload-token"
+
+    def fake_put_file_v2(token: str, key: str, file_path: str, version: str = "v2"):
+        return {"key": key}, type("Info", (), {"status_code": 200})()
+
+    monkeypatch.setattr("app.services.object_storage_service.Auth", FakeAuth)
+    monkeypatch.setattr("app.services.object_storage_service.put_file_v2", fake_put_file_v2)
+
+    service = ObjectStorageService(settings)
+    result = service.upload_audio_source(
+        project_id="project-1",
+        source_id="src-1",
+        local_path=source_path,
+    )
+
+    assert result.object_key == "audio/project-1/src-1/需求访谈 #1.mp3"
+    assert (
+        result.url
+        == "https://audio.example.com/audio/project-1/src-1/%E9%9C%80%E6%B1%82%E8%AE%BF%E8%B0%88%20%231.mp3"
+    )
+
+
 def test_upload_audio_source_raises_when_qiniu_is_not_ready(tmp_path: Path) -> None:
     service = ObjectStorageService(make_settings(tmp_path))
     service.settings.qiniu_bucket = None

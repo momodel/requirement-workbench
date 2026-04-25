@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import quote
 
 from qiniu import Auth
 
@@ -54,6 +55,11 @@ class ObjectStorageService:
         prefix = (self.settings.qiniu_key_prefix or "audio").strip("/") or "audio"
         return f"{prefix}/{project_id}/{source_id}/{local_path.name}"
 
+    def build_public_url(self, *, object_key: str) -> str:
+        encoded_key = "/".join(quote(segment, safe="") for segment in object_key.split("/"))
+        domain = self.settings.qiniu_domain.rstrip("/")
+        return f"{domain}/{encoded_key}"
+
     def upload_audio_source(
         self,
         *,
@@ -89,8 +95,7 @@ class ObjectStorageService:
         if info.status_code != 200 or not result or result.get("key") != object_key:
             raise ProviderIssue(provider=QINIU_OSS, message="七牛上传失败。")
 
-        domain = self.settings.qiniu_domain.rstrip("/")
         return UploadedObject(
             object_key=object_key,
-            url=f"{domain}/{object_key}",
+            url=self.build_public_url(object_key=object_key),
         )
