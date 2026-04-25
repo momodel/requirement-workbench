@@ -173,6 +173,24 @@ function sourceKindLabel(sourceKind: string) {
   return sourceKind.replace(/^file:/, '').toUpperCase();
 }
 
+const KIND_TO_EXTS: Record<string, readonly string[]> = {
+  markdown: ['.md', '.markdown'],
+  text: ['.txt'],
+  pdf: ['.pdf'],
+  spreadsheet: ['.xlsx', '.xls', '.csv'],
+  docx: ['.docx', '.doc'],
+  image: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp'],
+  audio: ['.mp3', '.wav', '.m4a', '.flac', '.ogg'],
+};
+
+function isKindRedundantWithName(source: SourceRecord): boolean {
+  const name = source.name.toLowerCase();
+  const kind = source.source_kind.toLowerCase().replace(/^file:/, '');
+  const exts = KIND_TO_EXTS[kind];
+  if (!exts) return false;
+  return exts.some((ext) => name.endsWith(ext));
+}
+
 function indexStatusLabel(status: string) {
   if (status === 'indexed') return '已索引';
   if (status === 'indexing') return '索引中';
@@ -461,8 +479,13 @@ function SourceFileRow({
                 </span>
               </>
             ) : null}
+            {isKindRedundantWithName(source) ? null : (
+              <>
+                <span className="shrink-0">·</span>
+                <span className="shrink-0 text-muted">{sourceKindLabel(source.source_kind)}</span>
+              </>
+            )}
             <span className="shrink-0">·</span>
-            <span className="shrink-0 text-muted">{sourceKindLabel(source.source_kind)}</span>
             <span className="min-w-0 truncate text-muted">{relativeTime(source.created_at)}</span>
           </div>
         </button>
