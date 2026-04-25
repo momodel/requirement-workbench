@@ -273,6 +273,10 @@ function getArtifactStatusSummaryLabel(section: StateOverviewSection) {
   return parts.length > 0 ? parts.join(' · ') : '暂无交付物';
 }
 
+function getSectionSummaryLine(section: StateOverviewSection) {
+  return getArtifactStatusSummaryLabel(section) ?? section.description;
+}
+
 function getArtifactMeta(item: StateOverviewItem) {
   if (item.kind !== 'artifact') {
     return null;
@@ -370,10 +374,12 @@ function ArtifactInlineActions({
   item,
   onOpenArtifact,
   onOpenDocument,
+  showPendingBadge = true,
 }: {
   item: StateOverviewItem;
   onOpenArtifact: (artifact: ArtifactRecord) => void;
   onOpenDocument: (artifact: ArtifactRecord) => void;
+  showPendingBadge?: boolean;
 }) {
   if (item.kind !== 'artifact') return null;
 
@@ -381,10 +387,10 @@ function ArtifactInlineActions({
   const isHtml = item.contentFormat === 'html';
 
   if (item.status === 'generating') {
-    return <Badge variant="warning">生成中</Badge>;
+    return showPendingBadge ? <Badge variant="warning">生成中</Badge> : null;
   }
   if (item.status === 'failed') {
-    return <Badge variant="danger">失败</Badge>;
+    return showPendingBadge ? <Badge variant="danger">失败</Badge> : null;
   }
 
   return (
@@ -424,7 +430,7 @@ function StateSectionCard({
 }) {
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
   const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
-  const artifactStatusSummaryLabel = getArtifactStatusSummaryLabel(section);
+  const summaryLine = getSectionSummaryLine(section);
   const hasGeneratingArtifacts = Boolean(section.artifactStatusSummary?.generating);
 
   useEffect(() => {
@@ -446,29 +452,27 @@ function StateSectionCard({
 
         <button
           type="button"
-          className="grid min-w-0 flex-1 grid-cols-[minmax(86px,1fr)_auto] items-center gap-2 text-left transition hover:text-accent"
+          className="min-w-0 flex-1 text-left transition hover:text-accent"
           aria-label={section.title}
           onClick={onOpen}
           title={section.description}
         >
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-1.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
               <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
               {hasGeneratingArtifacts ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-label="交付物生成中" /> : null}
               {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
+              </div>
+              <div className="truncate text-[11px] text-muted" title={summaryLine}>
+                {summaryLine}
+              </div>
             </div>
-            <div className="truncate text-[11px] text-muted" title={artifactStatusSummaryLabel ?? section.description}>
-              {artifactStatusSummaryLabel ?? section.description}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
-            <Badge>{section.totalCount}</Badge>
-            {section.artifactStatusSummary?.generating ? <Badge variant="warning">{section.artifactStatusSummary.generating} 中</Badge> : null}
-            {section.artifactStatusSummary?.failed ? <Badge variant="danger">{section.artifactStatusSummary.failed} 失败</Badge> : null}
+            <div className="flex shrink-0 items-center gap-1 text-[11px] text-muted">
+              <Badge>{section.totalCount}</Badge>
+              {section.artifactStatusSummary?.failed ? <Badge variant="danger">失败</Badge> : null}
             {section.recentCount > 0 ? <Badge variant="accent">+{section.recentCount}</Badge> : null}
-            <span className="hidden max-w-[96px] truncate xl:inline" title={getSectionLastUpdated(section)}>
-              {getSectionLastUpdated(section)}
-            </span>
+            </div>
           </div>
         </button>
 
@@ -553,6 +557,10 @@ function RecentUpdatesCard({
   onOpenArtifact: (artifact: ArtifactRecord) => void;
   onOpenDocument: (artifact: ArtifactRecord) => void;
 }) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleItems = isExpanded ? items : items.slice(0, 1);
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
+
   return (
     <div className="min-w-0 overflow-hidden rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
       <div className="flex min-h-8 items-center justify-between gap-2">
@@ -567,8 +575,9 @@ function RecentUpdatesCard({
           暂无最近更新。
         </div>
       ) : (
-        <div className="mt-2 grid min-w-0 gap-1.5 border-t border-accent/10 pt-2">
-          {items.map(({ section, item }) => (
+        <div className="mt-2 min-w-0 border-t border-accent/10 pt-2">
+          <div className={cn('grid min-w-0 gap-1.5', isExpanded ? 'max-h-[260px] overflow-y-auto pr-1' : '')}>
+          {visibleItems.map(({ section, item }) => (
             <div
               key={`${section.id}-${item.id}`}
               role="button"
@@ -595,12 +604,27 @@ function RecentUpdatesCard({
                 <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
                 {item.kind === 'artifact' ? (
                   <div className="mt-2 flex justify-end">
-                    <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+                    <ArtifactInlineActions
+                      item={item}
+                      onOpenArtifact={onOpenArtifact}
+                      onOpenDocument={onOpenDocument}
+                      showPendingBadge={false}
+                    />
                   </div>
                 ) : null}
               </div>
             </div>
           ))}
+          </div>
+          {items.length > 1 ? (
+            <button
+              type="button"
+              className="mt-2 w-full rounded-[10px] border border-accent/15 bg-white/65 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-white"
+              onClick={() => setIsExpanded((open) => !open)}
+            >
+              {isExpanded ? '收起本轮更新' : `展开其余 ${hiddenCount} 条更新`}
+            </button>
+          ) : null}
         </div>
       )}
     </div>

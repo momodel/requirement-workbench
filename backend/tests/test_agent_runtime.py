@@ -259,6 +259,42 @@ def test_coerce_html_artifact_payload_parses_loose_object_format() -> None:
     assert "<main>ok</main>" in parsed["html"]
 
 
+def test_coerce_html_artifact_payload_parses_template_string_html() -> None:
+    raw = """{
+      title: "需求分析工作台交互原型",
+      summary: "覆盖创建项目、上传资料和生成交付物。",
+      html: `<!doctype html>
+<html>
+  <head><title>交互原型</title></head>
+  <body><main>ok</main></body>
+</html>`
+    }"""
+
+    parsed = _coerce_html_artifact_payload(raw)
+
+    assert parsed["title"] == "需求分析工作台交互原型"
+    assert parsed["summary"] == "覆盖创建项目、上传资料和生成交付物。"
+    assert "<main>ok</main>" in parsed["html"]
+
+
+def test_coerce_html_artifact_payload_parses_unquoted_html_field() -> None:
+    raw = """{
+      title: "需求分析工作台交互原型",
+      summary: "覆盖创建项目、上传资料和生成交付物。",
+      html: <!doctype html>
+<html>
+  <head><title>交互原型</title></head>
+  <body><main>ok</main></body>
+</html>
+    }"""
+
+    parsed = _coerce_html_artifact_payload(raw)
+
+    assert parsed["title"] == "需求分析工作台交互原型"
+    assert parsed["summary"] == "覆盖创建项目、上传资料和生成交付物。"
+    assert "<main>ok</main>" in parsed["html"]
+
+
 def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch) -> None:
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -1544,4 +1580,87 @@ def test_generate_artifact_retries_html_parse_failure_once(
     assert call_count["value"] == 2
     assert output.title == "正确页面方案"
     assert output.summary == "成功重试后的结果。"
+    assert "<main>ok</main>" in output.html
+
+
+def test_generate_artifact_uses_assistant_text_when_result_text_is_not_parseable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model="glm-5",
+        )
+    )
+    monkeypatch.setattr(runtime, "ensure_available", lambda: None)
+
+    async def fake_query(*, prompt, options):
+        yield agent_runtime_module.AssistantMessage(
+            content=[
+                agent_runtime_module.TextBlock(
+                    text=(
+                        "TITLE: 正确交互稿\n"
+                        "SUMMARY: 来自 AssistantMessage 的可用输出。\n"
+                        "HTML:\n"
+                        "<!doctype html><html><head><title>交互稿</title></head>"
+                        "<body><main>ok</main></body></html>"
+                    )
+                )
+            ],
+            model="glm-5",
+        )
+        yield agent_runtime_module.ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=1,
+            session_id="s1",
+            stop_reason="end_turn",
+            total_cost_usd=0.0,
+            usage=None,
+            result="{title: malformed}",
+            structured_output=None,
+            model_usage=None,
+            permission_denials=None,
+            errors=None,
+            uuid="1",
+        )
+
+    monkeypatch.setattr(agent_runtime_module, "query", fake_query)
+
+    async def run():
+        return await runtime.generate_artifact(
+            project=ProjectSummary(
+                id="project-1",
+                name="集团业财逐笔对账需求分析",
+                scenario_type="reconciliation",
+                summary="分析业财逐笔对账需求。",
+                status="active",
+                created_at="2026-04-16T10:00:00+08:00",
+                updated_at="2026-04-16T10:00:00+08:00",
+                seed_key="reconciliation",
+            ),
+            state=ProjectState(
+                current_understanding=[],
+                pending_items=[],
+                confirmed_items=[],
+                conflict_items=[],
+                mvp_items=[],
+                versions=[],
+                artifacts=[],
+            ),
+            artifact_type="interaction_flow",
+        )
+
+    output = asyncio.run(run())
+
+    assert output.title == "正确交互稿"
+    assert output.summary == "来自 AssistantMessage 的可用输出。"
     assert "<main>ok</main>" in output.html

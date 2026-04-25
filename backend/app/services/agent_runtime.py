@@ -391,7 +391,7 @@ def _coerce_html_artifact_payload(raw: str) -> dict:
             idx = match.end()
             while idx < len(text) and text[idx].isspace():
                 idx += 1
-            if idx >= len(text) or text[idx] not in {'"', "'"}:
+            if idx >= len(text) or text[idx] not in {'"', "'", "`"}:
                 continue
 
             quote = text[idx]
@@ -417,9 +417,30 @@ def _coerce_html_artifact_payload(raw: str) -> dict:
                 idx += 1
         return None
 
+    def extract_unquoted_html_field(names: tuple[str, ...]) -> str | None:
+        for name in names:
+            match = re.search(rf'["\']?{re.escape(name)}["\']?\s*:\s*', text, re.I)
+            if not match:
+                continue
+
+            html_start = text.find("<!doctype", match.end())
+            if html_start < 0:
+                html_start = text.find("<html", match.end())
+            if html_start < 0:
+                continue
+
+            tail = text[html_start:].strip()
+            closing_match = re.search(r"</html\s*>", tail, re.I)
+            if closing_match:
+                return tail[: closing_match.end()].strip()
+            return tail.rstrip("} \n\r\t,").strip()
+        return None
+
     loose_title = extract_loose_string_field(("title",))
     loose_summary = extract_loose_string_field(("summary",))
-    loose_html = extract_loose_string_field(("html", "content"))
+    loose_html = extract_loose_string_field(("html", "content")) or extract_unquoted_html_field(
+        ("html", "content")
+    )
     if loose_title and loose_summary and loose_html:
         return {
             "title": loose_title.strip(),
@@ -2032,6 +2053,7 @@ class ClaudeAgentRuntime:
                     output_format=output_format,
                 )
                 parse_error: Exception | None = None
+                latest_assistant_text = ""
                 prompt = self._artifact_prompt(
                     project=project,
                     state=state,
@@ -2045,6 +2067,9 @@ class ClaudeAgentRuntime:
                     )
 
                 async for message in query(prompt=prompt, options=options):
+                    if isinstance(message, AssistantMessage):
+                        latest_assistant_text = self._assistant_text_from_message(message).strip()
+                        continue
                     if not isinstance(message, ResultMessage):
                         continue
 
@@ -2068,10 +2093,21 @@ class ClaudeAgentRuntime:
                             return GeneratedArtifactOutput.model_validate(
                                 _normalize_generated_artifact_output_payload(raw)
                             )
-                        if message.result:
-                            return GeneratedArtifactOutput.model_validate(
-                                _coerce_html_artifact_payload(message.result)
-                            )
+
+                        candidates = [
+                            candidate
+                            for candidate in (message.result, latest_assistant_text)
+                            if isinstance(candidate, str) and candidate.strip()
+                        ]
+                        for candidate in dict.fromkeys(candidates):
+                            try:
+                                return GeneratedArtifactOutput.model_validate(
+                                    _coerce_html_artifact_payload(candidate)
+                                )
+                            except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
+                                parse_error = exc
+                        if parse_error:
+                            break
                     except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
                         parse_error = exc
                         break
