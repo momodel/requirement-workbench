@@ -287,6 +287,12 @@ function HeroSection({
             <Plus className="h-4 w-4" />
             新建项目
           </Button>
+          <Button asChild variant="ghost" size="lg">
+            <a href="#project-list">
+              <ListChecks className="h-4 w-4" />
+              查看全部项目
+            </a>
+          </Button>
         </div>
       </div>
 
@@ -1023,7 +1029,7 @@ function ProjectListSection({
   onOpenCreateDialog: () => void;
 }) {
   return (
-    <section className="space-y-6">
+    <section id="project-list" className="scroll-mt-12 space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-stone">你的项目</div>
