@@ -12,7 +12,8 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "missing-claude"),
+        projects_dir=data_dir / "projects",
+        claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
 
@@ -84,5 +85,6 @@ def test_init_db_adds_missing_columns_for_existing_database(tmp_path: Path) -> N
         migrated.close()
 
     assert "sync_error" in sources_columns
+    assert "source_import_mode" in sources_columns
     assert "source_url" in bindings_columns
     assert "body" in artifact_columns

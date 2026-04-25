@@ -12,7 +12,6 @@ from ..models import (
     ArtifactRecord,
     CreateProjectRequest,
     MessageRecord,
-    NotebookBindingRecord,
     ProjectSummary,
     SourceRecord,
     StateCategory,
@@ -121,7 +120,7 @@ class ProjectCatalog:
         upload_kind: str,
         storage_path: str | None,
         normalized_path: str | None,
-        notebook_import_mode: str | None,
+        source_import_mode: str | None,
         parse_status: str,
         parse_summary: str | None,
         sync_status: str,
@@ -135,7 +134,7 @@ class ProjectCatalog:
             upload_kind=upload_kind,
             storage_path=storage_path,
             normalized_path=normalized_path,
-            notebook_import_mode=notebook_import_mode,
+            source_import_mode=source_import_mode,
             parse_status=parse_status,
             parse_summary=parse_summary,
             sync_status=sync_status,
@@ -147,7 +146,7 @@ class ProjectCatalog:
                 """
                 INSERT INTO sources (
                   id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                  notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                  source_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
                 )
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -159,7 +158,7 @@ class ProjectCatalog:
                     source.upload_kind,
                     source.storage_path,
                     source.normalized_path,
-                    source.notebook_import_mode,
+                    source.source_import_mode,
                     source.parse_status,
                     source.parse_summary,
                     source.sync_status,
@@ -178,7 +177,7 @@ class ProjectCatalog:
             rows = connection.execute(
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                       source_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
                 FROM sources
                 WHERE project_id = ?
                 ORDER BY datetime(created_at) ASC
@@ -192,7 +191,7 @@ class ProjectCatalog:
             row = connection.execute(
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
-                       notebook_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
+                       source_import_mode, parse_status, parse_summary, sync_status, sync_error, created_at
                 FROM sources
                 WHERE id = ?
                 """,
@@ -618,48 +617,3 @@ class ProjectCatalog:
             body=body,
             updated_at=timestamp,
         )
-
-    def upsert_notebook_binding(
-        self,
-        *,
-        project_id: str,
-        notebook_id: str,
-        provider: str,
-        sync_status: str,
-        source_url: str | None = None,
-    ) -> None:
-        timestamp = now_iso(self.settings)
-        with connection_scope(self.settings) as connection:
-            connection.execute(
-                """
-                INSERT INTO notebook_bindings (project_id, notebook_id, provider, sync_status, last_synced_at, source_url)
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(project_id) DO UPDATE SET
-                  notebook_id = excluded.notebook_id,
-                  provider = excluded.provider,
-                  sync_status = excluded.sync_status,
-                  last_synced_at = excluded.last_synced_at,
-                  source_url = excluded.source_url
-                """,
-                (project_id, notebook_id, provider, sync_status, timestamp, source_url),
-            )
-        return NotebookBindingRecord(
-            project_id=project_id,
-            notebook_id=notebook_id,
-            provider=provider,
-            sync_status=sync_status,
-            last_synced_at=timestamp,
-            source_url=source_url,
-        )
-
-    def get_notebook_binding(self, project_id: str) -> NotebookBindingRecord | None:
-        with connection_scope(self.settings) as connection:
-            row = connection.execute(
-                """
-                SELECT project_id, notebook_id, provider, sync_status, last_synced_at, source_url
-                FROM notebook_bindings
-                WHERE project_id = ?
-                """,
-                (project_id,),
-            ).fetchone()
-        return NotebookBindingRecord.model_validate(dict(row)) if row else None

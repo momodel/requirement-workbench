@@ -28,14 +28,16 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "missing-claude"),
+        projects_dir=data_dir / "projects",
+        claude_cli_path=str(tmp_path / "missing-claude"),
         claude_stream_timeout_seconds=0.05,
-        claude_structured_timeout_seconds=0.05,    )
+        claude_structured_timeout_seconds=0.05,
+    )
 
 
 class StubEvidenceRuntime:
     def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
+        return Path("/tmp/llm-wiki")
 
     def query(self, project_id: str, question: str) -> EvidenceResult:
         return EvidenceResult(summary="stub evidence", citations=[])
@@ -115,7 +117,7 @@ class ChunkThenPatchAgentRuntime:
 
 class SlowEvidenceRuntime:
     def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
+        return Path("/tmp/llm-wiki")
 
     def query(self, project_id: str, question: str) -> EvidenceResult:
         time.sleep(0.2)

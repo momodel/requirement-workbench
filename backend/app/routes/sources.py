@@ -20,7 +20,7 @@ def _create_source_record(services, project_id: str, upload_kind: str, name: str
         upload_kind=upload_kind,
         storage_path=storage_path,
         normalized_path=normalized.normalized_path,
-        notebook_import_mode=normalized.notebook_import_mode,
+        source_import_mode=normalized.source_import_mode,
         parse_status=normalized.parse_status,
         parse_summary=normalized.parse_summary,
         sync_status=sync_status,

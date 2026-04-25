@@ -221,7 +221,7 @@ describe('App', () => {
     );
   });
 
-  it('does not auto-bind notebooks when entering an existing project workbench', async () => {
+  it('opens an existing project workbench without legacy binding requests', async () => {
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: vi.fn(),
@@ -239,7 +239,7 @@ describe('App', () => {
           id: 'project-legacy-001',
           name: '历史需求分析项目',
           scenario_type: 'general',
-          summary: '一个之前创建但还没绑定 notebook 的项目。',
+          summary: '一个之前创建的 LLM Wiki 项目。',
           status: 'active',
           created_at: '2026-04-16T00:00:00+08:00',
           updated_at: '2026-04-16T00:00:00+08:00',
@@ -323,7 +323,7 @@ describe('App', () => {
           upload_kind: 'seed',
           storage_path: null,
           normalized_path: null,
-          notebook_import_mode: null,
+          source_import_mode: null,
           parse_status: 'parsed',
           parse_summary: '解释业务字段到财务科目的映射口径。',
           sync_status: 'pending',
@@ -523,9 +523,9 @@ describe('App', () => {
         },
         knowledge_wiki: {
           provider: 'LLM_WIKI',
-          status: 'binding_required',
-          summary: '当前项目 LLM Wiki 知识库尚未初始化。',
-          detail: '需要先绑定',
+          status: 'ready',
+          summary: '当前项目 LLM Wiki 知识库已就绪。',
+          detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
           action_label: null,
         },
       },
@@ -544,7 +544,7 @@ describe('App', () => {
     expect(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。')).toBeInTheDocument();
   });
 
-  it('shows LLM Wiki status inside the runtime dialog without notebook binding controls', async () => {
+  it('shows LLM Wiki status inside the runtime dialog without legacy binding controls', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     installFetchMock({
@@ -645,7 +645,7 @@ describe('App', () => {
                 upload_kind: 'seed',
                 storage_path: null,
                 normalized_path: null,
-                notebook_import_mode: null,
+                source_import_mode: null,
                 parse_status: 'parsed',
                 parse_summary: '解释业务字段到财务科目的映射口径。',
                 sync_status: 'pending',
@@ -674,9 +674,9 @@ describe('App', () => {
           },
           knowledge_wiki: {
             provider: 'LLM_WIKI',
-            status: 'binding_required',
-            summary: '当前项目 LLM Wiki 知识库尚未初始化。',
-            detail: '需要先绑定',
+            status: 'ready',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
         },
@@ -725,7 +725,7 @@ describe('App', () => {
             upload_kind: 'file',
             storage_path: null,
             normalized_path: null,
-            notebook_import_mode: null,
+            source_import_mode: null,
             parse_status: 'parsed',
             parse_summary: '解释业务字段到财务科目的映射口径。',
             sync_status: 'synced',
@@ -756,7 +756,7 @@ describe('App', () => {
             upload_kind: 'file',
             storage_path: null,
             normalized_path: null,
-            notebook_import_mode: null,
+            source_import_mode: null,
             parse_status: 'parsed',
             parse_summary: '解释业务字段到财务科目的映射口径。',
             sync_status: retried ? 'synced' : 'sync_failed',
@@ -845,7 +845,7 @@ describe('App', () => {
               upload_kind: 'file',
               storage_path: null,
               normalized_path: null,
-              notebook_import_mode: null,
+              source_import_mode: null,
               parse_status: 'parsed',
               parse_summary: '规则A',
               sync_status: 'pending_sync',
@@ -860,7 +860,7 @@ describe('App', () => {
               upload_kind: 'file',
               storage_path: null,
               normalized_path: null,
-              notebook_import_mode: null,
+              source_import_mode: null,
               parse_status: 'parsed',
               parse_summary: '规则B',
               sync_status: 'pending_sync',

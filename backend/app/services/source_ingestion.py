@@ -17,7 +17,7 @@ class NormalizedSource:
     parse_status: str
     parse_summary: str
     normalized_path: str | None = None
-    notebook_import_mode: str | None = None
+    source_import_mode: str | None = None
 
 
 class SourceIngestionService:
@@ -39,7 +39,7 @@ class SourceIngestionService:
             parse_status="parsed",
             parse_summary=summary or f"{name} 已入库。",
             normalized_path=str(raw_path),
-            notebook_import_mode="direct_text",
+            source_import_mode="direct_text",
         )
 
     def ingest_url(self, project_id: str, name: str, source_url: str) -> tuple[str | None, NormalizedSource]:
@@ -53,7 +53,7 @@ class SourceIngestionService:
             parse_status="parsed",
             parse_summary=summary,
             normalized_path=None,
-            notebook_import_mode="direct_url",
+            source_import_mode="direct_url",
         )
 
     def ingest_file(self, project_id: str, filename: str, file_bytes: bytes) -> tuple[str, NormalizedSource]:
@@ -112,7 +112,7 @@ class SourceIngestionService:
                 parse_status="failed",
                 parse_summary=f"{filename} 解析失败：{exc}",
                 normalized_path=None,
-                notebook_import_mode=None,
+                source_import_mode=None,
             )
 
         return str(raw_path), NormalizedSource(
@@ -120,5 +120,5 @@ class SourceIngestionService:
             parse_status="parsed",
             parse_summary=summary,
             normalized_path=str(normalized_path) if normalized_path else None,
-            notebook_import_mode=import_mode,
+            source_import_mode=import_mode,
         )

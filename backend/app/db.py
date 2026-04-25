@@ -10,6 +10,7 @@ from .config import AppSettings, DEFAULT_SETTINGS
 
 MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
     "sources": {
+        "source_import_mode": "ALTER TABLE sources ADD COLUMN source_import_mode TEXT",
         "sync_error": "ALTER TABLE sources ADD COLUMN sync_error TEXT",
     },
     "notebook_bindings": {
@@ -32,6 +33,16 @@ def _apply_column_migrations(connection: sqlite3.Connection) -> None:
         for column_name, statement in columns.items():
             if column_name not in existing_columns:
                 connection.execute(statement)
+    source_columns = _existing_columns(connection, "sources")
+    if {"notebook_import_mode", "source_import_mode"}.issubset(source_columns):
+        connection.execute(
+            """
+            UPDATE sources
+            SET source_import_mode = notebook_import_mode
+            WHERE source_import_mode IS NULL
+              AND notebook_import_mode IS NOT NULL
+            """
+        )
 
 
 def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:

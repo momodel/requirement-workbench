@@ -47,50 +47,6 @@ class CreateProjectRequest(BaseModel):
     summary: str = Field(min_length=1, max_length=1000)
 
 
-class NotebookBindingRecord(BaseModel):
-    project_id: str
-    notebook_id: str
-    provider: str
-    sync_status: str
-    last_synced_at: str | None = None
-    source_url: str | None = None
-
-
-class NotebookLibraryItem(BaseModel):
-    id: str
-    name: str
-    url: str
-    description: str
-    topics: list[str] = Field(default_factory=list)
-    use_count: int = 0
-    last_used: str | None = None
-
-
-class BindNotebookRequest(BaseModel):
-    source_url: str | None = Field(default=None, min_length=1)
-    notebook_id: str | None = Field(default=None, min_length=1)
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def validate_binding_target(self) -> "BindNotebookRequest":
-        if not self.source_url and not self.notebook_id:
-            raise ValueError("source_url 和 notebook_id 至少要提供一个。")
-        return self
-
-
-class CreateNotebookRequest(BaseModel):
-    notebook_name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, min_length=1, max_length=400)
-    topics: list[str] = Field(default_factory=list)
-
-
-class CreateNotebookBindingResponse(BaseModel):
-    notebook: NotebookLibraryItem
-    binding: NotebookBindingRecord
-
-
 class ProviderReadiness(BaseModel):
     provider: str
     status: str
@@ -118,7 +74,7 @@ class SourceRecord(BaseModel):
     upload_kind: str
     storage_path: str | None = None
     normalized_path: str | None = None
-    notebook_import_mode: str | None = None
+    source_import_mode: str | None = None
     parse_status: str
     parse_summary: str | None = None
     sync_status: str = "pending"

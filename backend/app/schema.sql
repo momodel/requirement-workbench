@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS sources (
   upload_kind TEXT NOT NULL,
   storage_path TEXT,
   normalized_path TEXT,
-  notebook_import_mode TEXT,
+  source_import_mode TEXT,
   parse_status TEXT NOT NULL,
   parse_summary TEXT,
   sync_status TEXT NOT NULL DEFAULT 'pending',

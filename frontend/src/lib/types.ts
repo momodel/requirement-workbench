@@ -42,7 +42,7 @@ export type SourceRecord = {
   upload_kind: string;
   storage_path: string | null;
   normalized_path: string | null;
-  notebook_import_mode: string | null;
+  source_import_mode: string | null;
   parse_status: string;
   parse_summary: string | null;
   sync_status: string;

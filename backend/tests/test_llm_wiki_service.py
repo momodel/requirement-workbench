@@ -12,7 +12,8 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",    )
+        projects_dir=data_dir / "projects",
+    )
 
 
 def make_project() -> ProjectSummary:
@@ -36,7 +37,7 @@ def make_source() -> SourceRecord:
         upload_kind="text",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode="direct_text",
+        source_import_mode="direct_text",
         parse_status="parsed",
         parse_summary="订单字段与财务科目映射口径存在不一致。",
         sync_status="synced",

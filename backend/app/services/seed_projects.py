@@ -140,7 +140,7 @@ def _seed_sources(
             upload_kind="seed",
             storage_path=str(source_path),
             normalized_path=str(source_path),
-            notebook_import_mode="direct_text",
+            source_import_mode="direct_text",
             parse_status="parsed",
             parse_summary=parse_summary,
             sync_status="indexed",

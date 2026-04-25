@@ -1,12 +1,10 @@
-import asyncio
 from pathlib import Path
-from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.config import AppSettings
 from app.main import create_app
-from app.models import ProviderIssue, ProviderReadiness
+from app.models import ProviderIssue
 
 
 def make_settings(tmp_path: Path) -> AppSettings:
@@ -16,63 +14,18 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "fake-claude"),
+        projects_dir=data_dir / "projects",
+        claude_cli_path=str(tmp_path / "fake-claude"),
     )
 
 
-def write_storage_state(settings: AppSettings) -> None:
-    settings.notebooklm_home_dir.mkdir(parents=True, exist_ok=True)
-    (settings.notebooklm_home_dir / "storage_state.json").write_text("{}", encoding="utf-8")
-
-
-def make_fake_notebook_client() -> SimpleNamespace:
-    return SimpleNamespace(
-        notebooks=SimpleNamespace(
-            list=lambda: asyncio.sleep(
-                0,
-                result=[SimpleNamespace(id="existing-notebook", title="项目专属 Notebook")],
-            ),
-            get=lambda notebook_id: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id=notebook_id, title="项目专属 Notebook"),
-            ),
-            create=lambda title: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="created-notebook", title=title),
-            ),
-        ),
-        sources=SimpleNamespace(
-            add_text=lambda notebook_id, title, content, wait: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="nb-source-1", title=title),
-            ),
-            add_url=lambda notebook_id, url, wait: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="nb-source-url", title=url),
-            ),
-            add_file=lambda notebook_id, file_path, wait: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="nb-source-file", title=file_path),
-            ),
-            list=lambda notebook_id: asyncio.sleep(0, result=[]),
-            delete=lambda notebook_id, source_id: asyncio.sleep(0, result=True),
-        ),
-        chat=SimpleNamespace(
-            ask=lambda notebook_id, question, source_ids=None, conversation_id=None: asyncio.sleep(
-                0,
-                result=SimpleNamespace(answer="NotebookLM 回答", references=[]),
-            )
-        ),
-    )
-
-
-def install_fake_notebook_client(app, monkeypatch) -> None:
+def install_noop_provider_hooks(app, monkeypatch) -> None:
     return None
 
 
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         projects_response = client.get("/api/projects")
@@ -119,7 +72,7 @@ def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
 
 def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -156,7 +109,7 @@ def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None
 
 def test_source_upload_indexes_into_llm_wiki_without_remote_provider(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -187,7 +140,7 @@ def test_source_upload_indexes_into_llm_wiki_without_remote_provider(tmp_path: P
 
 def test_retry_source_sync_updates_failed_source(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -264,7 +217,7 @@ def test_provider_readiness_reports_llm_wiki_ready(
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -287,27 +240,27 @@ def test_provider_readiness_reports_llm_wiki_ready(
         assert "notebooklm" not in readiness
 
 
-def test_notebook_binding_endpoint_is_not_part_of_llm_wiki_route(
+def test_legacy_notebook_binding_endpoint_is_not_part_of_llm_wiki_route(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
+    install_noop_provider_hooks(app, monkeypatch)
 
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "项目级 Notebook 绑定",
+                "name": "旧绑定接口验证",
                 "scenario_type": "general",
-                "summary": "验证新项目可以绑定自己的 notebook",
+                "summary": "验证旧项目绑定接口不属于当前 LLM Wiki 主链路",
             },
         )
         project_id = create_response.json()["id"]
 
         bind_response = client.post(
             f"/api/projects/{project_id}/notebook-binding",
-            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
+            json={"source_url": "https://legacy.example/notebook/abc123"},
         )
 
         assert bind_response.status_code == 404

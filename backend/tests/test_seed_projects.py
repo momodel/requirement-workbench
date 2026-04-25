@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.config import AppSettings
-from app.db import init_db
+from app.db import connection_scope, init_db
 from app.models import ProjectSummary
 from app.services.project_catalog import ProjectCatalog
 from app.services.seed_projects import SEED_PROJECT_ID, ensure_seed_project
@@ -14,7 +14,8 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "missing-claude"),
+        projects_dir=data_dir / "projects",
+        claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
 
@@ -42,7 +43,7 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
         upload_kind="seed",
         storage_path=None,
         normalized_path=None,
-        notebook_import_mode=None,
+        source_import_mode=None,
         parse_status="parsed",
         parse_summary="hello",
         sync_status="synced",
@@ -82,7 +83,7 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
     assert set(artifact_titles) == {"交互稿", "页面方案", "需求分析与 MVP 文档稿"}
 
 
-def test_ensure_seed_project_clears_legacy_notebook_binding(tmp_path: Path) -> None:
+def test_ensure_seed_project_clears_legacy_binding_rows(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     catalog = ProjectCatalog(settings)
@@ -99,15 +100,28 @@ def test_ensure_seed_project_clears_legacy_notebook_binding(tmp_path: Path) -> N
             seed_key="reconciliation",
         )
     )
-    catalog.upsert_notebook_binding(
-        project_id=SEED_PROJECT_ID,
-        notebook_id="seed-notebook-1",
-        provider="NOTEBOOKLM_PY",
-        sync_status="bound",
-        source_url="https://notebooklm.google.com/notebook/seed-notebook-1",
-    )
+    with connection_scope(settings) as connection:
+        connection.execute(
+            """
+            INSERT INTO notebook_bindings
+              (project_id, notebook_id, provider, sync_status, last_synced_at, source_url)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                SEED_PROJECT_ID,
+                "seed-notebook-1",
+                "LEGACY_BINDING",
+                "bound",
+                "2026-04-16T09:00:00+08:00",
+                "https://legacy.example/notebook/seed-notebook-1",
+            ),
+        )
 
     ensure_seed_project(settings)
 
-    binding = catalog.get_notebook_binding(SEED_PROJECT_ID)
-    assert binding is None
+    with connection_scope(settings) as connection:
+        row = connection.execute(
+            "SELECT project_id FROM notebook_bindings WHERE project_id = ?",
+            (SEED_PROJECT_ID,),
+        ).fetchone()
+    assert row is None

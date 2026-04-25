@@ -104,7 +104,7 @@ function statusVariant(status: string) {
 
 function readinessVariant(status: string) {
   if (status === 'ready') return 'success' as const;
-  if (status.includes('required') || status.includes('config') || status.includes('binding')) {
+  if (status.includes('required') || status.includes('config')) {
     return 'warning' as const;
   }
   if (status.includes('error') || status.includes('not_configured')) {
@@ -126,7 +126,6 @@ function syncStatusLabel(status: string) {
   if (status === 'pending_sync') return '待同步';
   if (status === 'sync_failed') return '同步失败';
   if (status === 'error') return '异常';
-  if (status === 'binding_required') return '未绑定';
   if (status === 'not_configured') return '未配置';
   return status;
 }

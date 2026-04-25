@@ -34,7 +34,7 @@ class LLMWikiService:
     """Project-local LLM Wiki knowledge layer.
 
     It stores working understanding and source intake context without requiring
-    a remote notebook provider.
+    a remote knowledge provider.
     """
 
     def __init__(self, settings: AppSettings = DEFAULT_SETTINGS):
