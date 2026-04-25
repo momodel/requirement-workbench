@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile, status
 
 from ..models import ProviderIssue, SourceContentRecord
 from ..services.evidence_indexing import (
@@ -104,6 +104,10 @@ def _build_source_content_record(source) -> SourceContentRecord:
 
 
 def _resolve_index_outcome(services, project_id: str, normalized_source) -> tuple[str, str | None]:
+    if normalized_source.normalize_status == "processing":
+        detail = normalized_source.normalize_summary or "音频正在转写，完成后会自动进入项目知识库。"
+        return "normalization_pending", detail
+
     if normalized_source.normalize_status == "pending":
         detail = normalized_source.normalize_summary or "资料已记录，但还没有完成文本标准化。"
         return "normalization_pending", detail
@@ -231,6 +235,7 @@ def get_source_content(project_id: str, source_id: str, request: Request):
 async def create_source(
     project_id: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     upload_kind: str = Form(...),
     name: str = Form(...),
     text_content: str | None = Form(None),
@@ -285,17 +290,22 @@ async def create_source(
                 safe_name,
                 await upload.read(),
             )
-            created_sources.append(
-                _serialize_source_record(
-                    _create_source_record(
-                        services,
-                        project_id,
-                        upload_kind,
-                        safe_name,
-                        storage_path,
-                        normalized_source,
-                    )
+            created = _create_source_record(
+                services,
+                project_id,
+                upload_kind,
+                safe_name,
+                storage_path,
+                normalized_source,
+            )
+            if created.source_kind == "audio" and created.normalize_status == "processing":
+                background_tasks.add_task(
+                    services.audio_ingestion.process_source,
+                    project_id,
+                    created.id,
                 )
+            created_sources.append(
+                _serialize_source_record(created)
             )
         return created_sources if len(created_sources) > 1 or files else created_sources[0]
     else:
@@ -342,7 +352,12 @@ def delete_source(project_id: str, source_id: str, request: Request):
 
 
 @router.post("/{source_id}/reindex", status_code=status.HTTP_200_OK)
-def reindex_source(project_id: str, source_id: str, request: Request):
+def reindex_source(
+    project_id: str,
+    source_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
     services = request.app.state.services
     project = services.catalog.get_project(project_id)
     if not project:
@@ -351,6 +366,27 @@ def reindex_source(project_id: str, source_id: str, request: Request):
     source = services.catalog.get_source(source_id)
     if not source or source.project_id != project_id:
         raise HTTPException(status_code=404, detail="Source not found")
+
+    if source.source_kind == "audio" and not source.normalized_path:
+        if source.normalize_status == "processing":
+            return _serialize_source_record(source)
+
+        if source.normalize_status in {"failed", "pending"}:
+            refreshed = services.catalog.update_source_normalization(
+                source_id=source_id,
+                normalized_path=None,
+                index_input_mode=None,
+                normalize_status="processing",
+                normalize_summary="正在重新转写音频；完成后会自动进入项目知识库。",
+                index_status="normalization_pending",
+                index_error="音频正在转写，完成后会自动进入项目知识库。",
+            )
+            background_tasks.add_task(
+                services.audio_ingestion.process_source,
+                project_id,
+                source_id,
+            )
+            return _serialize_source_record(refreshed)
 
     try:
         return _serialize_source_record(

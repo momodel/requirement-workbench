@@ -898,6 +898,166 @@ def test_url_upload_stays_out_of_evidence_index_until_page_text_exists(
         ) == []
 
 
+def test_audio_upload_returns_processing_and_exposes_runtime_readiness(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+    monkeypatch.setattr(
+        app.state.services.object_storage,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="QINIU_OSS",
+            status="ready",
+            summary="七牛对象存储已就绪。",
+            detail="bucket=audio-bucket",
+            action_label=None,
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.audio_transcription,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="ALIYUN_FILETRANS",
+            status="ready",
+            summary="阿里云音频转写已就绪。",
+            detail="region=cn-shanghai",
+            action_label=None,
+        ),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频上传测试",
+                "scenario_type": "general",
+                "summary": "验证音频异步标准化返回 processing 并暴露运行时 readiness。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        global_readiness_response = client.get("/api/providers/readiness")
+        project_readiness_response = client.get(f"/api/projects/{project_id}/readiness")
+
+    assert upload_response.status_code == 201
+    source = upload_response.json()
+    assert_source_payload_is_neutral_only(source)
+    assert source["source_kind"] == "audio"
+    assert source["normalize_status"] == "processing"
+    assert source["index_status"] == "normalization_pending"
+    assert source["normalized_path"] is None
+    assert "自动进入项目知识库" in source["index_error"]
+    assert queued == [(project_id, source["id"])]
+
+    assert global_readiness_response.status_code == 200
+    global_readiness = global_readiness_response.json()
+    assert global_readiness["object_storage"]["provider"] == "QINIU_OSS"
+    assert global_readiness["object_storage"]["status"] == "ready"
+    assert global_readiness["audio_transcription"]["provider"] == "ALIYUN_FILETRANS"
+    assert global_readiness["audio_transcription"]["status"] == "ready"
+
+    assert project_readiness_response.status_code == 200
+    project_readiness = project_readiness_response.json()
+    assert project_readiness["object_storage"]["provider"] == "QINIU_OSS"
+    assert project_readiness["audio_transcription"]["provider"] == "ALIYUN_FILETRANS"
+    assert "processing_audio_sources=1" in (project_readiness["object_storage"]["detail"] or "")
+    assert "failed_audio_sources=0" in (project_readiness["audio_transcription"]["detail"] or "")
+
+
+def test_audio_reindex_restarts_transcription_when_normalized_text_missing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频重试测试",
+                "scenario_type": "general",
+                "summary": "验证音频缺少 normalized text 时会重新发起转写。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        assert upload_response.status_code == 201
+        created_source = upload_response.json()
+        assert_source_payload_is_neutral_only(created_source)
+        source_id = created_source["id"]
+
+        app.state.services.catalog.update_source_normalization(
+            source_id=source_id,
+            normalized_path=None,
+            index_input_mode=None,
+            normalize_status="failed",
+            normalize_summary="阿里云转写超时。",
+            index_status="normalization_failed",
+            index_error="资料标准化失败，尚未进入项目知识库。阿里云转写超时。",
+        )
+
+        failed_readiness_response = client.get(f"/api/projects/{project_id}/readiness")
+        reindex_response = client.post(
+            f"/api/projects/{project_id}/sources/{source_id}/reindex",
+        )
+        refreshed_readiness_response = client.get(f"/api/projects/{project_id}/readiness")
+
+    assert failed_readiness_response.status_code == 200
+    failed_readiness = failed_readiness_response.json()
+    assert "processing_audio_sources=0" in (failed_readiness["object_storage"]["detail"] or "")
+    assert "failed_audio_sources=1" in (failed_readiness["audio_transcription"]["detail"] or "")
+
+    assert reindex_response.status_code == 200
+    payload = reindex_response.json()
+    assert_source_payload_is_neutral_only(payload)
+    assert payload["id"] == source_id
+    assert payload["source_kind"] == "audio"
+    assert payload["normalize_status"] == "processing"
+    assert payload["index_status"] == "normalization_pending"
+    assert payload["normalized_path"] is None
+    assert "自动进入项目知识库" in payload["index_error"]
+    assert queued == [(project_id, source_id), (project_id, source_id)]
+
+    refreshed = app.state.services.catalog.get_source(source_id)
+    assert refreshed is not None
+    assert refreshed.normalize_status == "processing"
+    assert refreshed.index_status == "normalization_pending"
+
+    assert refreshed_readiness_response.status_code == 200
+    refreshed_readiness = refreshed_readiness_response.json()
+    assert "processing_audio_sources=1" in (refreshed_readiness["object_storage"]["detail"] or "")
+    assert "failed_audio_sources=0" in (refreshed_readiness["audio_transcription"]["detail"] or "")
+
+
 def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
     tmp_path: Path,
     monkeypatch,
