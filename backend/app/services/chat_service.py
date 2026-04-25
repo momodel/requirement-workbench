@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
+import mimetypes
 import uuid
+from pathlib import Path
 
-from ..models import AgentTurnInput, ArtifactRecord, ArtifactType, ChatStreamRequest, ProviderIssue
+from ..models import AgentTurnInput, ArtifactRecord, ArtifactType, ChatImageAttachment, ChatStreamRequest, ProviderIssue
 from .artifact_generation import ArtifactGenerationService
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
@@ -71,6 +75,49 @@ class ChatService:
             "page_solution": "页面方案正在生成中。",
             "interaction_flow": "交互稿正在生成中。",
         }[artifact_type]
+
+    def _save_chat_image_attachments(
+        self,
+        *,
+        project_id: str,
+        attachments: list[ChatImageAttachment],
+    ) -> list[dict]:
+        image_refs: list[dict] = []
+        for attachment in attachments[:4]:
+            if not attachment.content_type.startswith("image/"):
+                raise ValueError("聊天附件目前只支持图片。")
+            if not attachment.data_url.startswith("data:"):
+                raise ValueError("图片附件格式不正确。")
+            try:
+                header, encoded = attachment.data_url.split(",", 1)
+            except ValueError as exc:
+                raise ValueError("图片附件缺少 data URL 内容。") from exc
+            if ";base64" not in header:
+                raise ValueError("图片附件必须使用 base64 data URL。")
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise ValueError("图片附件 base64 内容无法解析。") from exc
+            if len(image_bytes) > 5 * 1024 * 1024:
+                raise ValueError("单张聊天图片不能超过 5MB。")
+
+            image_id = f"user-image-{uuid.uuid4().hex[:10]}"
+            extension = mimetypes.guess_extension(attachment.content_type) or Path(attachment.name).suffix or ".png"
+            if extension == ".jpe":
+                extension = ".jpg"
+            image_dir = self.catalog.settings.projects_dir / project_id / "chat-images" / image_id
+            image_dir.mkdir(parents=True, exist_ok=True)
+            (image_dir / f"image{extension}").write_bytes(image_bytes)
+            image_refs.append(
+                {
+                    "id": image_id,
+                    "title": attachment.name,
+                    "summary": "用户上传的聊天图片",
+                    "url": f"/api/projects/{project_id}/chat-images/{image_id}",
+                    "content_type": attachment.content_type,
+                }
+            )
+        return image_refs
 
     async def _complete_requested_artifact(
         self,
@@ -155,10 +202,15 @@ class ChatService:
             raise LookupError("Project not found")
 
         stream_group_id = f"stream-{uuid.uuid4().hex[:10]}"
+        user_image_refs = self._save_chat_image_attachments(
+            project_id=project_id,
+            attachments=payload.image_attachments,
+        )
         self.catalog.create_message(
             project_id=project_id,
             role="user",
             content=payload.message,
+            source_refs=[{"__image_results__": user_image_refs}] if user_image_refs else None,
             stream_group_id=stream_group_id,
         )
 
