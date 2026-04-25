@@ -37,6 +37,7 @@ class QdrantLlamaIndexVectorStore:
         self.settings = settings
         self._client: Any | None = None
         self._embed_model: Any | None = None
+        self._reranker: Any | None = None
 
     @property
     def qdrant_path(self) -> Path:
@@ -82,6 +83,16 @@ class QdrantLlamaIndexVectorStore:
             ) from exc
         return module.FastEmbedEmbedding
 
+    def _load_cross_encoder_class(self):
+        try:
+            module = importlib.import_module("fastembed.rerank.cross_encoder")
+        except ModuleNotFoundError as exc:
+            raise ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message="当前 fastembed 版本不带 rerank cross encoder，无法启用 reranker。",
+            ) from exc
+        return module.TextCrossEncoder
+
     def _get_client(self):
         if self._client is not None:
             return self._client
@@ -100,8 +111,11 @@ class QdrantLlamaIndexVectorStore:
     def _get_embed_model(self):
         if self._embed_model is None:
             embedder_class = self._load_fastembed_class()
+            model_name = getattr(self.settings, "embedder_model", None)
             try:
-                self._embed_model = embedder_class()
+                self._embed_model = (
+                    embedder_class(model_name=model_name) if model_name else embedder_class()
+                )
             except ImportError as exc:
                 raise ProviderIssue(
                     provider=EVIDENCE_PROVIDER,
@@ -113,6 +127,18 @@ class QdrantLlamaIndexVectorStore:
             except Exception as exc:  # pragma: no cover - depends on optional runtime deps
                 raise self._wrap_error(exc, "初始化 embedding 模型") from exc
         return self._embed_model
+
+    def _get_reranker(self):
+        model_name = getattr(self.settings, "reranker_model", None)
+        if not model_name:
+            return None
+        if self._reranker is None:
+            cls = self._load_cross_encoder_class()
+            try:
+                self._reranker = cls(model_name=model_name)
+            except Exception as exc:  # pragma: no cover - depends on optional runtime deps
+                raise self._wrap_error(exc, "初始化 reranker 模型") from exc
+        return self._reranker
 
     def _wrap_error(self, exc: Exception, action: str) -> ProviderIssue:
         message = str(exc).strip() or exc.__class__.__name__
@@ -277,17 +303,23 @@ class QdrantLlamaIndexVectorStore:
         *,
         top_k: int,
         source_ids: list[str] | None = None,
+        recall_top_k: int | None = None,
     ) -> list[VectorQueryHit]:
         collection_name = self.collection_name(project_id)
         if not self._collection_exists(collection_name):
             return []
+
+        reranker = self._get_reranker()
+        # 配了 reranker 才扩大召回；否则维持原本的 top_k 召回不浪费算力。
+        configured_recall = recall_top_k or getattr(self.settings, "evidence_recall_top_k", top_k)
+        effective_recall = max(configured_recall, top_k) if reranker else top_k
 
         try:
             response = self._get_client().query_points(
                 collection_name=collection_name,
                 query=self._embed_text(question, query=True),
                 query_filter=self._build_source_filter(source_ids),
-                limit=top_k,
+                limit=effective_recall,
                 with_payload=True,
                 with_vectors=False,
             )
@@ -307,4 +339,24 @@ class QdrantLlamaIndexVectorStore:
                     metadata=payload,
                 )
             )
-        return hits
+
+        if reranker and hits:
+            try:
+                rerank_scores = list(reranker.rerank(question, [hit.text for hit in hits]))
+            except Exception as exc:  # pragma: no cover - depends on optional runtime deps
+                raise self._wrap_error(exc, "rerank 检索结果") from exc
+            scored = sorted(
+                zip(hits, rerank_scores), key=lambda pair: float(pair[1]), reverse=True
+            )
+            hits = [
+                VectorQueryHit(
+                    chunk_id=hit.chunk_id,
+                    source_id=hit.source_id,
+                    text=hit.text,
+                    score=float(score),
+                    metadata=hit.metadata,
+                )
+                for hit, score in scored
+            ]
+
+        return hits[:top_k]

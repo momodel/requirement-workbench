@@ -1,0 +1,746 @@
+[
+  {
+    "name": "baseline (bge-small-en, 800/0, no rerank)",
+    "settings_summary": {
+      "embed_model": "<fastembed default: BAAI/bge-small-en-v1.5>",
+      "chunk_size": 800,
+      "chunk_overlap": 0,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "退款订单在业务和财务两边怎么处理",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "税额拆分规则在业务和财务侧有什么差别",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "主营业务收入按什么挂科目",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "结算单包含哪些字段",
+        "expected": [
+          "seed-source-settlement"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "订单都有哪些字段",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "渠道订单挂错到直营科目算什么差异",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "手续费在业务侧和财务侧记账方式有什么不同",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "含税金额是什么意思",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "财务凭证号和业务订单号能直接对齐吗",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "电商平台 ORD-1003 的税额差异具体多少",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-finance",
+          "seed-source-order"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "作废订单的状态怎么标记",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "入账批次和凭证号的作用",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.333,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 0.639,
+      "n_queries": 12,
+      "n_chunks": 4
+    },
+    "timing": {
+      "index_seconds": 0.15,
+      "query_seconds_total": 0.08,
+      "query_seconds_avg": 0.006
+    }
+  },
+  {
+    "name": "zh embed (bge-small-zh, 800/0, no rerank)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 800,
+      "chunk_overlap": 0,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "退款订单在业务和财务两边怎么处理",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "税额拆分规则在业务和财务侧有什么差别",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "主营业务收入按什么挂科目",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "结算单包含哪些字段",
+        "expected": [
+          "seed-source-settlement"
+        ],
+        "ranked_sources": [
+          "seed-source-settlement",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "订单都有哪些字段",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "渠道订单挂错到直营科目算什么差异",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "手续费在业务侧和财务侧记账方式有什么不同",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "含税金额是什么意思",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "财务凭证号和业务订单号能直接对齐吗",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "电商平台 ORD-1003 的税额差异具体多少",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-order",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "作废订单的状态怎么标记",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "入账批次和凭证号的作用",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.667,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 0.833,
+      "n_queries": 12,
+      "n_chunks": 4
+    },
+    "timing": {
+      "index_seconds": 0.06,
+      "query_seconds_total": 0.03,
+      "query_seconds_avg": 0.003
+    }
+  },
+  {
+    "name": "zh embed + overlap (bge-small-zh, 500/120, no rerank)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 500,
+      "chunk_overlap": 120,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "退款订单在业务和财务两边怎么处理",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "税额拆分规则在业务和财务侧有什么差别",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "主营业务收入按什么挂科目",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "结算单包含哪些字段",
+        "expected": [
+          "seed-source-settlement"
+        ],
+        "ranked_sources": [
+          "seed-source-settlement",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "订单都有哪些字段",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "渠道订单挂错到直营科目算什么差异",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "手续费在业务侧和财务侧记账方式有什么不同",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "含税金额是什么意思",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "财务凭证号和业务订单号能直接对齐吗",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "电商平台 ORD-1003 的税额差异具体多少",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-order",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "作废订单的状态怎么标记",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "入账批次和凭证号的作用",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 2
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.667,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 0.833,
+      "n_queries": 12,
+      "n_chunks": 4
+    },
+    "timing": {
+      "index_seconds": 0.06,
+      "query_seconds_total": 0.03,
+      "query_seconds_avg": 0.003
+    }
+  },
+  {
+    "name": "zh embed + overlap + rerank (recall 20 → top 6)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 500,
+      "chunk_overlap": 120,
+      "reranker_model": "BAAI/bge-reranker-base",
+      "recall_top_k": 20,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "退款订单在业务和财务两边怎么处理",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "税额拆分规则在业务和财务侧有什么差别",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "主营业务收入按什么挂科目",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "结算单包含哪些字段",
+        "expected": [
+          "seed-source-settlement"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "订单都有哪些字段",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-settlement",
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "渠道订单挂错到直营科目算什么差异",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "手续费在业务侧和财务侧记账方式有什么不同",
+        "expected": [
+          "seed-source-diff",
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "含税金额是什么意思",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "财务凭证号和业务订单号能直接对齐吗",
+        "expected": [
+          "seed-source-finance",
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "电商平台 ORD-1003 的税额差异具体多少",
+        "expected": [
+          "seed-source-diff"
+        ],
+        "ranked_sources": [
+          "seed-source-diff",
+          "seed-source-settlement",
+          "seed-source-finance",
+          "seed-source-order"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "作废订单的状态怎么标记",
+        "expected": [
+          "seed-source-order"
+        ],
+        "ranked_sources": [
+          "seed-source-order",
+          "seed-source-diff",
+          "seed-source-finance",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "入账批次和凭证号的作用",
+        "expected": [
+          "seed-source-finance"
+        ],
+        "ranked_sources": [
+          "seed-source-finance",
+          "seed-source-diff",
+          "seed-source-order",
+          "seed-source-settlement"
+        ],
+        "first_hit_rank": 1
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.917,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 0.958,
+      "n_queries": 12,
+      "n_chunks": 4
+    },
+    "timing": {
+      "index_seconds": 0.06,
+      "query_seconds_total": 6.82,
+      "query_seconds_avg": 0.568
+    }
+  }
+]
