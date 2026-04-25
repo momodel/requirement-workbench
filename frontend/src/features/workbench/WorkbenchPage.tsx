@@ -1336,7 +1336,7 @@ export function WorkbenchPage({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(23,71,111,0.12),_transparent_26%),linear-gradient(180deg,_#eef4f9_0%,_#f8fafc_50%,_#eef2f7_100%)] px-3 pb-3 pt-3 text-ink md:px-4">
+    <main className="h-screen overflow-hidden px-3 pb-3 pt-3 text-nearBlack md:px-4">
       <div className="mx-auto flex h-full max-w-[1700px] flex-col gap-3">
         <Card className="shrink-0 border-borderCream bg-ivory">
           <CardContent className="relative flex items-center justify-between gap-4 p-3">
@@ -1509,9 +1509,9 @@ export function WorkbenchPage({
                         className={cn(
                           'max-w-[78%] rounded-[22px] px-4 py-3.5 shadow-sm',
                           message.role === 'user'
-                            ? 'bg-[#eaf3ff] text-ink'
+                            ? 'bg-accentSoft text-nearBlack shadow-[0_0_0_1px_rgba(201,100,66,0.18)]'
                             : message.role === 'assistant'
-                              ? 'border border-borderCream bg-ivory text-ink'
+                              ? 'border border-borderCream bg-ivory text-nearBlack'
                               : 'border border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]'
                         )}
                       >
