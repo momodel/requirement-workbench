@@ -330,6 +330,24 @@ const SKILL_CARDS = [
   },
 ] as const;
 
+const METHOD_STACK = [
+  {
+    name: 'BABOK',
+    role: '覆盖度检查',
+    desc: 'goals · stakeholders · process · rules · constraints · acceptance —— 缺一项就丢进 pending。',
+  },
+  {
+    name: 'JTBD',
+    role: '诉求 truth-test',
+    desc: '"做个看板"、"自动化一下" —— 这种模糊话背后到底想完成什么 job。',
+  },
+  {
+    name: 'Event Storming',
+    role: '流程重建',
+    desc: '业务事件 · 上下游 · handoff · exception path —— 抓出"问题其实是流程错位"。',
+  },
+] as const;
+
 function SkillStackSection() {
   return (
     <section className="space-y-8">
@@ -368,6 +386,38 @@ function SkillStackSection() {
           );
         })}
       </div>
+
+      <div className="rounded-[18px] border border-borderCream bg-parchment/60 px-5 py-5">
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-stone">
+            <span className="h-px w-6 bg-borderWarm" aria-hidden />
+            内化的分析视角
+          </div>
+          <span className="text-[12px] italic text-stone">
+            agent 内部用，不强塞客户
+          </span>
+        </div>
+        <p className="mt-2 text-[14px] leading-[1.65] text-olive">
+          "需求分析方法论" skill 里挂了三套成熟的分析视角。<span className="text-charcoal">不暴露术语给客户</span>，但 agent 在追问、归档、识别冲突时会用上：
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {METHOD_STACK.map((method) => (
+            <div
+              key={method.name}
+              className="rounded-[12px] border border-borderCream bg-ivory px-4 py-3"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-display text-[1rem] font-medium text-nearBlack">
+                  {method.name}
+                </span>
+                <span className="text-[11px] uppercase tracking-[0.14em] text-stone">{method.role}</span>
+              </div>
+              <p className="mt-1.5 text-[13px] leading-[1.6] text-olive">{method.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <p className="text-center text-[13px] italic leading-[1.6] text-stone">
         三块互锁，agent runtime 在 <span className="font-mono not-italic text-charcoal">backend/.claude/skills/</span> 自动发现。
       </p>
