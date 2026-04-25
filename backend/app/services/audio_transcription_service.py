@@ -15,6 +15,10 @@ from ..models import ProviderIssue, ProviderReadiness
 ALIYUN_FILETRANS = "ALIYUN_FILETRANS"
 ALIYUN_FILETRANS_PRODUCT = "nls-filetrans"
 ALIYUN_FILETRANS_VERSION = "2018-08-17"
+ALIYUN_FILETRANS_EMPTY_RESULT_STATUSES = {
+    "SUCCESS_WITH_NO_VALID_FRAGMENT",
+    "ASR_RESPONSE_HAVE_NO_WORDS",
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,13 +93,22 @@ class AudioTranscriptionService:
         request.set_domain(
             f"filetrans.{self.settings.aliyun_filetrans_region}.aliyuncs.com"
         )
-        request.set_method("POST")
         request.set_protocol_type("HTTPS")
         request.set_version(ALIYUN_FILETRANS_VERSION)
         request.set_product(ALIYUN_FILETRANS_PRODUCT)
         request.set_action_name(action)
-        request.add_header("Content-Type", "application/json")
-        request.set_content(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
+
+        if action == "SubmitTask":
+            request.set_method("POST")
+            request.add_body_params(
+                "Task",
+                json.dumps(payload, ensure_ascii=False),
+            )
+        elif action == "GetTaskResult":
+            request.set_method("GET")
+            request.add_query_param("TaskId", str(payload["TaskId"]))
+        else:
+            raise ValueError(f"Unsupported Aliyun FileTrans action: {action}")
 
         try:
             raw_response = self._client().do_action_with_exception(request)
@@ -121,6 +134,24 @@ class AudioTranscriptionService:
                 message="阿里云转写接口返回格式异常。",
             )
         return parsed
+
+    @staticmethod
+    def _validate_sentences(sentences: Any) -> list[dict[str, Any]]:
+        if not isinstance(sentences, list):
+            raise ProviderIssue(
+                provider=ALIYUN_FILETRANS,
+                message="阿里云转写结果格式异常。",
+            )
+
+        validated: list[dict[str, Any]] = []
+        for sentence in sentences:
+            if not isinstance(sentence, dict):
+                raise ProviderIssue(
+                    provider=ALIYUN_FILETRANS,
+                    message="阿里云转写结果格式异常。",
+                )
+            validated.append(sentence)
+        return validated
 
     def _submit_task(self, file_url: str, source_name: str) -> str:
         response = self._request(
@@ -149,6 +180,9 @@ class AudioTranscriptionService:
                 time.sleep(self.settings.audio_transcription_poll_interval_seconds)
                 continue
 
+            if status_text in ALIYUN_FILETRANS_EMPTY_RESULT_STATUSES:
+                return []
+
             if status_text != "SUCCESS":
                 raise ProviderIssue(
                     provider=ALIYUN_FILETRANS,
@@ -171,14 +205,7 @@ class AudioTranscriptionService:
                     message="阿里云转写结果格式异常。",
                 )
 
-            sentences = result_payload.get("Sentences")
-            if not isinstance(sentences, list):
-                raise ProviderIssue(
-                    provider=ALIYUN_FILETRANS,
-                    message="阿里云转写结果格式异常。",
-                )
-
-            return sentences
+            return self._validate_sentences(result_payload.get("Sentences"))
 
         raise ProviderIssue(provider=ALIYUN_FILETRANS, message="阿里云转写超时。")
 
