@@ -161,6 +161,7 @@ class MessageRecord(BaseModel):
     role: str
     content: str
     source_refs: list[dict[str, Any]] = Field(default_factory=list)
+    image_results: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str
     stream_group_id: str | None = None
 

@@ -20,6 +20,75 @@ from app.services.project_state import ProjectStateService
 from app.services.seed_projects import ensure_seed_project
 
 
+def test_visual_mockup_reference_urls_are_absolutized() -> None:
+    settings = AppSettings(
+        root_dir=Path("/tmp/project"),
+        data_dir=Path("/tmp/project/data"),
+        sqlite_dir=Path("/tmp/project/data/sqlite"),
+        sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
+        projects_dir=Path("/tmp/project/data/projects"),
+    )
+    runtime = ClaudeAgentRuntime(settings)
+
+    urls = runtime._normalize_reference_image_urls(
+        [
+            "/api/projects/project-1/chat-images/image-abc",
+            "https://cdn.example.test/existing.png",
+            "",
+        ]
+    )
+
+    assert urls == [
+        "http://127.0.0.1:8001/api/projects/project-1/chat-images/image-abc",
+        "https://cdn.example.test/existing.png",
+    ]
+
+
+def test_format_recent_messages_includes_generated_image_urls() -> None:
+    turn = AgentTurnInput(
+        project=ProjectSummary(
+            id="project-1",
+            name="测试项目",
+            scenario_type="fullstack",
+            summary="测试摘要",
+            status="active",
+            created_at="2026-04-24T10:00:00+08:00",
+            updated_at="2026-04-24T10:00:00+08:00",
+        ),
+        state=ProjectState(current_understanding=[], pending_items=[], confirmed_items=[], conflict_items=[], mvp_items=[], versions=[], artifacts=[]),
+        user_message="按上一张图改一下",
+        selected_source_ids=[],
+        source_summaries=[],
+        evidence_summary="",
+        evidence_citations=[],
+        request_artifact_types=[],
+        recent_messages=[
+            MessageRecord(
+                id="msg-1",
+                role="assistant",
+                content="已生成第一版视觉稿。",
+                image_results=[
+                    {
+                        "id": "image-abc",
+                        "title": "第一版视觉稿",
+                        "url": "/api/projects/project-1/chat-images/image-abc",
+                        "provider_url": "https://upload.apimart.ai/f/image/reference.png",
+                    }
+                ],
+                created_at="2026-04-24T10:00:00+08:00",
+            )
+        ],
+    )
+
+    history = ClaudeAgentRuntime._format_recent_messages(turn)
+
+    assert "历史图片" in history
+    assert "第一版视觉稿" in history
+    assert "https://upload.apimart.ai/f/image/reference.png" in history
+    assert "reference_image_urls" in history
+    assert "/api/projects/project-1/chat-images/image-abc" not in history
+
+
 def test_coerce_json_payload_extracts_json_from_wrapped_text() -> None:
     wrapped = """
 这是生成结果：
@@ -1375,11 +1444,11 @@ def test_generate_artifact_tool_creates_artifact_and_version(tmp_path: Path) -> 
     )
 
     assert generated_artifacts
-    assert generated_versions
     assert generated_artifacts[0].artifact_type == "interaction_flow"
-    assert generated_versions[0].title == "artifact_generated"
+    assert generated_artifacts[0].status == "generating"
+    assert generated_versions == []
     assert result["content"][0]["type"] == "text"
-    assert "逐笔对账交互稿" in result["content"][0]["text"]
+    assert "generating" in result["content"][0]["text"]
     saved_artifact = runtime.catalog.get_artifact(project.id, generated_artifacts[0].id)
     assert saved_artifact is not None
 

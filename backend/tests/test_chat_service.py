@@ -137,6 +137,37 @@ class SlowArtifactRuntime:
         yield ("done", {})
 
 
+class ImageResultRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        yield (
+            "assistant_status",
+            {
+                "phase": "tool_running:generate_visual_mockup",
+                "label": "正在生成视觉稿",
+            },
+        )
+        yield (
+            "image_result",
+            {
+                "title": "需求分析工作台视觉稿",
+                "summary": "已生成一张工作台界面视觉稿。",
+                "url": "/api/projects/seed-reconciliation/images/img-123",
+                "content_type": "image/png",
+            },
+        )
+        yield (
+            "final_message",
+            {
+                "text": "视觉稿已生成，直接在这条消息里查看。",
+                "citations": [],
+            },
+        )
+        yield ("done", {})
+
+
 def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_message(
     tmp_path: Path,
 ) -> None:
@@ -281,6 +312,164 @@ def test_chat_service_extends_timeout_while_generating_artifact(tmp_path: Path) 
     ]
     assert events[0][1]["phase"] == "tool_running:generate_artifact"
     assert events[2][1]["text"] == "交互稿已写入交付物区。"
+
+
+def test_chat_service_forwards_image_result_without_creating_artifact(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=ImageResultRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="生成一张界面图", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "image_result",
+        "message_chunk",
+        "done",
+    ]
+    assert events[1][1]["url"] == "/api/projects/seed-reconciliation/images/img-123"
+    assert events[0][1]["phase"] == "tool_running:generate_visual_mockup"
+    assert all(event_type != "artifact_patch" for event_type, _ in events)
+
+    stream_group_id = events[-1][1]["stream_group_id"]
+    assistant_message = next(
+        message
+        for message in catalog.list_recent_messages("seed-reconciliation")
+        if message.role == "assistant" and message.stream_group_id == stream_group_id
+    )
+    assert assistant_message.image_results == [events[1][1]]
+    assert assistant_message.source_refs == []
+
+
+def test_chat_service_extends_timeout_while_generating_visual_mockup(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    class SlowImageRuntime:
+        def ensure_available(self) -> None:
+            return None
+
+        async def run_streaming_turn(self, turn):
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_running:generate_visual_mockup",
+                    "label": "正在生成视觉稿",
+                },
+            )
+            await asyncio.sleep(0.15)
+            yield (
+                "image_result",
+                {
+                    "title": "视觉稿",
+                    "summary": "图片已生成。",
+                    "url": "/api/projects/seed-reconciliation/images/img-456",
+                    "content_type": "image/png",
+                },
+            )
+            yield ("final_message", {"text": "图已生成。", "citations": []})
+            yield ("done", {})
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=SlowImageRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="生成视觉稿", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "image_result",
+        "message_chunk",
+        "done",
+    ]
+
+
+
+class NeverCalledArtifactRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        raise AssertionError("显式交付物请求不应进入主聊天 Agent loop")
+        if False:
+            yield ("done", {})
+
+    async def generate_artifact(self, **kwargs):
+        await asyncio.sleep(60)
+
+
+def test_chat_service_starts_explicit_artifact_request_as_background_job(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=NeverCalledArtifactRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(
+                message="生成交互稿",
+                selected_source_ids=[],
+                request_artifact_types=["interaction_flow"],
+            ),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "artifact_patch",
+        "message_chunk",
+        "done",
+    ]
+    artifact = events[1][1]["items"][0]
+    assert artifact["artifact_type"] == "interaction_flow"
+    assert artifact["status"] == "generating"
+    assert events[2][1]["text"] == "交付物已开始生成，完成后会出现在右侧交付物区。"
 
 
 def test_project_state_append_category_keeps_existing_items(tmp_path: Path) -> None:

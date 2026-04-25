@@ -42,6 +42,12 @@ export type StateOverviewItem = {
   documentBody?: string | null;
 };
 
+export type ArtifactStatusSummary = {
+  generating: number;
+  generated: number;
+  failed: number;
+};
+
 export type StateOverviewSection = {
   id: string;
   title: string;
@@ -50,6 +56,7 @@ export type StateOverviewSection = {
   totalCount: number;
   recentCount: number;
   updatedAt: string | null;
+  artifactStatusSummary?: ArtifactStatusSummary;
 };
 
 const STAGE_INDEX = Object.fromEntries(
@@ -124,6 +131,18 @@ function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
     }
   }
   return Array.from(latestByType.values());
+}
+
+function getArtifactStatusSummary(items: StateOverviewItem[]): ArtifactStatusSummary {
+  return items.reduce<ArtifactStatusSummary>(
+    (summary, item) => {
+      if (item.status === 'generating') summary.generating += 1;
+      else if (item.status === 'failed') summary.failed += 1;
+      else if (item.status === 'generated') summary.generated += 1;
+      return summary;
+    },
+    { generating: 0, generated: 0, failed: 0 }
+  );
 }
 
 function buildArtifactOverviewItem(
@@ -275,12 +294,15 @@ export function deriveStateOverviewSections(
       '当前已形成的方案方向和 MVP 收敛结论。',
       state.mvp_items.map((item) => buildStateOverviewItem(item, recentInsightIds))
     ),
-    buildOverviewSection(
-      'artifacts',
-      '交付物',
-      '文档稿、页面方案和交互稿等产物。',
-      artifactItems
-    ),
+    {
+      ...buildOverviewSection(
+        'artifacts',
+        '交付物',
+        '文档稿、页面方案和交互稿等产物。',
+        artifactItems
+      ),
+      artifactStatusSummary: getArtifactStatusSummary(artifactItems),
+    },
     buildOverviewSection(
       'versions',
       '版本快照',

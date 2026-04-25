@@ -1313,6 +1313,25 @@ def test_delete_seed_project_is_rejected(tmp_path: Path) -> None:
     assert delete_response.json()["detail"] == "默认 seed project 不能删除。"
 
 
+def test_chat_image_preview_returns_generated_file(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    with TestClient(app) as client:
+        image_dir = (
+            app.state.services.settings.projects_dir
+            / "seed-reconciliation"
+            / "chat-images"
+            / "image-test123"
+        )
+        image_dir.mkdir(parents=True, exist_ok=True)
+        (image_dir / "image.png").write_bytes(b"fake-png")
+
+        response = client.get("/api/projects/seed-reconciliation/chat-images/image-test123")
+
+    assert response.status_code == 200
+    assert response.content == b"fake-png"
+
+
 def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)

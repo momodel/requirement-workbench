@@ -4,6 +4,7 @@ const ARTIFACT_TYPE_LABELS: Record<string, string> = {
   document: '文档稿',
   page_solution: '页面方案',
   interaction_flow: '交互稿',
+  visual_mockup: '视觉稿',
 };
 
 const ARTIFACT_STATUS_LABELS: Record<string, string> = {
@@ -24,6 +25,10 @@ export function getArtifactFormatLabel(
   artifactType: string,
   contentFormat: string | null | undefined
 ) {
+  if (contentFormat === 'image') {
+    return '图片预览';
+  }
+
   if (contentFormat === 'html') {
     if (artifactType === 'page_solution') return 'HTML 页面原型';
     if (artifactType === 'interaction_flow') return 'HTML 交互原型';

@@ -24,6 +24,8 @@ import {
 } from './lib/api';
 import type {
   ArtifactRecord,
+  ChatImageResult,
+  ChatStreamRequest,
   GlobalReadiness,
   MessageActionEvent,
   MessageRecord,
@@ -111,6 +113,24 @@ function appendAssistantAction(
   });
 }
 
+
+function appendAssistantImageResult(
+  messages: MessageRecord[],
+  assistantId: string,
+  image: ChatImageResult
+) {
+  return updateAssistantMessage(messages, assistantId, (item) => {
+    const existing = item.image_results ?? [];
+    if (existing.some((current) => current.id === image.id)) {
+      return item;
+    }
+    return {
+      ...item,
+      image_results: [...existing, image],
+    };
+  });
+}
+
 function buildPatchAction(
   kind: MessageActionEvent['kind'],
   label: string,
@@ -132,8 +152,8 @@ function buildArtifactAction(items: ArtifactRecord[], createdAt: string): Messag
     kind: 'artifact',
     label:
       labels.length > 0
-        ? `已生成交付物：${labels.join('、')}`
-        : '已生成交付物',
+        ? `${items.some((item) => item.status === 'generating') ? '交付物生成中' : '已生成交付物'}：${labels.join('、')}`
+        : '交付物已更新',
   };
 }
 
@@ -235,6 +255,7 @@ function WorkbenchRoute() {
   const [recentInsightIds, setRecentInsightIds] = useState<string[]>([]);
   const autoInitAttemptedProjectId = useRef<string | null>(null);
   const recentInsightTimerRef = useRef<number | null>(null);
+  const previousGeneratingArtifactIdsRef = useRef<Set<string>>(new Set());
 
   function markRecentInsights(items: StateItem[]) {
     const nextIds = collectItemIds(items);
@@ -323,6 +344,53 @@ function WorkbenchRoute() {
       }
     };
   }, []);
+
+
+  useEffect(() => {
+    const generatingArtifacts = data.artifacts.filter((artifact) => artifact.status === 'generating');
+    const previousGeneratingIds = previousGeneratingArtifactIdsRef.current;
+    const currentGeneratingIds = new Set(generatingArtifacts.map((artifact) => artifact.id));
+
+    const completedArtifacts = data.artifacts.filter(
+      (artifact) => artifact.status !== 'generating' && previousGeneratingIds.has(artifact.id)
+    );
+    if (completedArtifacts.length > 0) {
+      setNotices((current) => [
+        {
+          id: `artifact-ready-${Date.now()}`,
+          kind: completedArtifacts.some((artifact) => artifact.status === 'failed') ? 'error' : 'info',
+          title: completedArtifacts.some((artifact) => artifact.status === 'failed') ? '交付物生成失败' : '交付物已生成',
+          body: completedArtifacts.map((artifact) => artifact.title).join('、'),
+        },
+        ...current,
+      ]);
+    }
+    previousGeneratingArtifactIdsRef.current = currentGeneratingIds;
+
+    if (generatingArtifacts.length === 0) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void listArtifacts(projectId)
+        .then((artifacts) => {
+          setData((current) => ({ ...current, artifacts }));
+        })
+        .catch((error: Error) => {
+          setNotices((current) => [
+            {
+              id: `artifact-refresh-${Date.now()}`,
+              kind: 'error',
+              title: '交付物状态刷新失败',
+              body: error.message,
+            },
+            ...current,
+          ]);
+        });
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [data.artifacts, projectId]);
 
   useEffect(() => {
     const evidenceReadiness = readiness?.evidence;
@@ -457,6 +525,15 @@ function WorkbenchRoute() {
                 ...item,
                 source_refs: payload.items as MessageRecord['source_refs'],
               })),
+            }));
+            return;
+          }
+
+          if (event === 'image_result' && payload.url) {
+            const image = payload as unknown as ChatImageResult;
+            setData((current) => ({
+              ...current,
+              messages: appendAssistantImageResult(current.messages, assistantId, image),
             }));
             return;
           }

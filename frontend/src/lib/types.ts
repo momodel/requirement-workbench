@@ -69,11 +69,21 @@ export type MessageRecord = {
   role: string;
   content: string;
   source_refs: Array<{ title?: string; snippet?: string; source_id?: string }>;
+  image_results?: ChatImageResult[];
   created_at: string;
   stream_group_id: string | null;
   status_label?: string | null;
   status_phase?: string | null;
   action_events?: MessageActionEvent[];
+};
+
+export type ChatImageResult = {
+  id: string;
+  title: string;
+  summary?: string | null;
+  url: string;
+  content_type?: string | null;
+  prompt?: string | null;
 };
 
 export type MessageActionEvent = {
@@ -138,6 +148,7 @@ export type ChatCitation = {
 
 export type SseEventPayload = {
   project_id: string;
+  [key: string]: unknown;
   created_at: string;
   op?: 'replace' | 'upsert' | 'remove';
   items?: unknown[];

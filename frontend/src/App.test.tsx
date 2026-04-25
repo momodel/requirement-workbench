@@ -2059,9 +2059,9 @@ describe('App', () => {
     expect(screen.queryByText(/impact:/)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '展开 交付物' }));
-    expect(screen.getByText('页面方案 v2')).toBeInTheDocument();
-    expect(screen.getByText('交互稿 v2')).toBeInTheDocument();
-    expect(screen.getByText('文档稿 v2')).toBeInTheDocument();
+    expect(screen.getAllByText('页面方案 v2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('交互稿 v2').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('文档稿 v2').length).toBeGreaterThan(0);
     expect(screen.queryByText('页面方案 v1')).not.toBeInTheDocument();
     expect(screen.getAllByText('页面方案').length).toBeGreaterThan(0);
     expect(screen.getAllByText('HTML 页面原型').length).toBeGreaterThan(0);

@@ -255,11 +255,22 @@ function getRecentOverviewItems(sections: StateOverviewSection[]) {
   return sections
     .flatMap((section) =>
       section.items
-        .filter((item) => item.isRecent)
+        .filter((item) => item.isRecent || (item.kind === 'artifact' && itemTimestamp(item) > 0))
         .map((item) => ({ section, item }))
     )
     .sort((left, right) => itemTimestamp(right.item) - itemTimestamp(left.item))
     .slice(0, 5);
+}
+
+function getArtifactStatusSummaryLabel(section: StateOverviewSection) {
+  const summary = section.artifactStatusSummary;
+  if (!summary) return null;
+
+  const parts = [];
+  if (summary.generating > 0) parts.push(`${summary.generating} 生成中`);
+  if (summary.generated > 0) parts.push(`${summary.generated} 已生成`);
+  if (summary.failed > 0) parts.push(`${summary.failed} 失败`);
+  return parts.length > 0 ? parts.join(' · ') : '暂无交付物';
 }
 
 function getArtifactMeta(item: StateOverviewItem) {
@@ -369,6 +380,13 @@ function ArtifactInlineActions({
   const artifact = toArtifactRecord(item);
   const isHtml = item.contentFormat === 'html';
 
+  if (item.status === 'generating') {
+    return <Badge variant="warning">生成中</Badge>;
+  }
+  if (item.status === 'failed') {
+    return <Badge variant="danger">失败</Badge>;
+  }
+
   return (
     <Button
       type="button"
@@ -406,6 +424,8 @@ function StateSectionCard({
 }) {
   const [isExpanded, setIsExpanded] = useState(defaultOpen);
   const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+  const artifactStatusSummaryLabel = getArtifactStatusSummaryLabel(section);
+  const hasGeneratingArtifacts = Boolean(section.artifactStatusSummary?.generating);
 
   useEffect(() => {
     setIsExpanded(defaultOpen);
@@ -434,12 +454,17 @@ function StateSectionCard({
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-1.5">
               <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
+              {hasGeneratingArtifacts ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-label="交付物生成中" /> : null}
               {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
             </div>
-            <div className="truncate text-[11px] text-muted" title={section.description}>{section.description}</div>
+            <div className="truncate text-[11px] text-muted" title={artifactStatusSummaryLabel ?? section.description}>
+              {artifactStatusSummaryLabel ?? section.description}
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 text-[11px] text-muted">
             <Badge>{section.totalCount}</Badge>
+            {section.artifactStatusSummary?.generating ? <Badge variant="warning">{section.artifactStatusSummary.generating} 中</Badge> : null}
+            {section.artifactStatusSummary?.failed ? <Badge variant="danger">{section.artifactStatusSummary.failed} 失败</Badge> : null}
             {section.recentCount > 0 ? <Badge variant="accent">+{section.recentCount}</Badge> : null}
             <span className="hidden max-w-[96px] truncate xl:inline" title={getSectionLastUpdated(section)}>
               {getSectionLastUpdated(section)}
@@ -497,7 +522,7 @@ function StateSectionCard({
                       <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
                     </div>
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                  <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
                     {artifactMeta ? (
                       <>
@@ -529,7 +554,7 @@ function RecentUpdatesCard({
   onOpenDocument: (artifact: ArtifactRecord) => void;
 }) {
   return (
-    <div className="rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
       <div className="flex min-h-8 items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-ink">本轮更新</div>
@@ -539,16 +564,16 @@ function RecentUpdatesCard({
       </div>
       {items.length === 0 ? (
         <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
-          本轮还没有新增沉淀。
+          暂无最近更新。
         </div>
       ) : (
-        <div className="mt-2 grid gap-1.5 border-t border-accent/10 pt-2">
+        <div className="mt-2 grid min-w-0 gap-1.5 border-t border-accent/10 pt-2">
           {items.map(({ section, item }) => (
             <div
               key={`${section.id}-${item.id}`}
               role="button"
               tabIndex={0}
-              className="rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
+              className="min-w-0 max-w-full overflow-hidden rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
               onClick={() => onOpenItem(section, item)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -557,15 +582,22 @@ function RecentUpdatesCard({
                 }
               }}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <Badge variant="default">{section.title}</Badge>
-                    <span className="truncate text-sm font-medium text-ink">{item.title}</span>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+              <div className="w-full min-w-0 overflow-hidden">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 overflow-hidden">
+                  <Badge variant="default" className="shrink-0">{section.title}</Badge>
+                  {item.kind === 'artifact' ? (
+                    <Badge variant={statusVariant(item.status)} className="shrink-0">
+                      {getArtifactStatusLabel(item.status)}
+                    </Badge>
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{item.title}</span>
                 </div>
-                <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+                <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                {item.kind === 'artifact' ? (
+                  <div className="mt-2 flex justify-end">
+                    <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
@@ -1175,6 +1207,26 @@ export function WorkbenchPage({
                           </div>
                         ) : null}
                         <MessageMarkdown content={message.content} />
+                        {(message.image_results?.length ?? 0) > 0 ? (
+                          <div className="mt-3 grid gap-3">
+                            {message.image_results?.map((image) => (
+                              <figure
+                                key={image.id}
+                                className="overflow-hidden rounded-[18px] border border-line bg-white shadow-sm"
+                              >
+                                <img
+                                  src={image.url}
+                                  alt={image.title}
+                                  className="max-h-[420px] w-full object-contain bg-slate-50"
+                                />
+                                <figcaption className="border-t border-line px-3 py-2 text-xs text-muted">
+                                  <span className="font-medium text-ink">{image.title}</span>
+                                  {image.summary ? <span className="ml-2">{image.summary}</span> : null}
+                                </figcaption>
+                              </figure>
+                            ))}
+                          </div>
+                        ) : null}
                         {message.source_refs.length > 0 ? (
                           <div className="mt-2.5 flex flex-wrap gap-2">
                             {message.source_refs.map((reference, index) => (
@@ -1246,7 +1298,7 @@ export function WorkbenchPage({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-1.5 px-3 pb-3 pt-0">
+            <CardContent className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-0">
               <RecentUpdatesCard
                 items={recentOverviewItems}
                 onOpenItem={(section, item) => {
@@ -1304,7 +1356,15 @@ export function WorkbenchPage({
                 </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 bg-slate-100">
-                {activeArtifact.preview_url ? (
+                {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
+                  <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+                    <img
+                      src={activeArtifact.preview_url}
+                      alt={activeArtifact.title}
+                      className="max-h-full max-w-full rounded-[20px] object-contain shadow-panel"
+                    />
+                  </div>
+                ) : activeArtifact.preview_url ? (
                   <iframe
                     title={activeArtifact.title}
                     src={activeArtifact.preview_url}

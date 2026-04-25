@@ -10,6 +10,7 @@ from .config import AppSettings, DEFAULT_SETTINGS
 from .db import init_db
 from .routes.artifacts import router as artifacts_router
 from .routes.chat import router as chat_router
+from .routes.chat_images import router as chat_images_router
 from .routes.knowledge_base import router as knowledge_base_router
 from .routes.messages import router as messages_router
 from .routes.projects import router as projects_router
@@ -110,6 +111,7 @@ def create_app(settings: AppSettings = DEFAULT_SETTINGS) -> FastAPI:
     app.include_router(messages_router)
     app.include_router(state_router)
     app.include_router(chat_router)
+    app.include_router(chat_images_router)
     app.include_router(versions_router)
     app.include_router(artifacts_router)
 

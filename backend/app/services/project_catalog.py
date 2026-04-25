@@ -4,7 +4,7 @@ import hashlib
 import json
 import shutil
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -699,12 +699,23 @@ class ProjectCatalog:
             ).fetchall()
         messages: list[MessageRecord] = []
         for row in reversed(rows):
+            raw_refs = json.loads(row["source_refs_json"] or "[]")
+            image_results = []
+            source_refs = []
+            for reference in raw_refs:
+                if isinstance(reference, dict) and "__image_results__" in reference:
+                    raw_images = reference.get("__image_results__")
+                    if isinstance(raw_images, list):
+                        image_results.extend(raw_images)
+                else:
+                    source_refs.append(reference)
             messages.append(
                 MessageRecord(
                     id=row["id"],
                     role=row["role"],
                     content=row["content"],
-                    source_refs=json.loads(row["source_refs_json"] or "[]"),
+                    source_refs=source_refs,
+                    image_results=image_results,
                     created_at=row["created_at"],
                     stream_group_id=row["stream_group_id"],
                 )
@@ -849,7 +860,52 @@ class ProjectCatalog:
             source_ids=[],
         )
 
+    def mark_stale_generating_artifacts_failed(self, project_id: str) -> None:
+        artifact_timeout = max(
+            self.settings.claude_artifact_timeout_seconds,
+            getattr(self.settings, "image_generation_timeout_seconds", 0),
+        )
+        cutoff = datetime.now(ZoneInfo(self.settings.default_timezone)) - timedelta(seconds=artifact_timeout + 30)
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, artifact_type, content_format, updated_at
+                FROM demo_artifacts
+                WHERE project_id = ? AND status = 'generating'
+                """,
+                (project_id,),
+            ).fetchall()
+            stale_rows = []
+            for row in rows:
+                try:
+                    updated_at = datetime.fromisoformat(row["updated_at"])
+                except (TypeError, ValueError):
+                    updated_at = datetime.min.replace(tzinfo=ZoneInfo(self.settings.default_timezone))
+                if updated_at < cutoff:
+                    stale_rows.append(row)
+
+            for row in stale_rows:
+                summary = "交付物生成任务已中断或超时，请重新生成。"
+                connection.execute(
+                    """
+                    UPDATE demo_artifacts
+                    SET status = 'failed', summary = ?, storage_path = NULL, body = NULL, updated_at = ?
+                    WHERE id = ? AND project_id = ? AND status = 'generating'
+                    """,
+                    (summary, timestamp, row["id"], project_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE state_items
+                    SET body = ?, updated_at = ?
+                    WHERE id = ? AND project_id = ? AND category = 'artifacts'
+                    """,
+                    (summary, timestamp, row["id"], project_id),
+                )
+
     def list_artifacts(self, project_id: str) -> list[ArtifactRecord]:
+        self.mark_stale_generating_artifacts_failed(project_id)
         with connection_scope(self.settings) as connection:
             rows = connection.execute(
                 """
@@ -864,7 +920,7 @@ class ProjectCatalog:
         records: list[ArtifactRecord] = []
         for row in rows:
             preview_url = None
-            if row["storage_path"] and row["content_format"] == "html":
+            if row["storage_path"] and row["content_format"] in {"html", "image"}:
                 preview_url = f"/api/projects/{project_id}/artifacts/{row['id']}/preview"
 
             records.append(
@@ -912,7 +968,7 @@ class ProjectCatalog:
             return None
 
         preview_url = None
-        if row["storage_path"] and row["content_format"] == "html":
+        if row["storage_path"] and row["content_format"] in {"html", "image"}:
             preview_url = f"/api/projects/{project_id}/artifacts/{row['id']}/preview"
 
         metadata_json = row["metadata_json"] or "{}"
@@ -1007,7 +1063,7 @@ class ProjectCatalog:
                 (timestamp, project_id),
             )
         preview_url = None
-        if storage_path and content_format == "html":
+        if storage_path and content_format in {"html", "image"}:
             preview_url = f"/api/projects/{project_id}/artifacts/{record_id}/preview"
         return ArtifactRecord(
             id=record_id,

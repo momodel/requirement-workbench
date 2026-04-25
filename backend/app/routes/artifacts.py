@@ -73,7 +73,7 @@ async def generate_artifact(
 @router.get("/{artifact_id}/preview")
 def preview_artifact(project_id: str, artifact_id: str, request: Request):
     artifact = request.app.state.services.catalog.get_artifact(project_id, artifact_id)
-    if not artifact or artifact.content_format != "html" or not artifact.storage_path:
+    if not artifact or artifact.content_format not in {"html", "image"} or not artifact.storage_path:
         raise HTTPException(status_code=404, detail="Artifact preview not found")
 
     path = Path(artifact.storage_path)

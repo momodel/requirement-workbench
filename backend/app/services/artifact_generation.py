@@ -136,6 +136,7 @@ class ArtifactGenerationService:
         artifact_type: ArtifactType,
         generated: GeneratedArtifactOutput,
         metadata: dict | None = None,
+        artifact_id: str | None = None,
     ) -> ArtifactRecord:
         normalized_title = self._normalize_title(artifact_type, generated.title)
         normalized_summary = self._normalize_summary(generated.summary)
@@ -154,6 +155,7 @@ class ArtifactGenerationService:
                 storage_path=None,
                 body=body,
                 metadata=metadata,
+                artifact_id=artifact_id,
             )
 
         html = self.validate_html_output(normalized_title, generated.html or "")
@@ -169,6 +171,31 @@ class ArtifactGenerationService:
             storage_path=str(index_path),
             body=None,
             metadata=metadata,
+            artifact_id=artifact_id,
+        )
+
+
+    def save_image_output(
+        self,
+        *,
+        project_id: str,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        image_path: Path,
+        metadata: dict | None = None,
+    ) -> ArtifactRecord:
+        return self.catalog.save_artifact(
+            project_id=project_id,
+            artifact_type="visual_mockup",
+            title=self._normalize_title("interaction_flow", title),
+            summary=self._normalize_summary(summary),
+            status="generated",
+            content_format="image",
+            storage_path=str(image_path),
+            body=None,
+            metadata=metadata,
+            artifact_id=artifact_id,
         )
 
     async def generate_from_model(

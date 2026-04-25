@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 
-from ..models import AgentTurnInput, ChatStreamRequest, ProviderIssue
+from ..models import AgentTurnInput, ArtifactRecord, ArtifactType, ChatStreamRequest, ProviderIssue
 from .artifact_generation import ArtifactGenerationService
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
@@ -42,6 +42,12 @@ class ChatService:
                 self.catalog.settings.claude_artifact_timeout_seconds + 15,
             )
 
+        if phase == "tool_running:generate_visual_mockup":
+            return max(
+                base_timeout,
+                self.catalog.settings.image_generation_timeout_seconds + 15,
+            )
+
         if phase == "tool_running:query_project_evidence":
             return max(
                 base_timeout,
@@ -49,6 +55,99 @@ class ChatService:
             )
 
         return base_timeout
+
+    @staticmethod
+    def _artifact_title(artifact_type: ArtifactType) -> str:
+        return {
+            "document": "需求文档稿",
+            "page_solution": "页面方案原型",
+            "interaction_flow": "交互稿原型",
+        }[artifact_type]
+
+    @staticmethod
+    def _artifact_summary(artifact_type: ArtifactType) -> str:
+        return {
+            "document": "文档稿正在生成中。",
+            "page_solution": "页面方案正在生成中。",
+            "interaction_flow": "交互稿正在生成中。",
+        }[artifact_type]
+
+    async def _complete_requested_artifact(
+        self,
+        *,
+        project_id: str,
+        artifact_id: str,
+        artifact_type: ArtifactType,
+        user_message: str,
+    ) -> None:
+        project = self.catalog.get_project(project_id)
+        if not project:
+            return
+        state = self.project_state.get_project_state(project_id)
+        title = self._artifact_title(artifact_type)
+        try:
+            generated = await self.agent_runtime.generate_artifact(
+                project=project,
+                state=state,
+                artifact_type=artifact_type,
+                additional_instruction=user_message,
+            )
+            artifact = self.artifact_generation.save_generated_output(
+                project_id=project_id,
+                artifact_type=artifact_type,
+                generated=generated,
+                metadata={"generator": "async-artifact-request"},
+                artifact_id=artifact_id,
+            )
+            self.project_state.create_artifact_version(
+                project_id=project_id,
+                artifact_title=artifact.title,
+                artifact_type=artifact.artifact_type,
+            )
+        except Exception as exc:
+            self.catalog.save_artifact(
+                project_id=project_id,
+                artifact_type=artifact_type,
+                title=title,
+                summary=str(exc) or "交付物生成失败。",
+                status="failed",
+                content_format="markdown" if artifact_type == "document" else "html",
+                storage_path=None,
+                body=None,
+                metadata={"generator": "async-artifact-request", "error": str(exc)},
+                artifact_id=artifact_id,
+            )
+
+    def _create_requested_artifact_jobs(
+        self,
+        *,
+        project_id: str,
+        artifact_types: list[ArtifactType],
+        user_message: str,
+    ) -> list[ArtifactRecord]:
+        artifacts: list[ArtifactRecord] = []
+        for artifact_type in dict.fromkeys(artifact_types):
+            artifact = self.catalog.save_artifact(
+                project_id=project_id,
+                artifact_type=artifact_type,
+                title=self._artifact_title(artifact_type),
+                summary=self._artifact_summary(artifact_type),
+                status="generating",
+                content_format="markdown" if artifact_type == "document" else "html",
+                storage_path=None,
+                body=None,
+                metadata={"generator": "async-artifact-request"},
+            )
+            artifacts.append(artifact)
+            asyncio.create_task(
+                self._complete_requested_artifact(
+                    project_id=project_id,
+                    artifact_id=artifact.id,
+                    artifact_type=artifact_type,
+                    user_message=user_message,
+                )
+            )
+        return artifacts
 
     async def stream_turn(self, project_id: str, payload: ChatStreamRequest):
         project = self.catalog.get_project(project_id)
@@ -62,6 +161,37 @@ class ChatService:
             content=payload.message,
             stream_group_id=stream_group_id,
         )
+
+        if payload.request_artifact_types:
+            artifacts = self._create_requested_artifact_jobs(
+                project_id=project_id,
+                artifact_types=payload.request_artifact_types,
+                user_message=payload.message,
+            )
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_running:generate_artifact",
+                    "label": "交付物已进入后台生成",
+                },
+            )
+            yield (
+                "artifact_patch",
+                {
+                    "op": "upsert",
+                    "items": [artifact.model_dump() for artifact in artifacts],
+                },
+            )
+            message = "交付物已开始生成，完成后会出现在右侧交付物区。"
+            self.catalog.create_message(
+                project_id=project_id,
+                role="assistant",
+                content=message,
+                stream_group_id=stream_group_id,
+            )
+            yield ("message_chunk", {"text": message, "replace": True})
+            yield ("done", {"stream_group_id": stream_group_id})
+            return
 
         state = self.project_state.get_project_state(project_id)
         sources = self.catalog.list_sources(project_id)
@@ -83,7 +213,12 @@ class ChatService:
         assistant_saved = False
         final_assistant_message = ""
         final_citations: list[dict] = []
-        current_timeout = self.catalog.settings.claude_stream_timeout_seconds
+        final_images: list[dict] = []
+        current_timeout = (
+            self.catalog.settings.claude_artifact_timeout_seconds + 15
+            if payload.request_artifact_types
+            else self.catalog.settings.claude_stream_timeout_seconds
+        )
 
         try:
             iterator = self.agent_runtime.run_streaming_turn(turn_input)
@@ -105,8 +240,15 @@ class ChatService:
                     current_timeout = self._stream_timeout_for_phase(
                         str(value.get("phase") or "")
                     )
+                elif payload.request_artifact_types:
+                    current_timeout = self.catalog.settings.claude_artifact_timeout_seconds + 15
                 else:
                     current_timeout = self.catalog.settings.claude_stream_timeout_seconds
+
+                if event_type == "image_result":
+                    final_images.append(value)
+                    yield (event_type, value)
+                    continue
 
                 if event_type == "final_message":
                     final_assistant_message = str(value.get("text") or "").strip()
@@ -125,7 +267,7 @@ class ChatService:
                             project_id=project_id,
                             role="assistant",
                             content=final_assistant_message,
-                            source_refs=final_citations,
+                            source_refs=final_citations + ([{"__image_results__": final_images}] if final_images else []),
                             stream_group_id=stream_group_id,
                         )
                         assistant_saved = True
@@ -141,7 +283,7 @@ class ChatService:
                     project_id=project_id,
                     role="assistant",
                     content=final_assistant_message,
-                    source_refs=final_citations,
+                    source_refs=final_citations + ([{"__image_results__": final_images}] if final_images else []),
                     stream_group_id=stream_group_id,
                 )
             yield (

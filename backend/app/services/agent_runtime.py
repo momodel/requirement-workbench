@@ -42,6 +42,7 @@ from ..models import (
     SourceUpsert,
 )
 from .artifact_generation import ArtifactGenerationService
+from .image_generation import ApimartImageGenerationService
 from .evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
@@ -444,6 +445,8 @@ class ClaudeAgentRuntime:
         self.catalog = ProjectCatalog(settings)
         self.project_state_service = ProjectStateService(self.catalog)
         self.artifact_generation_service = ArtifactGenerationService(settings)
+        self.image_generation_service = ApimartImageGenerationService(settings)
+        self._background_artifact_tasks: set[asyncio.Task] = set()
         self.evidence_runtime = evidence_runtime or QdrantLlamaIndexEvidenceRuntime(settings, catalog=self.catalog)
 
     def _build_options(
@@ -663,6 +666,9 @@ class ClaudeAgentRuntime:
 本轮用户显式选中的 source IDs：
 {selected_source_ids}
 
+本轮前端显式请求生成的交付物类型：
+{json.dumps(turn.request_artifact_types, ensure_ascii=False)}
+
 可用工具：
 1. `query_project_evidence`
    - 需要 source-grounded 证据、引用或核对资料说法时再调用
@@ -674,6 +680,9 @@ class ClaudeAgentRuntime:
    - 只在明确形成问题定义、范围边界、冲突结论、MVP 方向，或用户明确要求留痕时调用
 4. `generate_artifact`
    - 只在已经形成稳定阶段性输出，且用户明确要求或你明确承诺现在整理交付物时调用
+5. `generate_visual_mockup`
+   - 用户要求视觉稿、页面效果图、生图、图片版交互稿时调用
+   - size、resolution、n、quality、style、reference_image_urls 等参数由工具调用显式填写；不要假装来自环境默认值
 
 方法论执行提醒：
 {self._methodology_execution_notes()}
@@ -687,7 +696,7 @@ class ClaudeAgentRuntime:
 3. 如果需要 grounded 证据，请先调用 `query_project_evidence`，再基于结果回答。
 4. 如果本轮确实形成了新增理解、待确认项、已确认事实、冲突或 MVP，再调用 `update_project_state`，只写本轮增量。
 5. 只有命中关键里程碑时才调用 `create_version_snapshot`。
-6. 只有需要真实交付物时才调用 `generate_artifact`。
+6. 只有需要真实交付物时才调用 `generate_artifact`；如果“本轮前端显式请求生成的交付物类型”不是空数组，必须优先直接调用 `generate_artifact` 生成对应类型，不要只回复说明。用户要求视觉稿/效果图/生图时，调用 `generate_visual_mockup`，并显式传入本轮需要的图像参数。
 7. 可以先说话，再调工具；也可以先查证据再回答。顺序由你自己判断。
 8. 如果工具失败，要诚实告诉用户当前哪一步失败了，以及还能继续做什么。
 9. 不要为了显得积极而调用无关工具。
@@ -710,6 +719,16 @@ class ClaudeAgentRuntime:
             if len(content) > 300:
                 content = f"{content[:300]}..."
             lines.append(f"- {label}: {content}")
+            for image in message.image_results:
+                if not isinstance(image, dict):
+                    continue
+                reference_url = str(image.get("provider_url") or image.get("url") or "").strip()
+                if not reference_url:
+                    continue
+                title = str(image.get("title") or image.get("id") or "历史图片").strip()
+                lines.append(
+                    f"  - 历史图片：{title}；可作为 generate_visual_mockup.reference_image_urls 的输入：{reference_url}"
+                )
         return "\n".join(lines)
 
     def _build_streaming_prompt(self, turn: AgentTurnInput) -> str:
@@ -820,7 +839,7 @@ class ClaudeAgentRuntime:
 2. 先判断有没有本轮新增沉淀；有的话立刻调用 `update_project_state`，只提交本轮真正形成的结论。
 3. 如果本轮形成了一个值得记录的阶段性结论，调用 `create_version_snapshot`。
 4. 如果 assistant_message 已经承诺“现在整理成文档稿 / 页面方案 / 交互稿”，本轮必须直接调用 `generate_artifact`，不能遗漏。
-5. `generate_artifact` 工具需要你把完整交付物内容一起带上：文档稿传 body，页面方案和交互稿传 html，同时补齐 title、summary。
+5. `generate_artifact` 是异步任务登记工具，只传 artifact_type、title、summary 和可选 focus；不要先生成完整文档正文或 HTML 再调用。
 6. 交互稿对应 `interaction_flow`，页面方案对应 `page_solution`，文档稿对应 `document`。
 7. 如果当前证据不足，不要把内容塞进 confirmed_items。
 8. citations 只整理当前 grounding 已提供的内容，不要编造。
@@ -1261,6 +1280,177 @@ class ClaudeAgentRuntime:
 
         return create_version_snapshot_tool
 
+    async def _complete_artifact_generation_job(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        artifact_type: ArtifactType,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        additional_instruction: str | None = None,
+    ) -> None:
+        try:
+            generated = await self.generate_artifact(
+                project=project,
+                state=state,
+                artifact_type=artifact_type,
+                additional_instruction=additional_instruction,
+            )
+            artifact = self.artifact_generation_service.save_generated_output(
+                project_id=project.id,
+                artifact_type=artifact_type,
+                generated=generated,
+                metadata={
+                    "generator": "claude-agent-sdk-async-job",
+                    "requested_title": title,
+                    "requested_summary": summary,
+                },
+                artifact_id=artifact_id,
+            )
+            self.project_state_service.create_artifact_version(
+                project_id=project.id,
+                artifact_title=artifact.title,
+                artifact_type=artifact.artifact_type,
+            )
+        except Exception as exc:
+            self.artifact_generation_service.catalog.save_artifact(
+                project_id=project.id,
+                artifact_type=artifact_type,
+                title=title,
+                summary=str(exc) or "交付物生成失败。",
+                status="failed",
+                content_format="html" if artifact_type != "document" else "markdown",
+                storage_path=None,
+                body=None,
+                metadata={
+                    "generator": "claude-agent-sdk-async-job",
+                    "error": str(exc),
+                },
+                artifact_id=artifact_id,
+            )
+
+    def _schedule_artifact_generation_job(
+        self,
+        *,
+        project: ProjectSummary,
+        state: ProjectState,
+        artifact_type: ArtifactType,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        additional_instruction: str | None = None,
+    ) -> None:
+        task = asyncio.create_task(
+            self._complete_artifact_generation_job(
+                project=project,
+                state=state,
+                artifact_type=artifact_type,
+                artifact_id=artifact_id,
+                title=title,
+                summary=summary,
+                additional_instruction=additional_instruction,
+            )
+        )
+        self._background_artifact_tasks.add(task)
+        task.add_done_callback(self._background_artifact_tasks.discard)
+
+    def _normalize_reference_image_urls(self, urls: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for raw_url in urls:
+            url = str(raw_url or "").strip()
+            if not url:
+                continue
+            if url.startswith("/"):
+                # Provider 需要能从服务端外部拉取图片；聊天内相对地址转成本地后端绝对地址。
+                url = f"{self.settings.public_api_base_url}{url}"
+            normalized.append(url)
+        return normalized
+
+    def _make_generate_visual_mockup_tool(
+        self,
+        *,
+        project: ProjectSummary,
+        generated_image_tasks: list[asyncio.Task],
+    ):
+        @tool(
+            "generate_visual_mockup",
+            "调用图像模型生成页面/交互视觉稿。尺寸、分辨率、数量、风格等参数必须由本次工具调用显式传入，不从环境写死。",
+            {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "size": {"type": "string", "description": "例如 16:9、1:1、9:16，按 provider 支持填写。"},
+                    "resolution": {"type": "string", "description": "例如 1k、2k、4k，按 provider 支持填写。"},
+                    "n": {"type": "integer", "minimum": 1, "maximum": 4},
+                    "quality": {"type": "string"},
+                    "style": {"type": "string"},
+                    "reference_image_urls": {"type": "array", "items": {"type": "string"}},
+                    "extra_parameters": {"type": "object", "additionalProperties": True},
+                },
+                "required": ["title", "summary", "prompt"],
+                "additionalProperties": False,
+            },
+        )
+        async def generate_visual_mockup_tool(args: dict) -> dict:
+            image_id = f"image-{uuid.uuid4().hex[:10]}"
+            title = str(args.get("title") or "交互视觉稿").strip()
+            summary = str(args.get("summary") or "视觉稿正在生成中。").strip()
+
+            async def complete_image_job() -> dict:
+                result = await self.image_generation_service.generate(
+                    project_id=project.id,
+                    artifact_id=image_id,
+                    title=title,
+                    summary=summary,
+                    prompt=str(args.get("prompt") or ""),
+                    size=str(args.get("size") or "").strip() or None,
+                    resolution=str(args.get("resolution") or "").strip() or None,
+                    n=int(args["n"]) if args.get("n") is not None else None,
+                    quality=str(args.get("quality") or "").strip() or None,
+                    style=str(args.get("style") or "").strip() or None,
+                    reference_image_urls=self._normalize_reference_image_urls([str(item) for item in args.get("reference_image_urls") or []]),
+                    extra_parameters=args.get("extra_parameters") if isinstance(args.get("extra_parameters"), dict) else None,
+                    output_dir=self.settings.projects_dir / project.id / "chat-images" / image_id,
+                )
+                return {
+                    "id": image_id,
+                    "title": result.title,
+                    "summary": result.summary,
+                    "url": f"/api/projects/{project.id}/chat-images/{image_id}",
+                    "content_type": result.content_type,
+                    "prompt": result.prompt,
+                    "provider_url": result.provider_url,
+                    "metadata": result.metadata,
+                }
+
+            try:
+                task = asyncio.create_task(complete_image_job())
+                generated_image_tasks.append(task)
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "image_id": image_id,
+                                    "title": title,
+                                    "summary": summary,
+                                    "status": "generating",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        }
+                    ]
+                }
+            except Exception as exc:
+                return {"content": [{"type": "text", "text": str(exc)}], "is_error": True}
+
+        return generate_visual_mockup_tool
+
     def _make_generate_artifact_tool(
         self,
         *,
@@ -1271,7 +1461,7 @@ class ClaudeAgentRuntime:
     ):
         @tool(
             "generate_artifact",
-            "把当前轮已经整理好的交付物内容真实落盘，并返回已保存的结果。",
+            "登记一个后台交付物生成任务并立即返回生成中记录；不要在参数里生成完整正文或 HTML。",
             {
                 "type": "object",
                 "properties": {
@@ -1281,8 +1471,6 @@ class ClaudeAgentRuntime:
                     },
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
-                    "body": {"type": "string"},
-                    "html": {"type": "string"},
                     "focus": {"type": "string"},
                     "working_notes": {"type": "string"},
                 },
@@ -1293,39 +1481,45 @@ class ClaudeAgentRuntime:
         async def generate_artifact_tool(args: dict) -> dict:
             try:
                 artifact_type = self._normalize_artifact_type(args.get("artifact_type"))
-                generated = GeneratedArtifactOutput.model_validate(
-                    {
-                        "title": args.get("title"),
-                        "summary": args.get("summary"),
-                        "body": args.get("body"),
-                        "html": args.get("html"),
-                    }
-                )
-                artifact = self.artifact_generation_service.save_generated_output(
+                title = str(args.get("title") or "").strip() or {
+                    "document": "需求文档稿",
+                    "page_solution": "页面方案原型",
+                    "interaction_flow": "交互稿原型",
+                }[artifact_type]
+                summary = str(args.get("summary") or "").strip() or "交付物正在生成中。"
+                content_format = "markdown" if artifact_type == "document" else "html"
+                artifact = self.artifact_generation_service.catalog.save_artifact(
                     project_id=project.id,
                     artifact_type=artifact_type,
-                    generated=generated,
+                    title=title,
+                    summary=summary,
+                    status="generating",
+                    content_format=content_format,
+                    storage_path=None,
+                    body=None,
                     metadata={
-                        "generator": "claude-agent-sdk-mcp",
+                        "generator": "claude-agent-sdk-async-job",
                         "focus": str(args.get("focus") or "").strip() or None,
                         "working_notes": str(args.get("working_notes") or "").strip() or None,
                     },
                 )
-                version = self.project_state_service.create_artifact_version(
-                    project_id=project.id,
-                    artifact_title=artifact.title,
-                    artifact_type=artifact.artifact_type,
-                )
                 generated_artifacts.append(artifact)
-                generated_versions.append(version)
+                self._schedule_artifact_generation_job(
+                    project=project,
+                    state=state,
+                    artifact_type=artifact_type,
+                    artifact_id=artifact.id,
+                    title=artifact.title,
+                    summary=artifact.summary,
+                    additional_instruction=str(args.get("focus") or args.get("working_notes") or "").strip() or None,
+                )
                 payload = json.dumps(
                     {
                         "artifact_id": artifact.id,
                         "artifact_type": artifact.artifact_type,
                         "title": artifact.title,
                         "summary": artifact.summary,
-                        "preview_url": artifact.preview_url,
-                        "version_id": version.id,
+                        "status": artifact.status,
                     },
                     ensure_ascii=False,
                 )
@@ -1369,6 +1563,7 @@ class ClaudeAgentRuntime:
         applied_state_updates: dict[StateCategory, list[StateItem]],
         generated_artifacts: list[ArtifactRecord],
         generated_versions: list[StateItem],
+        generated_image_tasks: list[asyncio.Task],
     ) -> dict[str, McpSdkServerConfig]:
         evidence_tool = self._make_query_project_evidence_tool(
             project_id=project.id,
@@ -1389,10 +1584,14 @@ class ClaudeAgentRuntime:
             generated_artifacts=generated_artifacts,
             generated_versions=generated_versions,
         )
+        visual_tool = self._make_generate_visual_mockup_tool(
+            project=project,
+            generated_image_tasks=generated_image_tasks,
+        )
         return {
             "project-actions": create_sdk_mcp_server(
                 name="project-actions",
-                tools=[evidence_tool, state_tool, version_tool, artifact_tool],
+                tools=[evidence_tool, state_tool, version_tool, artifact_tool, visual_tool],
             )
         }
 
@@ -1426,8 +1625,8 @@ class ClaudeAgentRuntime:
 1. 必须调用 generate_artifact 工具，为列表里的每个 artifact_type 各生成一次。
 2. `document` 传 body；`page_solution` 和 `interaction_flow` 传 html。
 3. title、summary 用自然中文，不要复用内部桶名。
-4. html 必须包含 <!doctype html>、<title>、<main>。
-5. 工具调用完成后，只用一句中文回复“已写入交付物区”或“已写入交付物区，可继续调整”。
+4. `generate_artifact` 是异步任务登记工具，不要在调用前自行生成完整正文或 HTML。
+5. 工具调用完成后，只用一句中文回复“已开始生成，完成后会出现在交付物区”。
 6. 不要输出额外说明，不要在最终文本里重复 artifact 正文。
         """.strip()
 
@@ -1441,6 +1640,7 @@ class ClaudeAgentRuntime:
         evidence_results: list[dict] = []
         generated_artifacts: list[ArtifactRecord] = []
         generated_versions: list[StateItem] = []
+        generated_image_tasks: list[asyncio.Task] = []
 
         emitted_text = ""
         latest_assistant_text = ""
@@ -1458,12 +1658,14 @@ class ClaudeAgentRuntime:
                 applied_state_updates=applied_state_updates,
                 generated_artifacts=generated_artifacts,
                 generated_versions=generated_versions,
+                generated_image_tasks=generated_image_tasks,
             ),
             allowed_tools=[
                 "query_project_evidence",
                 "update_project_state",
                 "create_version_snapshot",
                 "generate_artifact",
+                "generate_visual_mockup",
             ],
         )
 
@@ -1600,6 +1802,34 @@ class ClaudeAgentRuntime:
                 },
             )
 
+        if generated_image_tasks:
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_running:generate_visual_mockup",
+                    "label": "正在生成视觉稿",
+                },
+            )
+            try:
+                generated_images = await asyncio.wait_for(
+                    asyncio.gather(*generated_image_tasks),
+                    timeout=self.settings.image_generation_timeout_seconds + 15,
+                )
+            except Exception as exc:
+                raise ProviderIssue(
+                    provider="APIMART_IMAGE",
+                    message=str(exc) or "视觉稿生成失败。",
+                ) from exc
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_completed:generate_visual_mockup",
+                    "label": "视觉稿已生成",
+                },
+            )
+            for image in generated_images:
+                yield ("image_result", image)
+
         yield (
             "final_message",
             {
@@ -1644,6 +1874,7 @@ class ClaudeAgentRuntime:
                 applied_state_updates=applied_state_updates,
                 generated_artifacts=generated_artifacts,
                 generated_versions=generated_versions,
+                generated_image_tasks=[],
             ),
             allowed_tools=[
                 "update_project_state",
