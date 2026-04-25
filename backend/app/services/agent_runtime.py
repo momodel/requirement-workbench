@@ -473,6 +473,10 @@ class ClaudeAgentRuntime:
         self.image_generation_service = ApimartImageGenerationService(settings)
         self._background_artifact_tasks: set[asyncio.Task] = set()
         self.evidence_runtime = evidence_runtime or QdrantLlamaIndexEvidenceRuntime(settings, catalog=self.catalog)
+        self.wiki_runtime = None  # set via attach_wiki_runtime to avoid construction-order coupling
+
+    def attach_wiki_runtime(self, wiki_runtime) -> None:
+        self.wiki_runtime = wiki_runtime
 
     def _build_options(
         self,
@@ -668,6 +672,7 @@ class ClaudeAgentRuntime:
         source_json = json.dumps(turn.source_summaries, ensure_ascii=False, indent=2)
         history_text = self._format_recent_messages(turn)
         selected_source_ids = json.dumps(turn.selected_source_ids, ensure_ascii=False)
+        wiki_status = self._wiki_status_line(turn.project.id)
         return f"""
 你在客户需求转译台的一期正式运行时里工作。
 
@@ -675,6 +680,9 @@ class ClaudeAgentRuntime:
 - 名称：{turn.project.name}
 - 场景：{turn.project.scenario_type}
 - 摘要：{turn.project.summary}
+
+项目 wiki 状态：
+{wiki_status}
 
 当前用户消息：
 {turn.user_message}
@@ -709,6 +717,10 @@ class ClaudeAgentRuntime:
 5. `generate_visual_mockup`
    - 用户要求视觉稿、页面效果图、生图、页面方案、交互稿、图片版原型、看看效果、改上一版时优先调用
    - size、resolution、n、quality、style、reference_image_urls 等参数由工具调用显式填写；不要假装来自环境默认值
+6. `wiki_list_pages` / `wiki_read_page`
+   - 用于读项目 wiki 综合层（实体、术语、规则、冲突、待确认问题等长期工作理解）
+   - 仅作为"补充上下文"，不能拿 wiki 段落当 citation；citation 必须走 `query_project_evidence`
+   - 适合在你不确定项目背景或某实体怎么定义时先 list 再 read 一两页
 
 方法论执行提醒：
 {self._methodology_execution_notes()}
@@ -728,7 +740,20 @@ class ClaudeAgentRuntime:
 9. 可以先说话，再调工具；也可以先查证据再回答。顺序由你自己判断。
 10. 如果工具失败，要诚实告诉用户当前哪一步失败了，以及还能继续做什么。
 11. 不要为了显得积极而调用无关工具。
+12. confirmed_items 与最终 citation 必须来自 `query_project_evidence` 的真实返回。wiki 是综合层，不是 citation 源；不允许把 wiki 段落写进 citation 或 source_refs。
         """.strip()
+
+    def _wiki_status_line(self, project_id: str) -> str:
+        if self.wiki_runtime is None:
+            return "wiki: not_configured（wiki_runtime 未注入）"
+        try:
+            record = self.wiki_runtime.get_record(project_id)
+        except Exception:  # noqa: BLE001 — best-effort context
+            return "wiki: 状态读取失败"
+        last = record.last_maintained_at or "尚未维护"
+        pending = len(record.pending_source_ids)
+        suffix = f", pending={pending}" if pending else ""
+        return f"wiki: pages={record.page_count}, last_maintained={last}{suffix}"
 
     @staticmethod
     def _format_recent_messages(turn: AgentTurnInput) -> str:
@@ -927,6 +952,16 @@ class ClaudeAgentRuntime:
             return {
                 "phase": "tool_running:generate_artifact",
                 "label": "正在生成交付物预览",
+            }
+        if tool_name.endswith("wiki_list_pages"):
+            return {
+                "phase": "tool_running:wiki_list_pages",
+                "label": "正在读取项目 wiki 页面索引",
+            }
+        if tool_name.endswith("wiki_read_page"):
+            return {
+                "phase": "tool_running:wiki_read_page",
+                "label": "正在读取 wiki 页面",
             }
 
         return None
@@ -1134,6 +1169,7 @@ class ClaudeAgentRuntime:
         )
         async def update_project_state_tool(args: dict) -> dict:
             try:
+                allowed_source_ids = {s.id for s in self.catalog.list_sources(project_id)}
                 applied_categories: dict[str, int] = {}
                 for category in _state_tool_categories():
                     raw_items = args.get(category)
@@ -1144,6 +1180,23 @@ class ClaudeAgentRuntime:
                         SourceUpsert.model_validate(item)
                         for item in raw_items
                     ]
+
+                    if category == "confirmed_items":
+                        for item in normalized_items:
+                            if not item.source_ids:
+                                raise ValueError(
+                                    "confirmed_items 必须带 source_ids；"
+                                    "citation 只能来自 query_project_evidence 真实返回的 source。"
+                                )
+                            unknown = [
+                                sid for sid in item.source_ids if sid not in allowed_source_ids
+                            ]
+                            if unknown:
+                                raise ValueError(
+                                    f"confirmed_items 中包含未知 source_id={unknown}；"
+                                    "wiki slug 不是 source 引用，请通过 query_project_evidence 重新核实。"
+                                )
+
                     state_items = [
                         StateItem(
                             id=f"{category}-{uuid.uuid4().hex[:10]}",
@@ -1258,6 +1311,95 @@ class ClaudeAgentRuntime:
                 }
 
         return query_project_evidence_tool
+
+    def _make_wiki_list_pages_tool(
+        self,
+        *,
+        project_id: str,
+        wiki_reads: list[dict],
+    ):
+        @tool(
+            "wiki_list_pages",
+            "列出当前项目 LLM Wiki 中所有页面的元信息（不含正文）。",
+            {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        )
+        async def wiki_list_pages_tool(args: dict) -> dict:
+            if self.wiki_runtime is None:
+                return {
+                    "content": [{"type": "text", "text": "wiki_runtime 未注入。"}],
+                    "is_error": True,
+                }
+            try:
+                pages = await asyncio.to_thread(self.wiki_runtime.list_pages, project_id)
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "is_error": True,
+                }
+            payload = {"pages": [page.model_dump() for page in pages]}
+            wiki_reads.append({"op": "list", "page_count": len(pages)})
+            return {
+                "content": [
+                    {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+                ]
+            }
+
+        return wiki_list_pages_tool
+
+    def _make_wiki_read_page_tool(
+        self,
+        *,
+        project_id: str,
+        wiki_reads: list[dict],
+    ):
+        @tool(
+            "wiki_read_page",
+            "读取当前项目 LLM Wiki 中某个页面的正文（用于补充上下文，不可作为 citation）。",
+            {
+                "type": "object",
+                "properties": {
+                    "slug": {"type": "string"},
+                },
+                "required": ["slug"],
+                "additionalProperties": False,
+            },
+        )
+        async def wiki_read_page_tool(args: dict) -> dict:
+            if self.wiki_runtime is None:
+                return {
+                    "content": [{"type": "text", "text": "wiki_runtime 未注入。"}],
+                    "is_error": True,
+                }
+            slug = str(args.get("slug") or "").strip()
+            if not slug:
+                return {
+                    "content": [{"type": "text", "text": "slug 不能为空。"}],
+                    "is_error": True,
+                }
+            try:
+                page = await asyncio.to_thread(self.wiki_runtime.read_page, project_id, slug)
+            except ProviderIssue as exc:
+                return {
+                    "content": [{"type": "text", "text": exc.message}],
+                    "is_error": True,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "content": [{"type": "text", "text": str(exc)}],
+                    "is_error": True,
+                }
+            wiki_reads.append({"op": "read", "slug": slug, "title": page.title})
+            return {
+                "content": [
+                    {"type": "text", "text": json.dumps(page.model_dump(), ensure_ascii=False)}
+                ]
+            }
+
+        return wiki_read_page_tool
 
     def _make_create_version_snapshot_tool(
         self,
@@ -1671,6 +1813,7 @@ class ClaudeAgentRuntime:
         generated_artifacts: list[ArtifactRecord],
         generated_versions: list[StateItem],
         generated_image_tasks: list[asyncio.Task],
+        wiki_reads: list[dict],
     ) -> dict[str, McpSdkServerConfig]:
         evidence_tool = self._make_query_project_evidence_tool(
             project_id=project.id,
@@ -1695,10 +1838,26 @@ class ClaudeAgentRuntime:
             project=project,
             generated_image_tasks=generated_image_tasks,
         )
+        wiki_list_tool = self._make_wiki_list_pages_tool(
+            project_id=project.id,
+            wiki_reads=wiki_reads,
+        )
+        wiki_read_tool = self._make_wiki_read_page_tool(
+            project_id=project.id,
+            wiki_reads=wiki_reads,
+        )
         return {
             "project-actions": create_sdk_mcp_server(
                 name="project-actions",
-                tools=[evidence_tool, state_tool, version_tool, artifact_tool, visual_tool],
+                tools=[
+                    evidence_tool,
+                    state_tool,
+                    version_tool,
+                    artifact_tool,
+                    visual_tool,
+                    wiki_list_tool,
+                    wiki_read_tool,
+                ],
             )
         }
 
@@ -1748,10 +1907,12 @@ class ClaudeAgentRuntime:
         generated_artifacts: list[ArtifactRecord] = []
         generated_versions: list[StateItem] = []
         generated_image_tasks: list[asyncio.Task] = []
+        wiki_reads: list[dict] = []
 
         emitted_text = ""
         latest_assistant_text = ""
         final_result_text = ""
+        emitted_wiki_read_count = 0
 
         options = self._build_options(
             system_prompt=self._system_prompt(),
@@ -1766,6 +1927,7 @@ class ClaudeAgentRuntime:
                 generated_artifacts=generated_artifacts,
                 generated_versions=generated_versions,
                 generated_image_tasks=generated_image_tasks,
+                wiki_reads=wiki_reads,
             ),
             allowed_tools=[
                 "query_project_evidence",
@@ -1773,6 +1935,8 @@ class ClaudeAgentRuntime:
                 "create_version_snapshot",
                 "generate_artifact",
                 "generate_visual_mockup",
+                "wiki_list_pages",
+                "wiki_read_page",
             ],
         )
 
@@ -1911,6 +2075,12 @@ class ClaudeAgentRuntime:
                 },
             )
 
+        if wiki_reads:
+            yield (
+                "wiki_reads",
+                {"items": list(wiki_reads)},
+            )
+
         if generated_artifacts:
             yield (
                 "assistant_status",
@@ -2000,6 +2170,7 @@ class ClaudeAgentRuntime:
                 generated_artifacts=generated_artifacts,
                 generated_versions=generated_versions,
                 generated_image_tasks=[],
+                wiki_reads=[],
             ),
             allowed_tools=[
                 "update_project_state",

@@ -9,6 +9,10 @@ import type {
   ProjectSummary,
   SourceRecord,
   SseEventPayload,
+  WikiMaintenanceResult,
+  WikiPage,
+  WikiPageMeta,
+  WikiRecord,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -121,6 +125,31 @@ export function initProjectKnowledgeBase(projectId: string) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
+}
+
+export function getWikiRecord(projectId: string) {
+  return fetchJson<WikiRecord>(`/api/projects/${projectId}/wiki`);
+}
+
+export function listWikiPages(projectId: string) {
+  return fetchJson<WikiPageMeta[]>(`/api/projects/${projectId}/wiki/pages`);
+}
+
+export function getWikiPage(projectId: string, slug: string) {
+  return fetchJson<WikiPage>(`/api/projects/${projectId}/wiki/pages/${encodeURIComponent(slug)}`);
+}
+
+export function triggerWikiMaintenance(
+  projectId: string,
+  options: { sourceId?: string; versionSummary?: string; probe?: boolean } = {}
+) {
+  const params = new URLSearchParams();
+  if (options.probe) params.set('probe', 'true');
+  if (options.sourceId) params.set('source_id', options.sourceId);
+  if (options.versionSummary) params.set('version_summary', options.versionSummary);
+  const query = params.toString();
+  const path = `/api/projects/${projectId}/wiki/maintain${query ? `?${query}` : ''}`;
+  return fetchJson<WikiMaintenanceResult>(path, { method: 'POST' });
 }
 
 export async function generateArtifact(

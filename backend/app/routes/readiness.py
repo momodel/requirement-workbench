@@ -13,9 +13,11 @@ router = APIRouter(tags=["readiness"])
 
 @router.get("/api/providers/readiness", response_model=GlobalReadiness)
 def get_global_readiness(request: Request) -> GlobalReadiness:
-    claude = request.app.state.services.agent_runtime.get_readiness()
-    evidence = request.app.state.services.evidence_runtime.get_global_readiness()
-    return GlobalReadiness(claude=claude, evidence=evidence)
+    services = request.app.state.services
+    claude = services.agent_runtime.get_readiness()
+    evidence = services.evidence_runtime.get_global_readiness()
+    wiki = services.wiki_runtime.get_global_readiness()
+    return GlobalReadiness(claude=claude, evidence=evidence, wiki=wiki)
 
 
 @router.get("/api/projects/{project_id}/readiness", response_model=ProjectReadiness)
@@ -27,6 +29,7 @@ def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness
 
     claude = services.agent_runtime.get_readiness()
     evidence = services.evidence_runtime.get_project_readiness(project_id, claude)
+    wiki = services.wiki_runtime.get_project_readiness(project_id, claude)
     knowledge_base = services.catalog.get_knowledge_base(
         project_id=project_id,
         provider=evidence.provider,
@@ -35,5 +38,6 @@ def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness
         project_id=project_id,
         claude=claude,
         evidence=evidence,
+        wiki=wiki,
         knowledge_base=knowledge_base,
     )

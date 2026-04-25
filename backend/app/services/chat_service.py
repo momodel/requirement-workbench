@@ -11,7 +11,7 @@ from ..models import AgentTurnInput, ArtifactRecord, ArtifactType, ChatImageAtta
 from .artifact_generation import ArtifactGenerationService
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
-from .runtime_contracts import AgentRuntime, EvidenceRuntime
+from .runtime_contracts import AgentRuntime, EvidenceRuntime, WikiRuntime
 
 
 class ChatService:
@@ -22,12 +22,14 @@ class ChatService:
         evidence_runtime: EvidenceRuntime,
         agent_runtime: AgentRuntime,
         artifact_generation: ArtifactGenerationService,
+        wiki_runtime: WikiRuntime | None = None,
     ):
         self.catalog = catalog
         self.project_state = project_state
         self.evidence_runtime = evidence_runtime
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
+        self.wiki_runtime = wiki_runtime
 
     async def _query_evidence_with_timeout(self, *args, **kwargs):
         return await asyncio.wait_for(
@@ -328,6 +330,19 @@ class ChatService:
 
                 if event_type == "done":
                     continue
+
+                if event_type == "version_patch" and self.wiki_runtime is not None:
+                    items = value.get("items") if isinstance(value, dict) else None
+                    if isinstance(items, list):
+                        for item in items:
+                            if not isinstance(item, dict):
+                                continue
+                            if item.get("title") == "artifact_generated":
+                                continue
+                            self.wiki_runtime.schedule_maintain_after_checkpoint(
+                                project_id,
+                                str(item.get("body") or item.get("title") or ""),
+                            )
 
                 yield (event_type, value)
         except ProviderIssue as exc:

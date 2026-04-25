@@ -93,6 +93,25 @@ function relativeTime(value: string) {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function compactRelativeTime(value: string) {
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return value;
+  const delta = Date.now() - ts;
+  if (delta < 0) return '刚刚';
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < minute) return '刚刚';
+  if (delta < hour) return `${Math.floor(delta / minute)} 分钟前`;
+  if (delta < day) {
+    const d = new Date(ts);
+    return `今天 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (delta < 7 * day) return `${Math.floor(delta / day)} 天前`;
+  const d = new Date(ts);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function statusVariant(status: string) {
   if (status.includes('failed') || status.includes('error') || status.includes('not_configured')) {
     return 'danger' as const;
@@ -121,6 +140,7 @@ function runtimeHealth(readiness: ProjectReadiness | null, initializingKnowledge
   const statuses = [
     readiness?.claude.status,
     readiness?.evidence?.status,
+    readiness?.wiki?.status,
     initializingKnowledgeBase ? 'pending' : null,
   ].filter(Boolean) as string[];
 
@@ -181,6 +201,24 @@ function indexStatusLabel(status: string) {
   if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
   return status;
+}
+
+function sourceWikiBadge(source: SourceRecord) {
+  const status = source.wiki_sync_status;
+  // Only surface non-default wiki states so the row stays compact when wiki
+  // maintenance succeeded. The "boring" maintained state is implied by
+  // "已索引" already; only call out in-flight or failure cases.
+  if (!status || status === 'maintained') return null;
+  if (status === 'maintaining') {
+    return { label: 'wiki 写入中', dotClass: 'bg-[#7a5a1d]', textClass: 'text-[#7a5a1d]' };
+  }
+  if (status === 'failed') {
+    return { label: 'wiki 失败', dotClass: 'bg-errorWarm', textClass: 'text-errorWarm' };
+  }
+  if (status === 'skipped') {
+    return { label: 'wiki 跳过', dotClass: 'bg-stone/60', textClass: 'text-muted' };
+  }
+  return { label: `wiki ${status}`, dotClass: 'bg-stone/60', textClass: 'text-muted' };
 }
 
 function sourceNormalizeStatus(source: SourceRecord): string {
@@ -406,6 +444,7 @@ function SourceFileRow({
 }) {
   const canRetrySync = sourceIndexStatus(source) === 'index_failed' || sourceIndexStatus(source) === 'error';
   const compactStatus = sourceCompactStatus(source);
+  const wikiBadge = sourceWikiBadge(source);
 
   return (
     <div className="group overflow-hidden rounded-[16px] border border-borderCream bg-ivory px-2.5 py-2 transition hover:border-accent/25 hover:bg-parchment/70">
@@ -429,9 +468,25 @@ function SourceFileRow({
               <span className={cn('h-1.5 w-1.5 rounded-full', compactStatus.dotClass)} />
               <span className="whitespace-nowrap">{compactStatus.label}</span>
             </span>
+            {wikiBadge ? (
+              <>
+                <span className="shrink-0">·</span>
+                <span
+                  className={cn('flex shrink-0 items-center gap-1', wikiBadge.textClass)}
+                  title={source.wiki_error ?? undefined}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', wikiBadge.dotClass)} />
+                  <span className="whitespace-nowrap">{wikiBadge.label}</span>
+                </span>
+              </>
+            ) : null}
             <span className="shrink-0">·</span>
-            <span className="shrink-0 text-muted">{sourceKindLabel(source.source_kind)}</span>
-            <span className="min-w-0 truncate text-muted">{relativeTime(source.created_at)}</span>
+            <span
+              className="min-w-0 truncate text-muted"
+              title={relativeTime(source.created_at)}
+            >
+              {compactRelativeTime(source.created_at)}
+            </span>
           </div>
         </button>
         <div className="flex shrink-0 items-center gap-0.5">
@@ -1903,6 +1958,26 @@ export function WorkbenchPage({
                   </Button>
                 </div>
               </div>
+
+              {readiness.wiki ? (
+                <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-ink">LLM Wiki 综合层</div>
+                      <p className="mt-1 text-sm leading-6 text-muted">{readiness.wiki.summary}</p>
+                      {readiness.wiki.detail ? (
+                        <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
+                          {readiness.wiki.detail}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs leading-5 text-muted">
+                        wiki 是综合理解层，不是 citation 来源；引用仍以项目知识库 RAG 为准。
+                      </p>
+                    </div>
+                    <Badge variant={readinessVariant(readiness.wiki.status)}>{readiness.wiki.status}</Badge>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="py-2 text-sm leading-6 text-muted">当前还没有拿到 provider 状态，请先刷新。</div>
