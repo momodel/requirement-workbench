@@ -1,6 +1,8 @@
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from app.config import AppSettings
 from app.db import init_db
 from app.models import (
@@ -143,3 +145,70 @@ def test_project_catalog_can_create_get_list_and_update_source_processing_job(
     assert refetched is not None
     assert refetched.status == "failed"
     assert refetched.provider_job_id == "task-123"
+
+
+def test_create_source_processing_job_rejects_mismatched_project_and_source(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project_a = catalog.create_project(
+        CreateProjectRequest(
+            name="音频项目 A",
+            scenario_type="general",
+            summary="验证任务账本归属校验",
+        )
+    )
+    project_b = catalog.create_project(
+        CreateProjectRequest(
+            name="音频项目 B",
+            scenario_type="general",
+            summary="source 实际归属项目",
+        )
+    )
+    source_b = catalog.create_source(
+        project_id=project_b.id,
+        name="call-b.mp3",
+        source_kind="audio",
+        upload_kind="file",
+        storage_path=str(settings.projects_dir / project_b.id / "sources" / "call-b.mp3"),
+        normalized_path=None,
+        index_input_mode=None,
+        normalize_status="processing",
+        normalize_summary=None,
+        index_status="pending",
+        index_error=None,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="source_id does not belong to the provided project_id",
+    ):
+        catalog.create_source_processing_job(
+            project_id=project_a.id,
+            source_id=source_b.id,
+            job_type="audio_transcription",
+            provider="ALIYUN_FILETRANS",
+            status="processing",
+            provider_job_id=None,
+            attempt_count=1,
+            last_error=None,
+        )
+
+    assert catalog.list_source_processing_jobs(source_id=source_b.id) == []
+
+
+def test_update_source_processing_job_raises_for_missing_job(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+
+    with pytest.raises(LookupError, match="Source processing job not found"):
+        catalog.update_source_processing_job(
+            job_id="job-missing",
+            status="failed",
+            provider_job_id="task-404",
+            attempt_count=1,
+            last_error="not found",
+        )

@@ -575,6 +575,21 @@ class ProjectCatalog:
             updated_at=timestamp,
         )
         with connection_scope(self.settings) as connection:
+            source_row = connection.execute(
+                """
+                SELECT project_id
+                FROM sources
+                WHERE id = ?
+                """,
+                (source_id,),
+            ).fetchone()
+            if not source_row:
+                raise LookupError("Source not found")
+            if source_row["project_id"] != project_id:
+                raise ValueError(
+                    "source_id does not belong to the provided project_id"
+                )
+
             connection.execute(
                 """
                 INSERT INTO source_processing_jobs (
