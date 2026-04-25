@@ -206,10 +206,17 @@ class ChatCitation(BaseModel):
     source_id: str | None = None
 
 
+class ChatImageAttachment(BaseModel):
+    name: str
+    content_type: str
+    data_url: str
+
+
 class ChatStreamRequest(BaseModel):
     message: str = Field(min_length=1)
     selected_source_ids: list[str] = Field(default_factory=list)
     request_artifact_types: list[ArtifactType] = Field(default_factory=list)
+    image_attachments: list[ChatImageAttachment] = Field(default_factory=list)
     client_context: dict[str, Any] | None = None
 
 
@@ -319,6 +326,7 @@ class AgentTurnInput:
     evidence_citations: list[ChatCitation]
     request_artifact_types: list[ArtifactType]
     recent_messages: list[MessageRecord] = field(default_factory=list)
+    user_image_refs: list[dict] = field(default_factory=list)
 
 
 @dataclass(slots=True)
