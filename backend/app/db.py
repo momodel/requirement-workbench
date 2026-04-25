@@ -16,6 +16,9 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "normalize_summary": "ALTER TABLE sources ADD COLUMN normalize_summary TEXT",
         "index_status": "ALTER TABLE sources ADD COLUMN index_status TEXT",
         "index_error": "ALTER TABLE sources ADD COLUMN index_error TEXT",
+        "wiki_sync_status": "ALTER TABLE sources ADD COLUMN wiki_sync_status TEXT",
+        "wiki_error": "ALTER TABLE sources ADD COLUMN wiki_error TEXT",
+        "wiki_maintained_at": "ALTER TABLE sources ADD COLUMN wiki_maintained_at TEXT",
     },
     "knowledge_bases": {
         "display_name": "ALTER TABLE knowledge_bases ADD COLUMN display_name TEXT",

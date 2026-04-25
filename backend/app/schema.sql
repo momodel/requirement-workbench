@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS sources (
   normalize_summary TEXT,
   index_status TEXT,
   index_error TEXT,
+  wiki_sync_status TEXT,
+  wiki_error TEXT,
+  wiki_maintained_at TEXT,
   created_at TEXT NOT NULL
 );
 

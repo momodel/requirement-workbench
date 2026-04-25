@@ -748,3 +748,26 @@ HTML artifact 需要最小校验：
 5. 最后补验证和验收
 
 在文档重新对齐之前，不把当前探索代码继续往前补。
+
+## 19. 项目 wiki 综合层（phase-1.5）
+
+phase-1 的 RAG 证据层（`Docling + Qdrant + LlamaIndex + EvidenceRuntime`）保持不动，phase-1.5 在它之上叠加一个**项目 wiki 综合层**。两者并存，分工不同。
+
+### 19.1 定位
+
+- **RAG = 证据层**：chunk 级 grounding；`confirmed_items` 与 artifact 的 `source_refs` 只来自 `query_project_evidence` 的真实返回。
+- **Wiki = 综合层**：跨多份 source 合成的 markdown 页面（实体、术语、规则、冲突、待确认问题）。Wiki 由 LLM 维护，不是 Python 模板渲染。
+
+### 19.2 实现要点
+
+- 维护方式：异步 subagent，调用 `claude_agent_sdk.query()`，cwd 锁定 `data/projects/<project_id>/wiki/`，allowed_tools = Read / Write / Edit / Glob，permission_mode = bypassPermissions。
+- 触发点：source 入库成功后 fire-and-forget；version checkpoint 形成后 fire-and-forget。RAG 是真值源，wiki 失败不回滚 RAG。
+- 聊天侧：仅暴露 `wiki_list_pages` / `wiki_read_page` 读工具；不给写工具。`update_project_state` 工具校验 `confirmed_items.source_ids` 必须命中真实 catalog source，wiki slug 不通过。
+- Citation 纪律：wiki 段落不能写进前端 `source_refs`；wiki 页面 front-matter 必须挂 `source_ids`，回查走 RAG。
+- Readiness：dir 不可写 → `error`；SDK 未配 → `degraded_readonly`（已有页面只读）；维护链路 + SDK 都就绪 → `ready`。`POST /wiki/maintain?probe=true` 触发健康探针，写 `wiki/.health` 并验证。
+
+### 19.3 phase-1.5 不做
+
+- 不让聊天 agent 直接写 wiki（phase 2 再考虑）。
+- 不做 wiki 的 lint 工作流。
+- Wiki tab 在前端只提供 `WikiPanel` 自包含组件，不默认嵌入工作台右栏；嵌入 phase-1.5+ 再做。

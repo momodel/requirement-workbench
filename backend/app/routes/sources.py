@@ -318,11 +318,13 @@ def _run_source_index_operation(
             raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         return failed_source
 
-    return services.catalog.update_source_index_status(
+    indexed = services.catalog.update_source_index_status(
         source_id=source_id,
         index_status="indexed",
         index_error=None,
     )
+    services.wiki_runtime.schedule_maintain_after_ingest(project_id, source_id)
+    return services.catalog.get_source(source_id) or indexed
 
 
 @router.get("")

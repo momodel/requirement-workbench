@@ -204,6 +204,31 @@
 5. 继续把 UI 拉回到 `archive/legacy-demo` 的产品感基线
 6. 跑一轮完整联调和专项验收
 
+## 8.5 phase-1.5 — 项目 wiki 综合层
+
+phase-1 的 RAG 证据层不动，并行叠加 LLM Wiki 综合层。两者并存：RAG 是 citation 唯一来源，wiki 是工作理解层。
+
+### 已完成
+
+- [x] `llm-wiki-knowledge-workflow` skill 落地（`backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`）
+- [x] `wiki_store.py` + `wiki_runtime.py`：原子写、front-matter 校验、source_id 结构性 check、骨架页 ensure
+- [x] `WikiMaintainer`（`wiki_maintenance.py`）：通过 `claude_agent_sdk.query` 调 Read/Write/Edit/Glob，cwd 锁定 wiki 目录，post-validation 拒绝伪造 source_id
+- [x] readiness 真实化：dir 不可写 → error；SDK 未配 → degraded_readonly；maintainer + SDK 就绪 → ready
+- [x] `POST /api/projects/{id}/wiki/maintain` 管理端点，带 `probe`/`source_id`/`version_summary` 三种触发模式
+- [x] `_run_source_index_operation` 成功后 fire-and-forget 触发 `schedule_maintain_after_ingest`，记录 `wiki_sync_status` 到 source 行
+- [x] chat 流的 `version_patch` 触发 `schedule_maintain_after_checkpoint`
+- [x] Agent SDK 工具：`wiki_list_pages` / `wiki_read_page`（只读，不给写）；`update_project_state` 工具校验 `confirmed_items.source_ids` 必须命中真实 catalog source
+- [x] 后端测试：`test_wiki_store`、`test_wiki_runtime`、`test_wiki_maintenance`、`test_wiki_ingest_hook`、`test_chat_wiki_tools`
+- [x] 前端：`lib/types.ts` + `lib/api.ts` 加 wiki 类型与 API；`features/wiki/WikiPanel.tsx` 自包含只读组件
+
+### 待办（phase-1.5+）
+
+- [ ] 把 `WikiPanel` 接入工作台右栏（feature flag 默认关，dogfood 后再开）
+- [ ] source 列表行显示 `wiki_sync_status` 角标
+- [ ] readiness 面板显示 wiki provider 状态
+- [ ] 端到端联调：上传 PDF → RAG indexed → 等待 wiki maintained → 聊天里用 `wiki_read_page` 看到合成结论
+- [ ] 失败路径联调：临时清空 `CLAUDE_MODEL`，wiki 应该 `degraded_readonly`，前端不报 500
+
 ## 9. 文档联动
 
 当前这份 todo 配套这些文档一起看：

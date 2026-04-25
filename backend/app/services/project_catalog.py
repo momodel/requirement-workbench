@@ -54,6 +54,9 @@ class ProjectCatalog:
         normalize_summary: str | None,
         index_status: str,
         index_error: str | None,
+        wiki_sync_status: str | None,
+        wiki_error: str | None,
+        wiki_maintained_at: str | None,
         created_at: str,
     ) -> SourceRecord:
         return SourceRecord(
@@ -69,6 +72,9 @@ class ProjectCatalog:
             normalize_summary=normalize_summary,
             index_status=index_status,
             index_error=index_error,
+            wiki_sync_status=wiki_sync_status,
+            wiki_error=wiki_error,
+            wiki_maintained_at=wiki_maintained_at,
             created_at=created_at,
         )
 
@@ -280,6 +286,9 @@ class ProjectCatalog:
         normalize_summary: str | None = None,
         index_status: str | None = None,
         index_error: str | None = None,
+        wiki_sync_status: str | None = None,
+        wiki_error: str | None = None,
+        wiki_maintained_at: str | None = None,
         notebook_import_mode: str | None = None,
         parse_status: str | None = None,
         parse_summary: str | None = None,
@@ -304,6 +313,9 @@ class ProjectCatalog:
             normalize_summary=normalize_summary,
             index_status=index_status,
             index_error=index_error,
+            wiki_sync_status=wiki_sync_status,
+            wiki_error=wiki_error,
+            wiki_maintained_at=wiki_maintained_at,
             created_at=now_iso(self.settings),
         )
         with connection_scope(self.settings) as connection:
@@ -312,10 +324,10 @@ class ProjectCatalog:
                 INSERT INTO sources (
                   id, project_id, name, source_kind, upload_kind, storage_path, normalized_path,
                   index_input_mode, normalize_status, normalize_summary, index_status,
-                  index_error,
+                  index_error, wiki_sync_status, wiki_error, wiki_maintained_at,
                   created_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     source.id,
@@ -330,6 +342,9 @@ class ProjectCatalog:
                     normalize_summary,
                     index_status,
                     index_error,
+                    wiki_sync_status,
+                    wiki_error,
+                    wiki_maintained_at,
                     source.created_at,
                 ),
             )
@@ -345,7 +360,9 @@ class ProjectCatalog:
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path,
                        normalized_path, index_input_mode, normalize_status,
-                       normalize_summary, index_status, index_error, created_at
+                       normalize_summary, index_status, index_error,
+                       wiki_sync_status, wiki_error, wiki_maintained_at,
+                       created_at
                 FROM sources
                 WHERE project_id = ?
                 ORDER BY datetime(created_at) ASC
@@ -360,7 +377,9 @@ class ProjectCatalog:
                 """
                 SELECT id, project_id, name, source_kind, upload_kind, storage_path,
                        normalized_path, index_input_mode, normalize_status,
-                       normalize_summary, index_status, index_error, created_at
+                       normalize_summary, index_status, index_error,
+                       wiki_sync_status, wiki_error, wiki_maintained_at,
+                       created_at
                 FROM sources
                 WHERE id = ?
                 """,
@@ -475,6 +494,39 @@ class ProjectCatalog:
         updated = self.get_source(source_id)
         if updated is None:
             raise LookupError("Source not found after normalization update")
+        return updated
+
+    def update_source_wiki_status(
+        self,
+        *,
+        source_id: str,
+        wiki_sync_status: str,
+        wiki_error: str | None,
+        wiki_maintained_at: str | None = None,
+    ) -> SourceRecord:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                "SELECT project_id FROM sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+            if not row:
+                raise LookupError("Source not found")
+            connection.execute(
+                """
+                UPDATE sources
+                SET wiki_sync_status = ?, wiki_error = ?, wiki_maintained_at = ?
+                WHERE id = ?
+                """,
+                (
+                    wiki_sync_status,
+                    wiki_error,
+                    wiki_maintained_at,
+                    source_id,
+                ),
+            )
+        updated = self.get_source(source_id)
+        if not updated:
+            raise LookupError("Source not found after wiki update")
         return updated
 
     def bulk_update_source_index_status(

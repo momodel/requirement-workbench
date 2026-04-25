@@ -259,6 +259,7 @@ class QdrantLlamaIndexEvidenceRuntime:
             prepared_chunks = prepare_source_chunks(
                 source=source,
                 knowledge_base_id=knowledge_base.id,
+                settings=self.settings,
             )
         except Exception as exc:
             provider_issue = exc

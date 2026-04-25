@@ -25,6 +25,7 @@ import {
 } from './lib/api';
 import type {
   ArtifactRecord,
+  ChatImageAttachment,
   ChatImageResult,
   ChatStreamRequest,
   GlobalReadiness,
@@ -188,10 +189,15 @@ function buildStatusAction(payload: {
   };
 }
 
+const SEED_PROJECT_ID = 'seed-reconciliation';
+
 function HomeRoute() {
   const navigate = useNavigate();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [readiness, setReadiness] = useState<GlobalReadiness | null>(null);
+  const [seedProject, setSeedProject] = useState<ProjectSummary | null>(null);
+  const [seedState, setSeedState] = useState<ProjectState | null>(null);
+  const [seedArtifacts, setSeedArtifacts] = useState<ArtifactRecord[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -202,13 +208,24 @@ function HomeRoute() {
         setReadiness(nextReadiness);
       })
       .catch((err: Error) => setError(err.message));
+
+    // Seed project preview is optional — failures must not block the home page.
+    void Promise.allSettled([
+      getProject(SEED_PROJECT_ID),
+      getProjectState(SEED_PROJECT_ID),
+      listArtifacts(SEED_PROJECT_ID),
+    ]).then(([projectResult, stateResult, artifactsResult]) => {
+      if (projectResult.status === 'fulfilled') setSeedProject(projectResult.value);
+      if (stateResult.status === 'fulfilled') setSeedState(stateResult.value);
+      if (artifactsResult.status === 'fulfilled') setSeedArtifacts(artifactsResult.value);
+    });
   }, []);
 
   if (error) {
     return (
-      <main className="min-h-screen p-8 text-ink">
-        <div className="mx-auto max-w-3xl rounded-[28px] border border-rose-200 bg-rose-50 p-6 text-rose-800 shadow-panel">
-          <div className="text-sm font-medium uppercase tracking-[0.18em]">加载失败</div>
+      <main className="min-h-screen p-8 text-nearBlack">
+        <div className="mx-auto max-w-3xl rounded-[20px] border border-[#e3c8c4] bg-[#fbeeec] p-6 text-errorWarm shadow-whisper">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em]">加载失败</div>
           <p className="mt-3 leading-7">{error}</p>
         </div>
       </main>
@@ -240,6 +257,9 @@ function HomeRoute() {
     <ProjectsPage
       projects={projects}
       readiness={readiness}
+      seedProject={seedProject}
+      seedState={seedState}
+      seedArtifacts={seedArtifacts}
       creating={creating}
       onCreateProject={handleCreateProject}
     />
@@ -421,6 +441,29 @@ function WorkbenchRoute() {
     return () => window.clearInterval(timer);
   }, [data.artifacts, projectId]);
 
+  // Poll sources while any wiki maintenance is in flight. The wiki maintainer
+  // is async/fire-and-forget on the backend, so without this poll the badge
+  // would stay on "wiki 写入中" until the user triggers another reload.
+  useEffect(() => {
+    if (!projectId) return;
+    const hasMaintaining = data.sources.some((s) => s.wiki_sync_status === 'maintaining');
+    if (!hasMaintaining) return;
+
+    const timer = window.setInterval(() => {
+      void listSources(projectId)
+        .then((sources) => {
+          setData((current) => ({ ...current, sources }));
+        })
+        .catch(() => {
+          // Silent — the next tick (or another action) will retry. We don't want
+          // a long-running maintenance to spam toast notifications on transient
+          // network blips.
+        });
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [data.sources, projectId]);
+
   useEffect(() => {
     if (!hasActiveSourceWork(data.sources)) {
       return;
@@ -474,18 +517,30 @@ function WorkbenchRoute() {
     }
   }
 
-  async function handleSendMessage(message: string) {
+  function localChatImageResults(imageAttachments: ChatImageAttachment[]): ChatImageResult[] {
+    return imageAttachments.map((image, index) => ({
+      id: `local-chat-image-${Date.now()}-${index}`,
+      title: image.name,
+      summary: '用户上传的聊天图片',
+      url: image.data_url,
+      content_type: image.content_type,
+    }));
+  }
+
+  async function handleSendMessage(message: string, imageAttachments: ChatImageAttachment[] = []) {
     const knowledgeBaseReady = await ensureProjectKnowledgeBase();
     if (!knowledgeBaseReady) {
       return;
     }
 
+    const localImages = localChatImageResults(imageAttachments);
     setSending(true);
     const userMessage: MessageRecord = {
       id: `local-user-${Date.now()}`,
       role: 'user',
       content: message,
       source_refs: [],
+      image_results: localImages,
       created_at: new Date().toISOString(),
       stream_group_id: null,
     };
@@ -518,6 +573,7 @@ function WorkbenchRoute() {
           message,
           selected_source_ids: [],
           request_artifact_types: [],
+          image_attachments: imageAttachments,
           client_context: { route: 'workbench' },
         },
         (event, payload) => {
@@ -860,11 +916,11 @@ function WorkbenchRoute() {
 
   if (loading || !data.project || !data.state) {
     return (
-      <main className="min-h-screen p-8 text-ink">
-        <div className="mx-auto max-w-4xl rounded-[28px] border border-line bg-white p-8 shadow-panel">
-          <div className="text-xs uppercase tracking-[0.18em] text-muted">Loading</div>
-          <h1 className="mt-3 text-3xl font-semibold">正在加载工作台</h1>
-          <p className="mt-3 text-sm leading-7 text-muted">项目、资料、聊天与沉淀总集正在初始化。</p>
+      <main className="min-h-screen p-8 text-nearBlack">
+        <div className="mx-auto max-w-4xl rounded-[22px] border border-borderCream bg-ivory p-8 shadow-whisper">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-stone">Loading</div>
+          <h1 className="mt-3 font-display text-[1.85rem] font-medium leading-tight tracking-tightish">正在加载工作台</h1>
+          <p className="mt-3 text-sm leading-7 text-olive">项目、资料、聊天与沉淀总集正在初始化。</p>
         </div>
       </main>
     );

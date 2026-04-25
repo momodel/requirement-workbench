@@ -3,7 +3,7 @@ from pathlib import Path
 
 from app.config import AppSettings
 from app.db import init_db
-from app.models import ChatCitation, ChatStreamRequest, ProviderIssue, StateItem
+from app.models import ChatCitation, ChatImageAttachment, ChatStreamRequest, ProviderIssue, StateItem
 from app.services.chat_service import ChatService
 from app.services.project_catalog import ProjectCatalog
 from app.services.project_state import ProjectStateService
@@ -168,6 +168,23 @@ class ImageResultRuntime:
         yield ("done", {})
 
 
+class EchoImageHistoryRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        current_user_message = next(message for message in turn.recent_messages if message.content == "看这张图")
+        assert current_user_message.image_results
+        yield (
+            "final_message",
+            {
+                "text": "已收到图片。",
+                "citations": [],
+            },
+        )
+        yield ("done", {})
+
+
 def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_message(
     tmp_path: Path,
 ) -> None:
@@ -208,13 +225,62 @@ def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_mess
         "text": "先确认真实范围，再继续拆对账规则。",
         "replace": True,
     }
-
     messages = catalog.list_recent_messages("seed-reconciliation", limit=8)
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert assistant_messages
-    assert assistant_messages[0].content == "先确认真实范围，再继续拆对账规则。"
-    assert assistant_messages[0].source_refs[0]["title"] == "订单字段说明"
+    matching_messages = [
+        message for message in assistant_messages if message.content == "先确认真实范围，再继续拆对账规则。"
+    ]
+    assert matching_messages
+    assert matching_messages[-1].source_refs[0]["title"] == "订单字段说明"
 
+
+def test_chat_service_persists_user_chat_image_attachment(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=EchoImageHistoryRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(
+                message="看这张图",
+                selected_source_ids=[],
+                request_artifact_types=[],
+                image_attachments=[
+                    ChatImageAttachment(
+                        name="界面截图.png",
+                        content_type="image/png",
+                        data_url="data:image/png;base64,iVBORw0KGgo=",
+                    )
+                ],
+            ),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+    assert events[-2][1]["text"] == "已收到图片。"
+
+    user_message = next(
+        message for message in catalog.list_recent_messages("seed-reconciliation") if message.content == "看这张图"
+    )
+    assert user_message.role == "user"
+    assert user_message.image_results[0]["title"] == "界面截图.png"
+    image_url = user_message.image_results[0]["url"]
+    image_id = image_url.rsplit("/", 1)[-1]
+    image_path = settings.projects_dir / "seed-reconciliation" / "chat-images" / image_id / "image.png"
+    assert image_path.exists()
 
 def test_chat_service_emits_error_and_done_when_runtime_fails(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)

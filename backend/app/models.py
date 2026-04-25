@@ -111,6 +111,7 @@ class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
     evidence: ProviderReadiness
+    wiki: ProviderReadiness | None = None
     knowledge_base: KnowledgeBaseRecord | None = None
     object_storage: ProviderReadiness | None = None
     audio_transcription: ProviderReadiness | None = None
@@ -119,6 +120,7 @@ class ProjectReadiness(BaseModel):
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
     evidence: ProviderReadiness
+    wiki: ProviderReadiness | None = None
     object_storage: ProviderReadiness | None = None
     audio_transcription: ProviderReadiness | None = None
 
@@ -137,6 +139,9 @@ class SourceRecord(BaseModel):
     normalize_summary: str | None = None
     index_status: str = "pending"
     index_error: str | None = None
+    wiki_sync_status: str | None = None
+    wiki_error: str | None = None
+    wiki_maintained_at: str | None = None
     created_at: str
 
     def model_dump_neutral(self) -> dict[str, Any]:
@@ -225,10 +230,17 @@ class ChatCitation(BaseModel):
     source_id: str | None = None
 
 
+class ChatImageAttachment(BaseModel):
+    name: str
+    content_type: str
+    data_url: str
+
+
 class ChatStreamRequest(BaseModel):
     message: str = Field(min_length=1)
     selected_source_ids: list[str] = Field(default_factory=list)
     request_artifact_types: list[ArtifactType] = Field(default_factory=list)
+    image_attachments: list[ChatImageAttachment] = Field(default_factory=list)
     client_context: dict[str, Any] | None = None
 
 
@@ -327,6 +339,36 @@ class EvidenceResult:
     sync_status: str = "synced"
 
 
+class WikiPageMeta(BaseModel):
+    slug: str
+    title: str
+    kind: str
+    source_ids: list[str] = Field(default_factory=list)
+    last_maintained_at: str | None = None
+    last_maintained_by: str | None = None
+
+
+class WikiPage(WikiPageMeta):
+    body: str
+
+
+class WikiRecord(BaseModel):
+    project_id: str
+    page_count: int
+    last_maintained_at: str | None = None
+    pending_source_ids: list[str] = Field(default_factory=list)
+    detail: str | None = None
+
+
+class WikiMaintenanceResult(BaseModel):
+    project_id: str
+    status: Literal["maintained", "skipped", "failed"]
+    pages_changed: list[str] = Field(default_factory=list)
+    log_entry: str | None = None
+    error: str | None = None
+    trigger_kind: str | None = None
+
+
 @dataclass(slots=True)
 class AgentTurnInput:
     project: ProjectSummary
@@ -338,6 +380,7 @@ class AgentTurnInput:
     evidence_citations: list[ChatCitation]
     request_artifact_types: list[ArtifactType]
     recent_messages: list[MessageRecord] = field(default_factory=list)
+    user_image_refs: list[dict] = field(default_factory=list)
 
 
 @dataclass(slots=True)

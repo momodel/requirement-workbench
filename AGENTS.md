@@ -21,6 +21,8 @@
   - 适用：需求分析链路、状态沉淀、版本快照、artifact 触发
 - `backend/.claude/skills/rag-evidence-workflow/SKILL.md`
   - 适用：source ingestion、项目知识库索引、grounding、citation
+- `backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
+  - 适用：LLM Wiki 综合层（实体页、术语、规则、冲突、待确认问题），由 WikiMaintainer 子 agent 维护
 - `backend/.claude/skills/artifact-generation-guidelines/SKILL.md`
   - 适用：文档稿、页面方案、交互稿的生成边界
 
@@ -37,15 +39,24 @@
 
 - 主智能体：`Claude Agent SDK`
 - 证据层：`Docling + Qdrant + LlamaIndex + 项目内 EvidenceRuntime`
+- 综合层：`LLM Wiki`（项目内 markdown 页面，由 `WikiMaintainer` 子 agent 通过 Claude Agent SDK 维护）
 
 不要做这些事：
 
 - 用本地规则拼接结果，却命名成 `ClaudeAgentRuntime`
 - 用本地摘要服务，却命名成 `EvidenceRuntime`
+- 用 Python 模板渲染 markdown，却命名成 `LLMWikiService` / `WikiRuntime`
 - 在文档、注释、UI 里把 stub 写成“已接入正式 provider”
 - 未配置时做静默 fallback
 
 未配置就报未配置，失败就报失败。
+
+### Wiki 与 RAG 的边界
+
+- **RAG = 证据层**：chunk 级、可追到原文行号的 citation。`confirmed_items` 与 artifact 的 `source_refs` 必须只来自 `query_project_evidence` 的真实返回。
+- **Wiki = 综合层**：跨多源的合成、术语、规则、冲突、待确认问题。Wiki 页面里的每条断言必须 front-matter 带 `source_ids`，回查时仍走 RAG 取原文。
+- 不允许把 wiki 段落当作 citation 给前端；不允许在 RAG 不可用时让 wiki 顶替证据层。
+- ingest 成功后 wiki 维护是 fire-and-forget 后台任务；wiki 失败不回滚 RAG。
 
 ## 项目内依赖边界
 
@@ -122,6 +133,7 @@
 - 项目内 `Docling + Qdrant + LlamaIndex` provider 可调用
 - 项目内 项目知识库 认证已完成
 - 当前项目已初始化自己的 knowledge base
+- LLM Wiki 维护链路可调用：WikiMaintainer 注入、Claude SDK 就绪、`POST /wiki/maintain?probe=true` 能在 `wiki/.health` 写入并验证标记
 
 ## 实现中持续检查
 

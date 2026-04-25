@@ -15,6 +15,10 @@ from ..models import (
     ProjectSummary,
     ProviderReadiness,
     SourceChunkRecord,
+    WikiMaintenanceResult,
+    WikiPage,
+    WikiPageMeta,
+    WikiRecord,
 )
 
 
@@ -77,3 +81,33 @@ class EvidenceRuntime(Protocol):
         *,
         selected_source_ids: list[str] | None = None,
     ) -> EvidenceResult: ...
+
+
+class WikiRuntime(Protocol):
+    def ensure_available(self) -> Path: ...
+
+    def get_global_readiness(self) -> ProviderReadiness: ...
+
+    def get_project_readiness(
+        self,
+        project_id: str,
+        claude: ProviderReadiness | None = None,
+    ) -> ProviderReadiness: ...
+
+    def ensure_project_wiki(self, project_id: str) -> WikiRecord: ...
+
+    def list_pages(self, project_id: str) -> list[WikiPageMeta]: ...
+
+    def read_page(self, project_id: str, slug: str) -> WikiPage: ...
+
+    async def maintain_after_ingest(
+        self,
+        project_id: str,
+        source_id: str,
+    ) -> WikiMaintenanceResult: ...
+
+    async def maintain_after_checkpoint(
+        self,
+        project_id: str,
+        version_summary: str | None = None,
+    ) -> WikiMaintenanceResult: ...

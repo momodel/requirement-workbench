@@ -1,6 +1,6 @@
 import {
   AlertCircle,
-  ArrowUpRight,
+  X,
   ChevronDown,
   ChevronRight,
   List,
@@ -10,14 +10,14 @@ import {
   Loader2,
   MonitorCog,
   PanelRight,
-  RotateCw,
+  Paperclip,
   Send,
   Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,6 +44,7 @@ import { Textarea } from '../../components/ui/textarea';
 import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
+  ChatImageAttachment,
   MessageActionEvent,
   MessageRecord,
   ProjectReadiness,
@@ -76,7 +77,7 @@ type WorkbenchPageProps = {
   deletingSourceId: string | null;
   retryingSourceId: string | null;
   initializingKnowledgeBase: boolean;
-  onSendMessage: (message: string) => Promise<void>;
+  onSendMessage: (message: string, imageAttachments?: ChatImageAttachment[]) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
@@ -85,8 +86,32 @@ type WorkbenchPageProps = {
   onInitializeKnowledgeBase: () => Promise<boolean>;
 };
 
+type PendingChatImage = ChatImageAttachment & {
+  id: string;
+  previewUrl: string;
+};
+
 function relativeTime(value: string) {
   return new Date(value).toLocaleString('zh-CN');
+}
+
+function compactRelativeTime(value: string) {
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return value;
+  const delta = Date.now() - ts;
+  if (delta < 0) return '刚刚';
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < minute) return '刚刚';
+  if (delta < hour) return `${Math.floor(delta / minute)} 分钟前`;
+  if (delta < day) {
+    const d = new Date(ts);
+    return `今天 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+  if (delta < 7 * day) return `${Math.floor(delta / day)} 天前`;
+  const d = new Date(ts);
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function statusVariant(status: string) {
@@ -123,6 +148,29 @@ function readinessVariant(status: string) {
   return 'default' as const;
 }
 
+function runtimeHealth(readiness: ProjectReadiness | null, initializingKnowledgeBase: boolean) {
+  const statuses = [
+    readiness?.claude.status,
+    readiness?.evidence?.status,
+    readiness?.wiki?.status,
+    initializingKnowledgeBase ? 'pending' : null,
+  ].filter(Boolean) as string[];
+
+  if (statuses.length === 0) {
+    return { label: '未知', dotClass: 'bg-stone/40', buttonClass: 'border-line bg-ivory text-muted' };
+  }
+  if (statuses.some((status) => /failed|error|not_configured|required|missing/i.test(status))) {
+    return { label: '异常', dotClass: 'bg-[#fbeeec]0', buttonClass: 'border-[#e3c8c4] bg-[#fbeeec] text-errorWarm' };
+  }
+  if (statuses.some((status) => /pending|queued|initializing|binding|config/i.test(status))) {
+    return { label: '处理中', dotClass: 'bg-[#f5ead2]0', buttonClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]' };
+  }
+  if (statuses.every((status) => status === 'ready')) {
+    return { label: '就绪', dotClass: 'bg-[#e6efe5]0', buttonClass: 'border-line bg-ivory text-ink' };
+  }
+  return { label: '检查中', dotClass: 'bg-[#f5ead2]0', buttonClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]' };
+}
+
 function parseStatusLabel(status: string) {
   if (status === 'parsed') return '已标准化';
   if (status === 'processing') return '标准化中';
@@ -132,6 +180,32 @@ function parseStatusLabel(status: string) {
   if (status === 'error') return '标准化异常';
   if (status === 'not_configured') return '标准化未配置';
   return status;
+}
+
+function sourceCompactStatus(source: SourceRecord) {
+  const normalizeStatus = sourceNormalizeStatus(source);
+  const indexStatus = sourceIndexStatus(source);
+
+  if (indexStatus === 'index_failed' || indexStatus === 'error') {
+    return { label: '索引失败', dotClass: 'bg-[#fbeeec]0', textClass: 'text-errorWarm' };
+  }
+  if (normalizeStatus === 'pending' || normalizeStatus === 'queued') {
+    return { label: parseStatusLabel(normalizeStatus), dotClass: 'bg-[#f5ead2]0', textClass: 'text-[#7a5a1d]' };
+  }
+  if (indexStatus === 'indexing' || indexStatus === 'pending' || indexStatus === 'queued') {
+    return { label: indexStatusLabel(indexStatus), dotClass: 'bg-[#f5ead2]0', textClass: 'text-[#7a5a1d]' };
+  }
+  if (indexStatus === 'indexed') {
+    return { label: '已索引', dotClass: 'bg-[#e6efe5]0', textClass: 'text-[#3d6b50]' };
+  }
+  if (normalizeStatus === 'parsed') {
+    return { label: '已解析', dotClass: 'bg-[#e6efe5]0', textClass: 'text-[#3d6b50]' };
+  }
+  return { label: indexStatusLabel(indexStatus), dotClass: 'bg-stone/40', textClass: 'text-muted' };
+}
+
+function sourceKindLabel(sourceKind: string) {
+  return sourceKind.replace(/^file:/, '').toUpperCase();
 }
 
 function indexStatusLabel(status: string) {
@@ -146,6 +220,24 @@ function indexStatusLabel(status: string) {
   if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
   return status;
+}
+
+function sourceWikiBadge(source: SourceRecord) {
+  const status = source.wiki_sync_status;
+  // Only surface non-default wiki states so the row stays compact when wiki
+  // maintenance succeeded. The "boring" maintained state is implied by
+  // "已索引" already; only call out in-flight or failure cases.
+  if (!status || status === 'maintained') return null;
+  if (status === 'maintaining') {
+    return { label: 'wiki 写入中', dotClass: 'bg-[#7a5a1d]', textClass: 'text-[#7a5a1d]' };
+  }
+  if (status === 'failed') {
+    return { label: 'wiki 失败', dotClass: 'bg-errorWarm', textClass: 'text-errorWarm' };
+  }
+  if (status === 'skipped') {
+    return { label: 'wiki 跳过', dotClass: 'bg-stone/60', textClass: 'text-muted' };
+  }
+  return { label: `wiki ${status}`, dotClass: 'bg-stone/60', textClass: 'text-muted' };
 }
 
 function sourceNormalizeStatus(source: SourceRecord): string {
@@ -231,7 +323,7 @@ function stageTone(
   if (revisitingStages.includes(stage)) {
     return {
       badge: '补充中',
-      cardClass: 'border-amber-200 bg-amber-50 text-amber-900',
+      cardClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]',
       badgeVariant: 'warning' as const,
     };
   }
@@ -242,14 +334,14 @@ function stageTone(
   if (stageIndex < primaryIndex) {
     return {
       badge: '已形成',
-      cardClass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+      cardClass: 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]',
       badgeVariant: 'success' as const,
     };
   }
 
   return {
     badge: '待进入',
-    cardClass: 'border-line bg-slate-50 text-muted',
+    cardClass: 'border-line bg-parchment text-muted',
     badgeVariant: 'default' as const,
   };
 }
@@ -395,7 +487,7 @@ function SourcePreview({
 
   return createPortal(
     <div
-      className="fixed z-50 w-[420px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
+      className="fixed z-50 w-[360px] rounded-[24px] border border-borderCream bg-ivory p-5 shadow-whisper"
       style={{ top: position.top, left: position.left }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -449,13 +541,153 @@ function SourcePreview({
           </div>
         ) : null}
         {sourceIndexError(source) ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
+          <div className="rounded-2xl border border-[#e6d3b3] bg-[#f5ead2] p-3 text-[#7a5a1d]">
             {sourceIndexError(source)}
           </div>
         ) : null}
       </div>
     </div>,
     document.body
+  );
+}
+
+function SourceFileRow({
+  source,
+  deletingSourceId,
+  retryingSourceId,
+  onPreview,
+  onDeleteSource,
+  onReindexSource,
+}: {
+  source: SourceRecord;
+  deletingSourceId: string | null;
+  retryingSourceId: string | null;
+  onPreview: (source: SourceRecord, rect: DOMRect) => void;
+  onDeleteSource: (sourceId: string) => Promise<void>;
+  onReindexSource: (sourceId: string) => Promise<void>;
+}) {
+  const canRetrySync = canRetrySource(source);
+  const compactStatus = sourceCompactStatus(source);
+  const wikiBadge = sourceWikiBadge(source);
+  const normalizeStatus = sourceNormalizeStatus(source);
+  const indexStatus = sourceIndexStatus(source);
+  const legacyIndexLabel = indexStatusLabel(indexStatus);
+
+  return (
+    <div className="group overflow-hidden rounded-[16px] border border-borderCream bg-ivory px-2.5 py-2 transition hover:border-accent/25 hover:bg-parchment/70">
+      <div className="flex items-center gap-2.5">
+        <button
+          type="button"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] border border-line bg-parchment text-xs font-semibold text-muted transition group-hover:border-accent/20 group-hover:text-accent"
+          onClick={(event) => onPreview(source, event.currentTarget.getBoundingClientRect())}
+          aria-label={`查看 ${source.name}`}
+        >
+          {sourceKindLabel(source.source_kind).slice(0, 3)}
+        </button>
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left"
+          onClick={(event) => onPreview(source, event.currentTarget.getBoundingClientRect())}
+        >
+          <div className="truncate text-sm font-semibold text-ink">{source.name}</div>
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs">
+            <span className={cn('flex shrink-0 items-center gap-1', compactStatus.textClass)}>
+              <span className={cn('h-1.5 w-1.5 rounded-full', compactStatus.dotClass)} />
+              <span className="whitespace-nowrap">{compactStatus.label}</span>
+            </span>
+            {wikiBadge ? (
+              <>
+                <span className="shrink-0">·</span>
+                <span
+                  className={cn('flex shrink-0 items-center gap-1', wikiBadge.textClass)}
+                  title={source.wiki_error ?? undefined}
+                >
+                  <span className={cn('h-1.5 w-1.5 rounded-full', wikiBadge.dotClass)} />
+                  <span className="whitespace-nowrap">{wikiBadge.label}</span>
+                </span>
+              </>
+            ) : null}
+            <span className="shrink-0">·</span>
+            <span
+              className="min-w-0 truncate text-muted"
+              title={relativeTime(source.created_at)}
+            >
+              {compactRelativeTime(source.created_at)}
+            </span>
+          </div>
+        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          {canRetrySync ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-accent"
+              aria-label={`重建索引 ${source.name}`}
+              disabled={retryingSourceId === source.id}
+              onClick={async (event) => {
+                event.stopPropagation();
+                await onReindexSource(source.id);
+              }}
+            >
+              {retryingSourceId === source.id ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+              重试
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted"
+            aria-label={`删除 ${source.name}`}
+            disabled={deletingSourceId === source.id}
+            onClick={async (event) => {
+              event.stopPropagation();
+              await onDeleteSource(source.id);
+            }}
+          >
+            {deletingSourceId === source.id ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Trash2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
+      </div>
+      {sourceNormalizeSummary(source) ? (
+        <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-muted">
+          {sourceNormalizeSummary(source)}
+        </p>
+      ) : null}
+      <div className="sr-only">
+        <span>{`标准化：${parseStatusLabel(normalizeStatus)}`}</span>
+        <span>{`入库：${legacyIndexLabel}`}</span>
+      </div>
+    </div>
+  );
+}
+
+function RuntimeStatusButton({
+  readiness,
+  initializingKnowledgeBase,
+  onClick,
+}: {
+  readiness: ProjectReadiness | null;
+  initializingKnowledgeBase: boolean;
+  onClick: () => void;
+}) {
+  const health = runtimeHealth(readiness, initializingKnowledgeBase);
+
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className={cn('h-9 gap-2 px-3', health.buttonClass)}
+      onClick={onClick}
+      title={`运行状态：${health.label}`}
+    >
+      <span className={cn('h-2 w-2 rounded-full', health.dotClass)} />
+      <MonitorCog className="h-4 w-4" />
+      运行状态
+    </Button>
   );
 }
 
@@ -467,26 +699,44 @@ function WorkbenchStageRail({
   revisitingStages: WorkbenchStage[];
 }) {
   return (
-    <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
-      {WORKBENCH_STAGE_ORDER.map((stage) => {
+    <div className="flex min-w-0 items-center gap-1">
+      {WORKBENCH_STAGE_ORDER.map((stage, index) => {
         const tone = stageTone(stage, primaryStage, revisitingStages);
+        const isActive = stage === primaryStage;
+        const isDone = WORKBENCH_STAGE_ORDER.indexOf(stage) < WORKBENCH_STAGE_ORDER.indexOf(primaryStage);
 
         return (
-          <div
-            key={stage}
-            className={cn('rounded-[16px] border px-3 py-2 transition-colors', tone.cardClass)}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="text-sm font-semibold">{WORKBENCH_STAGE_LABELS[stage]}</div>
-              <Badge variant={tone.badgeVariant}>{tone.badge}</Badge>
+          <div key={stage} className="flex min-w-0 items-start gap-1">
+            <div
+              className={cn(
+                'flex w-16 flex-col items-center gap-0.5 rounded-[14px] px-1.5 py-1 text-[11px] font-medium transition-colors',
+                isActive
+                  ? 'bg-accentSoft text-accent shadow-sm'
+                  : isDone
+                    ? 'text-[#3d6b50]'
+                    : revisitingStages.includes(stage)
+                      ? 'bg-[#f5ead2] text-[#7a5a1d]'
+                      : 'text-muted'
+              )}
+              title={tone.badge}
+            >
+              <span
+                className={cn(
+                  'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px]',
+                  isActive
+                    ? 'border-accent bg-accent text-white'
+                    : isDone
+                      ? 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]'
+                      : 'border-borderCream bg-ivory text-muted'
+                )}
+              >
+                {index + 1}
+              </span>
+              <span className="w-full truncate text-center leading-4">{WORKBENCH_STAGE_LABELS[stage]}</span>
             </div>
-            <div className="mt-1 text-[12px] leading-5 opacity-80">
-              {stage === primaryStage
-                ? '当前主线推进重点。'
-                : revisitingStages.includes(stage)
-                  ? '有新信息正在回流补充。'
-                  : '作为分析过程中的阶段语义展示。'}
-            </div>
+            {index < WORKBENCH_STAGE_ORDER.length - 1 ? (
+              <div className={cn('mt-3 hidden h-px w-3 xl:block', isDone ? 'bg-accent/45' : 'bg-line')} />
+            ) : null}
           </div>
         );
       })}
@@ -539,37 +789,30 @@ function ArtifactInlineActions({
 
 function StateSectionCard({
   section,
-  defaultOpen,
+  isExpanded,
+  onToggle,
   onOpen,
   onOpenItem,
-  onOpenArtifact,
-  onOpenDocument,
 }: {
   section: StateOverviewSection;
-  defaultOpen: boolean;
+  isExpanded: boolean;
+  onToggle: () => void;
   onOpen: () => void;
   onOpenItem: (item: StateOverviewItem) => void;
-  onOpenArtifact: (artifact: ArtifactRecord) => void;
-  onOpenDocument: (artifact: ArtifactRecord) => void;
 }) {
-  const [isExpanded, setIsExpanded] = useState(defaultOpen);
-  const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+  const previewItems = section.items.slice(0, 3);
   const summaryLine = getSectionSummaryLine(section);
   const hasGeneratingArtifacts = Boolean(section.artifactStatusSummary?.generating);
 
-  useEffect(() => {
-    setIsExpanded(defaultOpen);
-  }, [defaultOpen, section.id]);
-
   return (
-    <div className="rounded-[14px] border border-line bg-slate-50/80 px-2.5 py-2">
+    <div className="rounded-[14px] border border-borderCream bg-ivory px-2.5 py-2 transition hover:border-accent/20">
       <div className="flex min-h-8 items-center gap-2">
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white hover:text-accent"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-parchment hover:text-accent"
           aria-label={`${isExpanded ? '收起' : '展开'} ${section.title}`}
           aria-expanded={isExpanded}
-          onClick={() => setIsExpanded((open) => !open)}
+          onClick={onToggle}
         >
           {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </button>
@@ -584,18 +827,22 @@ function StateSectionCard({
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0 flex-1">
               <div className="flex min-w-0 items-center gap-1.5">
-              <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
-              {hasGeneratingArtifacts ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-label="交付物生成中" /> : null}
-              {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
+                <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
+                {hasGeneratingArtifacts ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#9a7c2e]" aria-label="交付物生成中" />
+                ) : null}
+                {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
               </div>
               <div className="truncate text-[11px] text-muted" title={summaryLine}>
                 {summaryLine}
               </div>
             </div>
-            <div className="flex shrink-0 items-center gap-1 text-[11px] text-muted">
-              <Badge>{section.totalCount}</Badge>
-              {section.artifactStatusSummary?.failed ? <Badge variant="danger">失败</Badge> : null}
-            {section.recentCount > 0 ? <Badge variant="accent">+{section.recentCount}</Badge> : null}
+            <div className="flex shrink-0 items-center gap-1">
+              {section.artifactStatusSummary?.failed ? <span className="h-2 w-2 rounded-full bg-[#fbeeec]0" aria-label="失败" /> : null}
+              {section.recentCount > 0 ? <span className="h-2 w-2 rounded-full bg-accent" aria-label="本轮新增" /> : null}
+              <span className="grid h-6 min-w-6 place-items-center rounded-full border border-line bg-parchment px-1.5 text-[11px] text-muted">
+                {section.totalCount}
+              </span>
             </div>
           </div>
         </button>
@@ -613,58 +860,42 @@ function StateSectionCard({
       </div>
 
       {isExpanded ? (
-        <div className="mt-2 grid gap-2 border-t border-line/70 pt-2">
+        <div className="mt-1.5 border-t border-line/60 pt-1.5">
           {previewItems.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-line bg-white/80 p-2.5 text-sm text-muted">
+            <div className="rounded-[10px] border border-dashed border-line bg-parchment/70 px-2.5 py-1.5 text-xs text-muted">
               {getSectionEmptyText(section.id)}
             </div>
           ) : (
-            previewItems.map((item) => {
-              const artifactMeta = getArtifactMeta(item);
-
-              return (
-                <div
+            <div className="grid gap-0.5">
+              {previewItems.map((item) => (
+                <button
                   key={item.id}
-                  role="button"
-                  tabIndex={0}
+                  type="button"
                   className={cn(
-                    'rounded-[12px] border bg-white p-2.5 text-left transition hover:border-accent/25 hover:bg-slate-50',
-                    item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
+                    'group flex min-w-0 items-center gap-2 rounded-[8px] px-2 py-1 text-left transition hover:bg-parchment',
+                    item.isRecent ? 'bg-accentSoft/30' : ''
                   )}
                   onClick={() => onOpenItem(item)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      onOpenItem(item);
-                    }
-                  }}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    {item.title === section.title ? (
-                      <div className="text-sm font-medium text-ink">{item.kind === 'artifact' ? item.title : '最新条目'}</div>
-                    ) : (
-                      <div className="text-sm font-medium text-ink">{item.title}</div>
-                    )}
-                    <div className="flex shrink-0 items-center gap-1.5">
-                      {artifactMeta ? <Badge variant="default">{artifactMeta.typeLabel}</Badge> : null}
-                      <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
-                    </div>
-                  </div>
-                  <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
-                    {artifactMeta ? (
-                      <>
-                        <span>{artifactMeta.formatLabel}</span>
-                        <span>{artifactMeta.statusLabel}</span>
-                      </>
-                    ) : null}
-                    <span>{`形成于 ${WORKBENCH_STAGE_LABELS[item.formedStage]}`}</span>
-                    {item.updatedAt ? <span>{relativeTime(item.updatedAt)}</span> : null}
-                  </div>
-                </div>
-              );
-            })
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-stone/40 group-hover:bg-accent" />
+                  <span className="min-w-0 flex-1 truncate text-xs leading-5 text-muted">
+                    <span className="font-medium text-ink">{item.title === section.title ? '最新条目' : item.title}</span>
+                    <span className="text-stone"> · </span>
+                    {getItemBody(item)}
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
+          {section.items.length > previewItems.length ? (
+            <button
+              type="button"
+              className="mt-1 w-full rounded-[8px] px-2.5 py-1 text-xs font-medium text-accent transition hover:bg-accentSoft/40"
+              onClick={onOpen}
+            >
+              {`查看全部（${section.totalCount}）`}
+            </button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -673,82 +904,154 @@ function StateSectionCard({
 function RecentUpdatesCard({
   items,
   onOpenItem,
-  onOpenArtifact,
-  onOpenDocument,
 }: {
   items: Array<{ section: StateOverviewSection; item: StateOverviewItem }>;
   onOpenItem: (section: StateOverviewSection, item: StateOverviewItem) => void;
-  onOpenArtifact: (artifact: ArtifactRecord) => void;
-  onOpenDocument: (artifact: ArtifactRecord) => void;
 }) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const visibleItems = isExpanded ? items : items.slice(0, 1);
+  const visibleItems = isExpanded ? items : items.slice(0, 3);
   const hiddenCount = Math.max(0, items.length - visibleItems.length);
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-accent/15 bg-accentSoft/20 px-2.5 py-2">
       <div className="flex min-h-8 items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-ink">本轮更新</div>
           <div className="truncate text-[11px] text-muted">最近新增或改动，先看这里。</div>
         </div>
-        <Badge variant="accent">{items.length}</Badge>
+        <span className="grid h-7 min-w-7 place-items-center rounded-full bg-accentSoft px-2 text-xs font-semibold text-accent">
+          {items.length}
+        </span>
       </div>
       {items.length === 0 ? (
-        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
+        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-ivory/75 px-2.5 py-1.5 text-xs text-muted">
           暂无最近更新。
         </div>
       ) : (
-        <div className="mt-2 min-w-0 border-t border-accent/10 pt-2">
-          <div className={cn('grid min-w-0 gap-1.5', isExpanded ? 'max-h-[260px] overflow-y-auto pr-1' : '')}>
-          {visibleItems.map(({ section, item }) => (
-            <div
-              key={`${section.id}-${item.id}`}
-              role="button"
-              tabIndex={0}
-              className="min-w-0 max-w-full overflow-hidden rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
-              onClick={() => onOpenItem(section, item)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onOpenItem(section, item);
-                }
-              }}
-            >
-              <div className="w-full min-w-0 overflow-hidden">
-                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 overflow-hidden">
-                  <Badge variant="default" className="shrink-0">{section.title}</Badge>
-                  {item.kind === 'artifact' ? (
-                    <Badge variant={statusVariant(item.status)} className="shrink-0">
-                      {getArtifactStatusLabel(item.status)}
-                    </Badge>
-                  ) : null}
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{item.title}</span>
-                </div>
-                <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
-                {item.kind === 'artifact' ? (
-                  <div className="mt-2 flex justify-end">
-                    <ArtifactInlineActions
-                      item={item}
-                      onOpenArtifact={onOpenArtifact}
-                      onOpenDocument={onOpenDocument}
-                      showPendingBadge={false}
-                    />
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          ))}
+        <div className="mt-1.5 min-w-0 border-t border-accent/10 pt-1.5">
+          <div className={cn('grid min-w-0 gap-0.5', isExpanded ? 'max-h-[148px] overflow-y-auto pr-1' : '')}>
+            {visibleItems.map(({ section, item }) => {
+              const artifactMeta = getArtifactMeta(item);
+              return (
+                <button
+                  key={`${section.id}-${item.id}`}
+                  type="button"
+                  className="group grid min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 rounded-[8px] px-1.5 py-1 text-left transition hover:bg-ivory/70"
+                  onClick={() => onOpenItem(section, item)}
+                >
+                  <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_0_3px_rgba(37,99,235,0.12)]" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs leading-5 text-ink">{item.title}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted">
+                    {artifactMeta?.typeLabel ?? section.title}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-          {items.length > 1 ? (
+          {items.length > 3 ? (
             <button
               type="button"
-              className="mt-2 w-full rounded-[10px] border border-accent/15 bg-white/65 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-white"
+              className="mt-1.5 w-full rounded-[10px] border border-accent/15 bg-ivory/70 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-ivory"
               onClick={() => setIsExpanded((open) => !open)}
             >
               {isExpanded ? '收起本轮更新' : `展开其余 ${hiddenCount} 条更新`}
             </button>
           ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArtifactStickyPanel({
+  section,
+  onOpen,
+  onOpenItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  section: StateOverviewSection | null;
+  onOpen: () => void;
+  onOpenItem: (item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  const items = section?.items.slice(0, 3) ?? [];
+
+  return (
+    <div className="shrink-0 border-t border-line/70 bg-ivory px-3 pb-3 pt-2.5">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-ink">交付物</div>
+          <div className="text-[11px] text-muted">{section ? getSectionSummaryLine(section) : '文档稿、页面方案和交互稿。'}</div>
+        </div>
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" aria-label="查看全部交付物" onClick={onOpen}>
+          查看全部
+        </Button>
+      </div>
+      {items.length === 0 ? (
+        <button
+          type="button"
+          className="w-full rounded-[14px] border border-dashed border-line bg-parchment/70 px-3 py-3 text-left text-sm text-muted"
+          onClick={onOpen}
+        >
+          当前还没有交付物。
+        </button>
+      ) : (
+        <div className="grid grid-cols-3 gap-2">
+          {items.map((item) => {
+            const artifactMeta = getArtifactMeta(item);
+            return (
+              <div
+                key={item.id}
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  'min-w-0 rounded-[14px] border bg-ivory px-2.5 py-2 text-left transition hover:border-accent/30 hover:bg-parchment',
+                  item.status === 'failed' ? 'border-[#e9d4cf]' : 'border-line'
+                )}
+                onClick={() => onOpenItem(item)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onOpenItem(item);
+                  }
+                }}
+              >
+                <div className="truncate text-sm font-semibold text-ink">{artifactMeta?.typeLabel ?? item.title}</div>
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
+                  <span
+                    className={cn(
+                      'h-1.5 w-1.5 rounded-full',
+                      item.status === 'generated'
+                        ? 'bg-[#e6efe5]0'
+                        : item.status === 'failed'
+                          ? 'bg-[#fbeeec]0'
+                          : item.status === 'generating'
+                            ? 'bg-blue-500'
+                            : 'bg-[#f5ead2]0'
+                    )}
+                  />
+                  <span className="truncate">{artifactMeta?.statusLabel ?? item.status}</span>
+                </div>
+                {item.status === 'generating' ? (
+                  <div className="mt-2 h-1.5 rounded-full bg-sand">
+                    <div className="h-full w-3/5 rounded-full bg-accent" />
+                  </div>
+                ) : null}
+                <div className="mt-2">
+                  <ArtifactInlineActions
+                    item={item}
+                    onOpenArtifact={onOpenArtifact}
+                    onOpenDocument={onOpenDocument}
+                    showPendingBadge={false}
+                  />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -774,7 +1077,7 @@ function StateSectionDrawer({
       {section ? (
         <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[min(980px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
           <div className="grid h-full grid-cols-[320px_minmax(0,1fr)]">
-            <div className="flex min-h-0 flex-col border-r border-line bg-slate-50/80">
+            <div className="flex min-h-0 flex-col border-r border-line bg-parchment/70">
               <DialogHeader className="border-b border-line px-5 py-4">
                 <DialogTitle>{section.title}</DialogTitle>
                 <DialogDescription>{section.description}</DialogDescription>
@@ -782,7 +1085,7 @@ function StateSectionDrawer({
               <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 <div className="grid gap-2">
                   {section.items.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                    <div className="rounded-[16px] border border-dashed border-borderCream bg-ivory p-3 text-sm text-muted">
                       {getSectionEmptyText(section.id)}
                     </div>
                   ) : (
@@ -794,7 +1097,7 @@ function StateSectionDrawer({
                           'rounded-[18px] border p-3 text-left transition',
                           activeItem?.id === item.id
                             ? 'border-accent bg-accentSoft/50'
-                            : 'border-line bg-white hover:border-accent/25 hover:bg-slate-50'
+                            : 'border-borderCream bg-ivory hover:border-accent/25 hover:bg-parchment'
                         )}
                         onClick={() => onSelectItem(item)}
                       >
@@ -824,7 +1127,7 @@ function StateSectionDrawer({
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-col bg-white">
+            <div className="flex min-h-0 flex-col bg-ivory">
               <div className="border-b border-line px-5 py-4">
                 <div className="text-sm font-medium text-muted">条目详情</div>
               </div>
@@ -893,7 +1196,7 @@ function StateSectionDrawer({
                       ) : null}
                     </div>
 
-                    <div className="grid gap-3 rounded-[22px] border border-line bg-slate-50/80 p-4 text-sm">
+                    <div className="grid gap-3 rounded-[22px] border border-line bg-parchment/70 p-4 text-sm">
                       {activeItem.kind === 'artifact' ? (
                         <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
                           <div className="font-medium text-muted">产物类型</div>
@@ -923,7 +1226,7 @@ function StateSectionDrawer({
                       </div>
                     </div>
 
-                    <div className="rounded-[22px] border border-line bg-white p-4">
+                    <div className="rounded-[22px] border border-borderCream bg-ivory p-4">
                       <div className="mb-3 text-sm font-medium text-muted">正文</div>
                       <div className="whitespace-pre-wrap text-sm leading-7 text-ink">
                         {activeItem.kind === 'artifact' ? activeItem.body || '当前还没有摘要。' : activeItem.body}
@@ -933,7 +1236,7 @@ function StateSectionDrawer({
                     );
                   })()
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+                  <div className="rounded-[20px] border border-dashed border-line bg-parchment p-4 text-sm leading-6 text-muted">
                     先从左侧列表选择一个条目，再查看详情。
                   </div>
                 )}
@@ -959,12 +1262,12 @@ function MessageMarkdown({ content }: { content: string }) {
           strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
           pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto rounded-2xl bg-slate-950/95 p-3 font-mono text-[0.92em] text-slate-100 last:mb-0">
+            <pre className="mb-3 overflow-x-auto rounded-2xl bg-warmDarker p-3 font-mono text-[0.92em] text-warmSilver last:mb-0">
               {children}
             </pre>
           ),
           code: ({ children }) => (
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-ink">
+            <code className="rounded-[6px] bg-sand px-1.5 py-0.5 font-mono text-[0.92em] text-charcoal">
               {children}
             </code>
           ),
@@ -973,7 +1276,7 @@ function MessageMarkdown({ content }: { content: string }) {
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="text-sky-700 underline decoration-sky-300 underline-offset-2"
+              className="text-terracotta underline decoration-terracotta/40 underline-offset-2"
             >
               {children}
             </a>
@@ -988,21 +1291,21 @@ function MessageMarkdown({ content }: { content: string }) {
 
 function actionEventTone(kind: MessageActionEvent['kind']) {
   if (kind === 'artifact') {
-    return 'border-sky-200 bg-sky-50 text-sky-900';
+    return 'border-[#e6cfbf] bg-[#f4e3d2] text-[#7a4520]';
   }
   if (kind === 'version') {
-    return 'border-violet-200 bg-violet-50 text-violet-900';
+    return 'border-[#dfd4e0] bg-[#ebe4ec] text-[#5e4a6b]';
   }
   if (kind === 'state') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    return 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]';
   }
   if (kind === 'tool_running') {
-    return 'border-amber-200 bg-amber-50 text-amber-900';
+    return 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]';
   }
   if (kind === 'tool_completed') {
-    return 'border-slate-200 bg-slate-100 text-slate-800';
+    return 'border-borderWarm bg-sand text-charcoal';
   }
-  return 'border-line bg-white/80 text-muted';
+  return 'border-line bg-ivory/85 text-muted';
 }
 
 export function WorkbenchPage({
@@ -1041,7 +1344,12 @@ export function WorkbenchPage({
   const [activeDocument, setActiveDocument] = useState<ArtifactRecord | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [activeSectionItemId, setActiveSectionItemId] = useState<string | null>(null);
+  const [expandedCoreSectionId, setExpandedCoreSectionId] = useState<string | null>('pending_items');
+  const [activeUploadKind, setActiveUploadKind] = useState<'text' | 'file' | null>(null);
+  const [pendingChatImages, setPendingChatImages] = useState<PendingChatImage[]>([]);
+  const pendingChatImagesRef = useRef<PendingChatImage[]>([]);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
+  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const sourcePreviewRequestRef = useRef(0);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
@@ -1055,6 +1363,14 @@ export function WorkbenchPage({
   const overviewSections = useMemo(
     () => deriveStateOverviewSections(state, artifacts, recentInsightIds),
     [artifacts, recentInsightIds, state]
+  );
+  const artifactSection = useMemo(
+    () => overviewSections.find((section) => section.id === 'artifacts') ?? null,
+    [overviewSections]
+  );
+  const coreOverviewSections = useMemo(
+    () => overviewSections.filter((section) => section.id !== 'artifacts' && section.id !== 'versions'),
+    [overviewSections]
   );
   const activeSection = useMemo(
     () => overviewSections.find((section) => section.id === activeSectionId) ?? null,
@@ -1089,6 +1405,9 @@ export function WorkbenchPage({
     state.confirmed_items.length +
     state.conflict_items.length +
     state.mvp_items.length;
+  const isUploadingSource = uploading || activeUploadKind !== null;
+  const isUploadingTextSource = activeUploadKind === 'text';
+  const isUploadingFileSource = activeUploadKind === 'file';
 
   useEffect(() => {
     const scrollTarget = chatBottomRef.current;
@@ -1151,21 +1470,129 @@ export function WorkbenchPage({
     }
   }
 
+  useEffect(() => {
+    pendingChatImagesRef.current = pendingChatImages;
+  }, [pendingChatImages]);
+
+  useEffect(
+    () => () => {
+      pendingChatImagesRef.current.forEach((image) => {
+        if (image.previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(image.previewUrl);
+        }
+      });
+    },
+    []
+  );
+
   async function handleSend() {
-    const trimmed = composer.trim();
+    const trimmed = composer.trim() || (pendingChatImages.length > 0 ? '请结合我上传的图片继续分析。' : '');
     if (!trimmed) return;
+    const imageAttachments = pendingChatImages.map(({ id: _id, previewUrl: _previewUrl, ...attachment }) => attachment);
+    pendingChatImages.forEach((image) => {
+      if (image.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(image.previewUrl);
+      }
+    });
+    setPendingChatImages([]);
     setComposer('');
-    await onSendMessage(trimmed);
+    await onSendMessage(trimmed, imageAttachments);
+  }
+
+  async function readChatImageFile(file: File): Promise<PendingChatImage> {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error('图片读取失败。'));
+      reader.readAsDataURL(file);
+    });
+    return {
+      id: `chat-image-${Date.now()}-${file.name}`,
+      name: file.name,
+      content_type: file.type || 'image/png',
+      data_url: dataUrl,
+      previewUrl: typeof URL.createObjectURL === 'function' ? URL.createObjectURL(file) : dataUrl,
+    };
+  }
+
+  async function handleSelectChatImages(files: File[]) {
+    const imageFiles = files
+      .filter((file) => file.type.startsWith('image/'))
+      .filter((file) => {
+        if (file.size > 5 * 1024 * 1024) {
+          console.warn(`图片 ${file.name || '(未命名)'} 超过 5MB，已忽略。`);
+          return false;
+        }
+        return true;
+      })
+      .slice(0, 4);
+    if (imageFiles.length === 0) return;
+    const nextImages = await Promise.all(imageFiles.map((file) => readChatImageFile(file)));
+    setPendingChatImages((current) => {
+      const merged = [...current, ...nextImages].slice(0, 4);
+      const dropped = [...current, ...nextImages].slice(4);
+      dropped.forEach((image) => {
+        if (image.previewUrl.startsWith('blob:')) {
+          URL.revokeObjectURL(image.previewUrl);
+        }
+      });
+      return merged;
+    });
+  }
+
+  async function handleComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length === 0) return;
+    if (sending) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    await handleSelectChatImages(imageFiles);
+  }
+
+  function removePendingChatImage(imageId: string) {
+    setPendingChatImages((current) => {
+      const removed = current.find((image) => image.id === imageId);
+      if (removed?.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(removed.previewUrl);
+      }
+      return current.filter((image) => image.id !== imageId);
+    });
   }
 
   async function handleUploadText() {
     const name = sourceName.trim();
     const text = sourceText.trim();
     if (!name || !text) return;
-    await onUploadTextSource({ name, text });
-    setSourceText('');
-    setSourceName('访谈纪要');
-    setIsImportDialogOpen(false);
+    setActiveUploadKind('text');
+    try {
+      await onUploadTextSource({ name, text });
+      setSourceText('');
+      setSourceName('访谈纪要');
+      setIsImportDialogOpen(false);
+    } finally {
+      setActiveUploadKind(null);
+    }
+  }
+
+  async function handleUploadFiles(files: File[]) {
+    if (files.length === 0) return;
+    setActiveUploadKind('file');
+    try {
+      await onUploadFileSource(files);
+    } finally {
+      setActiveUploadKind(null);
+    }
   }
 
 
@@ -1181,48 +1608,52 @@ export function WorkbenchPage({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(23,71,111,0.12),_transparent_26%),linear-gradient(180deg,_#eef4f9_0%,_#f8fafc_50%,_#eef2f7_100%)] px-3 pb-3 pt-3 text-ink md:px-4">
+    <main className="h-screen overflow-hidden px-3 pb-3 pt-3 text-nearBlack md:px-4">
       <div className="mx-auto flex h-full max-w-[1700px] flex-col gap-3">
-        <Card className="shrink-0 border-white/70 bg-white/90">
-          <CardContent className="flex items-center justify-between gap-4 p-3">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <Sparkles className="h-4 w-4 shrink-0 text-muted" />
-              <h1 className="truncate text-[1.65rem] font-semibold tracking-tight">{project.name}</h1>
+        <Card className="shrink-0 border-borderCream bg-ivory">
+          <CardContent className="relative flex items-center justify-between gap-4 p-3">
+            <div className="z-10 flex min-w-0 max-w-[36%] items-center gap-2.5">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-accent text-white shadow-sm">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
+                <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted">
+                  <span className="truncate">{project.scenario_type}</span>
+                  <span className="h-1 w-1 rounded-full bg-stone/40" />
+                  <span className="truncate">{project.status}</span>
+                </div>
+              </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Badge variant="accent">{project.status}</Badge>
-              <Badge>{project.scenario_type}</Badge>
-              {readiness ? (
-                <>
-                  <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude: ${readiness.claude.status}`}</Badge>
-                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{`项目知识库: ${readiness.evidence?.status ?? 'unknown'}`}</Badge>
-                </>
-              ) : null}
-              <Button variant="ghost" size="sm" asChild>
+            <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 justify-center">
+              <WorkbenchStageRail
+                primaryStage={stageState.primaryStage}
+                revisitingStages={stageState.revisitingStages}
+              />
+            </div>
+
+            <div className="z-10 flex shrink-0 items-center gap-2">
+              <Button variant="secondary" size="sm" className="h-9" asChild>
                 <Link to="/">
                   <FolderKanban className="mr-1.5 h-4 w-4" />
                   项目列表
                 </Link>
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => setIsRuntimeDialogOpen(true)}>
-                <MonitorCog className="mr-1.5 h-4 w-4" />
-                运行状态
-              </Button>
+              <RuntimeStatusButton
+                readiness={readiness}
+                initializingKnowledgeBase={initializingKnowledgeBase}
+                onClick={() => setIsRuntimeDialogOpen(true)}
+              />
             </div>
           </CardContent>
         </Card>
 
-        <WorkbenchStageRail
-          primaryStage={stageState.primaryStage}
-          revisitingStages={stageState.revisitingStages}
-        />
-
-        <section className="grid min-h-0 flex-1 grid-cols-[292px_minmax(0,1fr)_332px] gap-3">
-          <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+        <section className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_360px] gap-3">
+          <Card className="relative flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
-                <CardTitle className="text-base">项目知识库</CardTitle>
+                <CardTitle className="text-base">项目资料</CardTitle>
                 <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已索引 · ${pendingSourceCount} 待处理`}</div>
               </div>
             </CardHeader>
@@ -1230,12 +1661,29 @@ export function WorkbenchPage({
               data-testid="sources-panel-content"
               className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-3 pb-3 pt-0"
             >
-              <div className="flex flex-wrap gap-2 rounded-[18px] border border-line bg-slate-50/80 p-2.5">
-                <Button variant="subtle" size="sm" onClick={() => setIsImportDialogOpen(true)} disabled={uploading}>
-                  {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+              <div className="flex gap-2 rounded-[16px] border border-line bg-parchment/70 p-2">
+                <Button
+                  variant="subtle"
+                  size="sm"
+                  className="min-w-0 flex-1 whitespace-nowrap px-2.5"
+                  onClick={() => setIsImportDialogOpen(true)}
+                  disabled={isUploadingSource}
+                >
+                  <Upload className="mr-1.5 h-4 w-4 shrink-0" />
                   导入文本资料
                 </Button>
-                <Button variant="secondary" size="sm" onClick={() => sourceInputRef.current?.click()} disabled={uploading}>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="min-w-0 flex-1 whitespace-nowrap px-2.5"
+                  onClick={() => sourceInputRef.current?.click()}
+                  disabled={isUploadingSource}
+                >
+                  {isUploadingFileSource ? (
+                    <Loader2 className="mr-1.5 h-4 w-4 shrink-0 animate-spin" />
+                  ) : (
+                    <Upload className="mr-1.5 h-4 w-4 shrink-0" />
+                  )}
                   上传文件
                 </Button>
                 <input
@@ -1246,103 +1694,62 @@ export function WorkbenchPage({
                   onChange={async (event) => {
                     const files = Array.from(event.target.files ?? []);
                     if (files.length > 0) {
-                      await onUploadFileSource(files);
+                      await handleUploadFiles(files);
                       event.target.value = '';
                     }
                   }}
                 />
               </div>
 
-              <div data-testid="sources-scroll-area" className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <div className="grid gap-2.5">
-                  {sources.map((source) => {
-                    const canRetrySync = canRetrySource(source);
-
-                    return (
-                      <div
-                        key={source.id}
-                        className="rounded-[18px] border border-line bg-white p-2 transition hover:border-accent/30 hover:bg-slate-50"
-                      >
-                        <div className="flex items-start gap-2">
-                          <button
-                            type="button"
-                            className="min-w-0 flex-1 text-left"
-                            onClick={async (event) => {
-                              await openSourcePreview(source, event.currentTarget.getBoundingClientRect());
-                            }}
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="truncate text-sm font-semibold text-ink">{source.name}</div>
-                              <ArrowUpRight className="mt-0.5 h-4 w-4 shrink-0 text-muted" />
-                            </div>
-                          </button>
-                          <div className="flex shrink-0 items-center gap-0.5">
-                            {canRetrySync ? (
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                aria-label={`重建索引 ${source.name}`}
-                                disabled={retryingSourceId === source.id}
-                                onClick={async (event) => {
-                                  event.stopPropagation();
-                                  await onReindexSource(source.id);
-                                }}
-                              >
-                                {retryingSourceId === source.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <RotateCw className="h-4 w-4" />
-                                )}
-                              </Button>
-                            ) : null}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8"
-                              aria-label={`删除 ${source.name}`}
-                              disabled={deletingSourceId === source.id}
-                              onClick={async (event) => {
-                                event.stopPropagation();
-                                await onDeleteSource(source.id);
-                              }}
-                            >
-                              {deletingSourceId === source.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <Badge>{source.source_kind}</Badge>
-                          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>
-                            {`标准化：${parseStatusLabel(sourceNormalizeStatus(source))}`}
-                          </Badge>
-                          <Badge variant={statusVariant(sourceIndexStatus(source))}>
-                            {`入库：${indexStatusLabel(sourceIndexStatus(source))}`}
-                          </Badge>
-                        </div>
-                        {sourceNormalizeSummary(source) ? (
-                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">
-                            {sourceNormalizeSummary(source)}
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })}
+              <div data-testid="sources-scroll-area" className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
+                <div className="grid gap-2">
+                  {sources.map((source) => (
+                    <SourceFileRow
+                      key={source.id}
+                      source={source}
+                      deletingSourceId={deletingSourceId}
+                      retryingSourceId={retryingSourceId}
+                      onPreview={openSourcePreview}
+                      onDeleteSource={onDeleteSource}
+                      onReindexSource={onReindexSource}
+                    />
+                  ))}
+                  {sources.length === 0 ? (
+                    <div className="rounded-[16px] border border-dashed border-line bg-ivory/85 p-4 text-sm leading-6 text-muted">
+                      先导入访谈、需求原话或业务说明，项目资料会在这里形成可检索来源。
+                    </div>
+                  ) : null}
                 </div>
               </div>
+
+              <button
+                type="button"
+                className="shrink-0 rounded-[16px] border border-dashed border-line bg-ivory/75 px-3 py-2.5 text-center text-xs leading-5 text-muted transition hover:border-accent/30 hover:bg-parchment"
+                onClick={() => sourceInputRef.current?.click()}
+                disabled={isUploadingSource}
+              >
+                {isUploadingFileSource ? (
+                  <Loader2 className="mx-auto mb-1 h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="mx-auto mb-1 h-4 w-4" />
+                )}
+                {isUploadingFileSource ? '文件上传中...' : '拖拽文件到此处，或点击上传'}
+              </button>
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 border-b border-line/70 px-3 py-2.5">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
-                  <CardTitle className="text-base">需求分析</CardTitle>
-                  <div className="text-xs text-muted">{`${messages.length} 轮消息 · ${totalInsightCount} 条沉淀`}</div>
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-base">需求分析对话</CardTitle>
+                    <span className="flex items-center gap-1 text-xs text-[#3d6b50]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#e6efe5]0" />
+                      AI 在线
+                    </span>
+                  </div>
+                  <div className="text-xs text-muted">{`${messages.length} 轮消息 · 已引用 ${referencedSourceCount} 份资料 · ${totalInsightCount} 条沉淀`}</div>
                 </div>
                 {sending ? (
                   <Badge variant="accent">
@@ -1366,26 +1773,26 @@ export function WorkbenchPage({
                     >
                       <div
                         className={cn(
-                          'max-w-[78%] rounded-[24px] px-4 py-3.5 shadow-sm',
+                          'max-w-[78%] rounded-[22px] px-4 py-3.5 shadow-sm',
                           message.role === 'user'
-                            ? 'bg-accent text-white'
+                            ? 'bg-accentSoft text-nearBlack shadow-[0_0_0_1px_rgba(201,100,66,0.18)]'
                             : message.role === 'assistant'
-                              ? 'border border-line bg-slate-50 text-ink'
-                              : 'border border-amber-200 bg-amber-50 text-amber-900'
+                              ? 'border border-borderCream bg-ivory text-nearBlack'
+                              : 'border border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]'
                         )}
                       >
                         <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] opacity-80">
                           {message.role === 'assistant' ? <Bot className="h-3.5 w-3.5" /> : null}
-                          {message.role}
+                          {message.role === 'assistant' ? 'AI 助手' : message.role === 'user' ? '你' : message.role}
                         </div>
                         {message.role === 'assistant' && message.status_label ? (
-                          <div className="mb-2.5 flex items-center gap-2 rounded-[14px] border border-line/80 bg-white/70 px-3 py-2 text-xs font-medium text-muted">
+                          <div className="mb-2.5 flex items-center gap-2 rounded-[14px] border border-line/80 bg-ivory/75 px-3 py-2 text-xs font-medium text-muted">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             <span>{message.status_label}</span>
                           </div>
                         ) : null}
                         {message.role === 'assistant' && (message.action_events?.length ?? 0) > 0 ? (
-                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-white/75 px-3 py-2.5">
+                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-ivory/80 px-3 py-2.5">
                             <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
                               系统行动
                             </div>
@@ -1411,12 +1818,12 @@ export function WorkbenchPage({
                             {message.image_results?.map((image) => (
                               <figure
                                 key={image.id}
-                                className="overflow-hidden rounded-[18px] border border-line bg-white shadow-sm"
+                                className="overflow-hidden rounded-[14px] border border-borderCream bg-ivory shadow-whisper"
                               >
                                 <img
                                   src={image.url}
                                   alt={image.title}
-                                  className="max-h-[420px] w-full object-contain bg-slate-50"
+                                  className="max-h-[420px] w-full object-contain bg-parchment"
                                 />
                                 <figcaption className="border-t border-line px-3 py-2 text-xs text-muted">
                                   <span className="font-medium text-ink">{image.title}</span>
@@ -1442,7 +1849,7 @@ export function WorkbenchPage({
                   {notices.map((notice) => (
                     <div
                       key={notice.id}
-                      className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                      className="rounded-[20px] border border-[#e6d3b3] bg-[#f5ead2] px-4 py-3 text-sm text-[#7a5a1d]"
                     >
                       <div className="flex items-center gap-2 font-medium">
                         <AlertCircle className="h-4 w-4" />
@@ -1457,35 +1864,99 @@ export function WorkbenchPage({
 
               <div className="border-t border-line/70 px-3 py-2.5">
                 <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
-                  <Textarea
-                    id="chat-composer"
-                    name="chat-composer"
-                    value={composer}
-                    onChange={(event) => setComposer(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="继续补充背景、确认范围，或让系统基于当前资料生成理解。"
-                    className="min-h-[92px]"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="secondary" onClick={() => setComposer('请基于当前资料生成你对真实需求的理解，并列出待确认项。')}>
-                        基于当前资料生成理解
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setComposer('请总结当前理解，并指出已经明确的目标、范围和约束。')}>
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      总结当前理解
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => setComposer('请列出进入页面方案前还需要确认的问题，并按优先级排序。')}>
+                      <span className="mr-1.5 text-accent">?</span>
+                      列待确认问题
+                    </Button>
+                    <Button variant="secondary" size="sm" onClick={() => setComposer('请基于当前沉淀生成页面方案，说明页面结构、关键模块和交互入口。')}>
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      生成页面方案
+                    </Button>
+                  </div>
+                  <div className="relative">
+                    {pendingChatImages.length > 0 ? (
+                      <div className="mb-2 flex flex-wrap gap-2 rounded-[16px] border border-line bg-ivory/85 p-2">
+                        {pendingChatImages.map((image) => (
+                          <div
+                            key={image.id}
+                            className="group relative flex items-center gap-2 rounded-[12px] border border-line bg-parchment px-2 py-1.5"
+                          >
+                            <img
+                              src={image.previewUrl}
+                              alt={image.name}
+                              className="h-9 w-9 rounded-[10px] object-cover"
+                            />
+                            <div className="max-w-[132px]">
+                              <div className="truncate text-xs font-medium text-ink">{image.name}</div>
+                              <div className="text-[11px] text-muted">聊天图片</div>
+                            </div>
+                            <button
+                              type="button"
+                              aria-label={`移除图片 ${image.name}`}
+                              className="grid h-6 w-6 place-items-center rounded-full text-muted transition hover:bg-ivory hover:text-errorWarm"
+                              onClick={() => removePendingChatImage(image.id)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Textarea
+                      id="chat-composer"
+                      name="chat-composer"
+                      value={composer}
+                      onChange={(event) => setComposer(event.target.value)}
+                      onKeyDown={handleComposerKeyDown}
+                      onPaste={handleComposerPaste}
+                      placeholder="继续补充业务背景、目标或限制条件，可直接粘贴截图..."
+                      className="min-h-[76px] pr-16"
+                    />
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted hover:text-terracotta"
+                        aria-label="添加图片"
+                        onClick={() => chatImageInputRef.current?.click()}
+                      >
+                        <Paperclip className="h-4 w-4" />
                       </Button>
-                      <Button variant="secondary" onClick={() => setComposer('请把本轮结论写入沉淀，并判断是否已经可以形成 MVP 方向。')}>
-                        把本轮结论写入沉淀
+                      <input
+                        ref={chatImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={async (event) => {
+                          const files = Array.from(event.target.files ?? []);
+                          if (files.length > 0) {
+                            await handleSelectChatImages(files);
+                          }
+                          event.target.value = '';
+                        }}
+                      />
+                      <Button
+                        onClick={handleSend}
+                        disabled={sending || (!composer.trim() && pendingChatImages.length === 0)}
+                        className="h-9 w-9 p-0"
+                        aria-label="继续分析"
+                      >
+                        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                       </Button>
                     </div>
-                    <Button onClick={handleSend} disabled={sending || !composer.trim()}>
-                      {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                      继续分析
-                    </Button>
                   </div>
                 </div>
               </div>
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -1497,31 +1968,56 @@ export function WorkbenchPage({
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-0">
-              <RecentUpdatesCard
-                items={recentOverviewItems}
-                onOpenItem={(section, item) => {
-                  setActiveSectionId(section.id);
+            <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-0">
+              <div className="shrink-0 px-3 pb-2">
+                <RecentUpdatesCard
+                  items={recentOverviewItems}
+                  onOpenItem={(section, item) => {
+                    setActiveSectionId(section.id);
+                    setActiveSectionItemId(item.id);
+                  }}
+                />
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-ink">核心沉淀</div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setActiveSectionId(coreOverviewSections[0]?.id ?? null)}
+                  >
+                    查看全部
+                  </Button>
+                </div>
+                <div className="grid gap-1.5">
+                  {coreOverviewSections.map((section) => (
+                    <StateSectionCard
+                      key={section.id}
+                      section={section}
+                      isExpanded={expandedCoreSectionId === section.id}
+                      onToggle={() => setExpandedCoreSectionId((current) => (current === section.id ? null : section.id))}
+                      onOpen={() => setActiveSectionId(section.id)}
+                      onOpenItem={(item) => {
+                        setActiveSectionId(section.id);
+                        setActiveSectionItemId(item.id);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <ArtifactStickyPanel
+                section={artifactSection}
+                onOpen={() => setActiveSectionId('artifacts')}
+                onOpenItem={(item) => {
+                  setActiveSectionId('artifacts');
                   setActiveSectionItemId(item.id);
                 }}
                 onOpenArtifact={setActiveArtifact}
                 onOpenDocument={setActiveDocument}
               />
-
-              {overviewSections.map((section) => (
-                <StateSectionCard
-                  key={section.id}
-                  section={section}
-                  defaultOpen={section.recentCount > 0}
-                  onOpen={() => setActiveSectionId(section.id)}
-                  onOpenItem={(item) => {
-                    setActiveSectionId(section.id);
-                    setActiveSectionItemId(item.id);
-                  }}
-                  onOpenArtifact={setActiveArtifact}
-                  onOpenDocument={setActiveDocument}
-                />
-              ))}
             </CardContent>
           </Card>
         </section>
@@ -1557,9 +2053,9 @@ export function WorkbenchPage({
                   {`${getArtifactDisplayLabel(activeArtifact)} · ${activeArtifact.summary}`}
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 bg-slate-100">
+              <div className="min-h-0 flex-1 bg-sand">
                 {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
-                  <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+                  <div className="flex h-full items-center justify-center bg-sand p-6">
                     <img
                       src={activeArtifact.preview_url}
                       alt={activeArtifact.title}
@@ -1614,7 +2110,7 @@ export function WorkbenchPage({
                 status={readiness.claude.status}
               />
 
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+              <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-ink">项目知识库</div>
@@ -1659,6 +2155,26 @@ export function WorkbenchPage({
                   status={readiness.audio_transcription.status}
                 />
               ) : null}
+
+              {readiness.wiki ? (
+                <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-ink">LLM Wiki 综合层</div>
+                      <p className="mt-1 text-sm leading-6 text-muted">{readiness.wiki.summary}</p>
+                      {readiness.wiki.detail ? (
+                        <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
+                          {readiness.wiki.detail}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs leading-5 text-muted">
+                        wiki 是综合理解层，不是 citation 来源；引用仍以项目知识库 RAG 为准。
+                      </p>
+                    </div>
+                    <Badge variant={readinessVariant(readiness.wiki.status)}>{readiness.wiki.status}</Badge>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="py-2 text-sm leading-6 text-muted">当前还没有拿到 provider 状态，请先刷新。</div>
@@ -1692,8 +2208,8 @@ export function WorkbenchPage({
               <Button variant="secondary" onClick={() => setIsImportDialogOpen(false)}>
                 取消
               </Button>
-              <Button onClick={handleUploadText} disabled={uploading || !sourceName.trim() || !sourceText.trim()}>
-                {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              <Button onClick={handleUploadText} disabled={isUploadingSource || !sourceName.trim() || !sourceText.trim()}>
+                {isUploadingTextSource ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 导入文本资料
               </Button>
             </div>

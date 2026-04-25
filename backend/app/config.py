@@ -40,6 +40,11 @@ class AppSettings:
     qdrant_collection_prefix: str = "project"
     evidence_backend: str = "qdrant_llamaindex"
     embedder_backend: str = "fastembed"
+    embedder_model: str | None = None
+    reranker_model: str | None = None
+    evidence_recall_top_k: int = 20
+    chunk_size: int = 500
+    chunk_overlap: int = 120
     evidence_query_timeout_seconds: float = 15.0
     evidence_top_k: int = 6
     claude_cli_path: str | None = None
@@ -106,6 +111,11 @@ class AppSettings:
             qdrant_collection_prefix=os.getenv("REQUIREMENT_WORKBENCH_QDRANT_COLLECTION_PREFIX", "project"),
             evidence_backend=os.getenv("REQUIREMENT_WORKBENCH_EVIDENCE_BACKEND", "qdrant_llamaindex"),
             embedder_backend=os.getenv("REQUIREMENT_WORKBENCH_EMBEDDER_BACKEND", "fastembed"),
+            embedder_model=os.getenv("REQUIREMENT_WORKBENCH_EMBEDDER_MODEL") or "BAAI/bge-small-zh-v1.5",
+            reranker_model=os.getenv("REQUIREMENT_WORKBENCH_RERANKER_MODEL") or None,
+            evidence_recall_top_k=int(os.getenv("REQUIREMENT_WORKBENCH_EVIDENCE_RECALL_TOP_K", "20")),
+            chunk_size=int(os.getenv("REQUIREMENT_WORKBENCH_CHUNK_SIZE", "500")),
+            chunk_overlap=int(os.getenv("REQUIREMENT_WORKBENCH_CHUNK_OVERLAP", "120")),
             evidence_query_timeout_seconds=float(
                 os.getenv(
                     "REQUIREMENT_WORKBENCH_EVIDENCE_QUERY_TIMEOUT_SECONDS",
