@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile, status
 
@@ -12,6 +14,7 @@ from ..services.evidence_indexing import (
 )
 
 router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"])
+AUDIO_PROCESSING_STALE_BUFFER_SECONDS = 30
 
 def _serialize_source_record(source_record):
     if hasattr(source_record, "model_dump_neutral"):
@@ -214,6 +217,40 @@ def _restart_audio_source_processing(
         source_id,
     )
     return refreshed
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _audio_processing_stale_cutoff(services) -> datetime:
+    timeout_seconds = (
+        max(services.settings.audio_transcription_timeout_seconds, 0)
+        + AUDIO_PROCESSING_STALE_BUFFER_SECONDS
+    )
+    return datetime.now(ZoneInfo(services.settings.default_timezone)) - timedelta(
+        seconds=timeout_seconds
+    )
+
+
+def _is_truly_active_audio_processing(services, source) -> bool:
+    latest_job = services.catalog.get_latest_source_processing_job(source_id=source.id)
+    cutoff = _audio_processing_stale_cutoff(services)
+
+    if latest_job is None:
+        created_at = _parse_iso_datetime(source.created_at)
+        return created_at is not None and created_at >= cutoff
+
+    if latest_job.status != "processing":
+        return False
+
+    updated_at = _parse_iso_datetime(latest_job.updated_at)
+    return updated_at is not None and updated_at >= cutoff
 
 
 def _create_source_record(
@@ -465,7 +502,16 @@ def reindex_source(
                         blocker=blocker,
                     )
                 )
-            return _serialize_source_record(source)
+            if _is_truly_active_audio_processing(services, source):
+                return _serialize_source_record(source)
+            return _serialize_source_record(
+                _restart_audio_source_processing(
+                    services,
+                    project_id=project_id,
+                    source_id=source_id,
+                    background_tasks=background_tasks,
+                )
+            )
 
         if source.normalize_status in {"failed", "pending", "not_configured", "error"}:
             if blocker is not None:

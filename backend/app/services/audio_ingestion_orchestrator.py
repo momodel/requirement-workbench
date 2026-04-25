@@ -37,6 +37,8 @@ class AudioIngestionOrchestrator:
         if not source.storage_path:
             raise ValueError("Audio source has no storage_path")
 
+        latest_job = self.catalog.get_latest_source_processing_job(source_id=source_id)
+        attempt_count = latest_job.attempt_count + 1 if latest_job is not None else 1
         job = self.catalog.create_source_processing_job(
             project_id=project_id,
             source_id=source_id,
@@ -44,11 +46,52 @@ class AudioIngestionOrchestrator:
             provider=ALIYUN_FILETRANS,
             status="processing",
             provider_job_id=None,
-            attempt_count=1,
+            attempt_count=attempt_count,
             last_error=None,
         )
 
         storage_path = Path(source.storage_path)
+        normalized_path = storage_path.with_suffix(".normalized.md")
+        provider_job_id: str | None = None
+
+        def _exception_message(prefix: str, exc: Exception) -> str:
+            detail = str(exc).strip() or exc.__class__.__name__
+            return f"{prefix}{detail}"
+
+        def _mark_job_failed(message: str) -> None:
+            self.catalog.update_source_processing_job(
+                job_id=job.id,
+                status="failed",
+                provider_job_id=provider_job_id,
+                attempt_count=job.attempt_count,
+                last_error=message,
+            )
+
+        def _mark_normalization_failed(message: str) -> None:
+            if normalized_path.exists():
+                try:
+                    normalized_path.unlink()
+                except OSError:
+                    pass
+            _mark_job_failed(message)
+            self.catalog.update_source_normalization(
+                source_id=source_id,
+                normalized_path=None,
+                index_input_mode=None,
+                normalize_status="failed",
+                normalize_summary=message,
+                index_status="normalization_failed",
+                index_error=f"资料标准化失败，尚未进入项目知识库。{message}",
+            )
+
+        def _mark_index_failed(message: str) -> None:
+            _mark_job_failed(message)
+            self.catalog.update_source_index_status(
+                source_id=source_id,
+                index_status="index_failed",
+                index_error=message,
+            )
+
         try:
             uploaded = self.object_storage.upload_audio_source(
                 project_id=project_id,
@@ -60,30 +103,23 @@ class AudioIngestionOrchestrator:
                 source_name=source.name,
             )
         except ProviderIssue as exc:
-            self.catalog.update_source_processing_job(
-                job_id=job.id,
-                status="failed",
-                provider_job_id=None,
-                attempt_count=job.attempt_count,
-                last_error=exc.message,
-            )
-            self.catalog.update_source_normalization(
-                source_id=source_id,
-                normalized_path=None,
-                index_input_mode=None,
-                normalize_status="failed",
-                normalize_summary=exc.message,
-                index_status="normalization_failed",
-                index_error=f"资料标准化失败，尚未进入项目知识库。{exc.message}",
-            )
+            _mark_normalization_failed(exc.message)
+            return
+        except Exception as exc:
+            _mark_normalization_failed(_exception_message("音频标准化失败：", exc))
             return
 
-        normalized_path = storage_path.with_suffix(".normalized.md")
-        normalized_path.write_text(transcription.markdown, encoding="utf-8")
+        provider_job_id = transcription.provider_job_id
+        try:
+            normalized_path.write_text(transcription.markdown, encoding="utf-8")
+        except Exception as exc:
+            _mark_normalization_failed(_exception_message("音频标准化失败：", exc))
+            return
+
         self.catalog.update_source_processing_job(
             job_id=job.id,
             status="completed",
-            provider_job_id=transcription.provider_job_id,
+            provider_job_id=provider_job_id,
             attempt_count=job.attempt_count,
             last_error=None,
         )
@@ -110,6 +146,9 @@ class AudioIngestionOrchestrator:
                 index_status="index_failed",
                 index_error=exc.message,
             )
+            return
+        except Exception as exc:
+            _mark_index_failed(_exception_message("音频入库失败：", exc))
             return
 
         self.catalog.update_source_index_status(

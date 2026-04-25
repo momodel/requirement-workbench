@@ -260,3 +260,79 @@ def test_process_source_marks_index_failure_and_keeps_transcript(tmp_path: Path)
     assert Path(refreshed.normalized_path).exists()
     assert len(jobs) == 1
     assert jobs[0].status == "completed"
+
+
+def test_process_source_marks_transcript_write_failure_terminal(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project_id, source = create_audio_source(settings=settings, catalog=catalog)
+
+    def fail_write_text(self: Path, *_args, **_kwargs) -> int:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "write_text", fail_write_text)
+    orchestrator = AudioIngestionOrchestrator(
+        settings=settings,
+        catalog=catalog,
+        object_storage=FakeStorage(),
+        audio_transcription=FakeTranscription(),
+        evidence_runtime=FakeEvidenceRuntime(),
+    )
+
+    orchestrator.process_source(project_id, source.id)
+
+    refreshed = catalog.get_source(source.id)
+    jobs = catalog.list_source_processing_jobs(source_id=source.id)
+
+    assert refreshed is not None
+    assert refreshed.normalize_status == "failed"
+    assert refreshed.normalize_summary == "音频标准化失败：disk full"
+    assert refreshed.normalized_path is None
+    assert refreshed.index_input_mode is None
+    assert refreshed.index_status == "normalization_failed"
+    assert refreshed.index_error == "资料标准化失败，尚未进入项目知识库。音频标准化失败：disk full"
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].provider_job_id == "task-1"
+    assert jobs[0].last_error == "音频标准化失败：disk full"
+
+
+def test_process_source_marks_unexpected_index_failure_terminal(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project_id, source = create_audio_source(settings=settings, catalog=catalog)
+
+    class CrashingEvidenceRuntime(FakeEvidenceRuntime):
+        def index_source(self, project_id: str, source_id: str) -> list[object]:
+            self.index_calls.append((project_id, source_id))
+            raise RuntimeError("indexer crashed")
+
+    orchestrator = AudioIngestionOrchestrator(
+        settings=settings,
+        catalog=catalog,
+        object_storage=FakeStorage(),
+        audio_transcription=FakeTranscription(),
+        evidence_runtime=CrashingEvidenceRuntime(),
+    )
+
+    orchestrator.process_source(project_id, source.id)
+
+    refreshed = catalog.get_source(source.id)
+    jobs = catalog.list_source_processing_jobs(source_id=source.id)
+
+    assert refreshed is not None
+    assert refreshed.normalize_status == "parsed"
+    assert refreshed.normalize_summary == "ASR 已生成转写文本。"
+    assert refreshed.normalized_path is not None
+    assert Path(refreshed.normalized_path).exists()
+    assert refreshed.index_status == "index_failed"
+    assert refreshed.index_error == "音频入库失败：indexer crashed"
+    assert len(jobs) == 1
+    assert jobs[0].status == "failed"
+    assert jobs[0].provider_job_id == "task-1"
+    assert jobs[0].last_error == "音频入库失败：indexer crashed"

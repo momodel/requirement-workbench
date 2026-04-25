@@ -701,6 +701,14 @@ class ProjectCatalog:
             for row in rows
         ]
 
+    def get_latest_source_processing_job(
+        self,
+        *,
+        source_id: str,
+    ) -> SourceProcessingJobRecord | None:
+        jobs = self.list_source_processing_jobs(source_id=source_id)
+        return jobs[0] if jobs else None
+
     def update_source_processing_job(
         self,
         *,
