@@ -179,6 +179,43 @@ def _prepare_audio_source_for_processing(services, normalized_source) -> bool:
     return False
 
 
+def _repair_audio_source_processing_blocked(services, *, source_id: str, blocker: tuple[str, str]):
+    normalize_status, detail = blocker
+    return services.catalog.update_source_normalization(
+        source_id=source_id,
+        normalized_path=None,
+        index_input_mode=None,
+        normalize_status=normalize_status,
+        normalize_summary=detail,
+        index_status="normalization_failed",
+        index_error=f"资料标准化失败，尚未进入项目知识库。{detail}",
+    )
+
+
+def _restart_audio_source_processing(
+    services,
+    *,
+    project_id: str,
+    source_id: str,
+    background_tasks: BackgroundTasks,
+):
+    refreshed = services.catalog.update_source_normalization(
+        source_id=source_id,
+        normalized_path=None,
+        index_input_mode=None,
+        normalize_status="processing",
+        normalize_summary="正在重新转写音频；完成后会自动进入项目知识库。",
+        index_status="normalization_pending",
+        index_error="音频正在转写，完成后会自动进入项目知识库。",
+    )
+    background_tasks.add_task(
+        services.audio_ingestion.process_source,
+        project_id,
+        source_id,
+    )
+    return refreshed
+
+
 def _create_source_record(
     services,
     project_id: str,
@@ -417,39 +454,43 @@ def reindex_source(
         raise HTTPException(status_code=404, detail="Source not found")
 
     if source.source_kind == "audio" and not source.normalized_path:
+        blocker = _get_audio_pipeline_blocker(services)
+
         if source.normalize_status == "processing":
-            return _serialize_source_record(source)
+            if blocker is not None:
+                return _serialize_source_record(
+                    _repair_audio_source_processing_blocked(
+                        services,
+                        source_id=source_id,
+                        blocker=blocker,
+                    )
+                )
+            return _serialize_source_record(
+                _restart_audio_source_processing(
+                    services,
+                    project_id=project_id,
+                    source_id=source_id,
+                    background_tasks=background_tasks,
+                )
+            )
 
         if source.normalize_status in {"failed", "pending", "not_configured", "error"}:
-            blocker = _get_audio_pipeline_blocker(services)
             if blocker is not None:
-                normalize_status, detail = blocker
-                refreshed = services.catalog.update_source_normalization(
-                    source_id=source_id,
-                    normalized_path=None,
-                    index_input_mode=None,
-                    normalize_status=normalize_status,
-                    normalize_summary=detail,
-                    index_status="normalization_failed",
-                    index_error=f"资料标准化失败，尚未进入项目知识库。{detail}",
+                return _serialize_source_record(
+                    _repair_audio_source_processing_blocked(
+                        services,
+                        source_id=source_id,
+                        blocker=blocker,
+                    )
                 )
-                return _serialize_source_record(refreshed)
-
-            refreshed = services.catalog.update_source_normalization(
-                source_id=source_id,
-                normalized_path=None,
-                index_input_mode=None,
-                normalize_status="processing",
-                normalize_summary="正在重新转写音频；完成后会自动进入项目知识库。",
-                index_status="normalization_pending",
-                index_error="音频正在转写，完成后会自动进入项目知识库。",
+            return _serialize_source_record(
+                _restart_audio_source_processing(
+                    services,
+                    project_id=project_id,
+                    source_id=source_id,
+                    background_tasks=background_tasks,
+                )
             )
-            background_tasks.add_task(
-                services.audio_ingestion.process_source,
-                project_id,
-                source_id,
-            )
-            return _serialize_source_record(refreshed)
 
     try:
         return _serialize_source_record(

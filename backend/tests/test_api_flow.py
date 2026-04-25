@@ -1216,6 +1216,80 @@ def test_audio_reindex_reports_not_configured_when_audio_providers_are_unavailab
     assert refreshed.index_error == payload["index_error"]
 
 
+def test_audio_reindex_repairs_stale_processing_when_audio_providers_are_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    install_ready_audio_providers(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频 processing 卡死修复测试",
+                "scenario_type": "general",
+                "summary": "验证 processing 音频在 provider 未配置时 reindex 会同步修正状态。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        assert upload_response.status_code == 201
+        created_source = upload_response.json()
+        source_id = created_source["id"]
+        assert queued == [(project_id, source_id)]
+        queued.clear()
+
+        app.state.services.catalog.update_source_normalization(
+            source_id=source_id,
+            normalized_path=None,
+            index_input_mode=None,
+            normalize_status="processing",
+            normalize_summary="音频正在转写，完成后会自动进入项目知识库。",
+            index_status="normalization_pending",
+            index_error="音频正在转写，完成后会自动进入项目知识库。",
+        )
+        install_not_configured_audio_providers(app, monkeypatch)
+
+        reindex_response = client.post(
+            f"/api/projects/{project_id}/sources/{source_id}/reindex",
+        )
+
+    assert reindex_response.status_code == 200
+    payload = reindex_response.json()
+    assert_source_payload_is_neutral_only(payload)
+    assert payload["id"] == source_id
+    assert payload["source_kind"] == "audio"
+    assert payload["normalize_status"] == "not_configured"
+    assert payload["index_status"] == "normalization_failed"
+    assert payload["normalized_path"] is None
+    assert payload["index_input_mode"] is None
+    assert "七牛" in (payload["normalize_summary"] or "")
+    assert "阿里云" in (payload["normalize_summary"] or "")
+    assert queued == []
+
+    refreshed = app.state.services.catalog.get_source(source_id)
+    assert refreshed is not None
+    assert refreshed.normalize_status == "not_configured"
+    assert refreshed.index_status == "normalization_failed"
+    assert refreshed.normalize_summary == payload["normalize_summary"]
+    assert refreshed.index_error == payload["index_error"]
+
+
 def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
     tmp_path: Path,
     monkeypatch,
