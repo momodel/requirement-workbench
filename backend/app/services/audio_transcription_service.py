@@ -136,6 +136,20 @@ class AudioTranscriptionService:
         return parsed
 
     @staticmethod
+    def _is_usable_timestamp(value: Any) -> bool:
+        if value is None or isinstance(value, bool):
+            return False
+        if isinstance(value, (int, float)):
+            return True
+        if isinstance(value, str) and value.strip():
+            try:
+                float(value)
+            except ValueError:
+                return False
+            return True
+        return False
+
+    @staticmethod
     def _validate_sentences(sentences: Any) -> list[dict[str, Any]]:
         if not isinstance(sentences, list):
             raise ProviderIssue(
@@ -146,6 +160,31 @@ class AudioTranscriptionService:
         validated: list[dict[str, Any]] = []
         for sentence in sentences:
             if not isinstance(sentence, dict):
+                raise ProviderIssue(
+                    provider=ALIYUN_FILETRANS,
+                    message="阿里云转写结果格式异常。",
+                )
+            if not {
+                "BeginTime",
+                "EndTime",
+                "Text",
+            }.issubset(sentence):
+                raise ProviderIssue(
+                    provider=ALIYUN_FILETRANS,
+                    message="阿里云转写结果格式异常。",
+                )
+            if not AudioTranscriptionService._is_usable_timestamp(sentence["BeginTime"]):
+                raise ProviderIssue(
+                    provider=ALIYUN_FILETRANS,
+                    message="阿里云转写结果格式异常。",
+                )
+            if not AudioTranscriptionService._is_usable_timestamp(sentence["EndTime"]):
+                raise ProviderIssue(
+                    provider=ALIYUN_FILETRANS,
+                    message="阿里云转写结果格式异常。",
+                )
+            text = sentence["Text"]
+            if not isinstance(text, str) or not text.strip():
                 raise ProviderIssue(
                     provider=ALIYUN_FILETRANS,
                     message="阿里云转写结果格式异常。",

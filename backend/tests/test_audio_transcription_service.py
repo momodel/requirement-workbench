@@ -443,6 +443,32 @@ def test_wait_for_result_raises_on_malformed_sentence_item(
     assert exc_info.value.message == "阿里云转写结果格式异常。"
 
 
+@pytest.mark.parametrize(
+    "sentence",
+    [
+        {"Text": "hello"},
+        {"BeginTime": 1234, "EndTime": 2345},
+    ],
+)
+def test_wait_for_result_raises_on_dict_sentence_missing_required_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sentence: dict[str, object],
+) -> None:
+    service = AudioTranscriptionService(make_settings(tmp_path))
+    monkeypatch.setattr(
+        service,
+        "_request",
+        lambda **_: {"StatusText": "SUCCESS", "Result": {"Sentences": [sentence]}},
+    )
+
+    with pytest.raises(ProviderIssue) as exc_info:
+        service._wait_for_result("task-123")
+
+    assert exc_info.value.provider == ALIYUN_FILETRANS
+    assert exc_info.value.message == "阿里云转写结果格式异常。"
+
+
 def test_wait_for_result_raises_on_timeout(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
