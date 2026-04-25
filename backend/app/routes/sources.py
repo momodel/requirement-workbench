@@ -134,6 +134,51 @@ def _resolve_index_outcome(services, project_id: str, normalized_source) -> tupl
     return "pending", "资料已标准化，正在写入项目知识库。"
 
 
+def _get_audio_pipeline_blocker(services) -> tuple[str, str] | None:
+    blockers = [
+        readiness
+        for readiness in (
+            services.object_storage.get_readiness(),
+            services.audio_transcription.get_readiness(),
+        )
+        if readiness.status != "ready"
+    ]
+    if not blockers:
+        return None
+
+    normalize_status = (
+        "not_configured"
+        if all(readiness.status == "not_configured" for readiness in blockers)
+        else "failed"
+    )
+    detail = "；".join(
+        filter(
+            None,
+            (
+                f"{readiness.summary}{f' {readiness.detail}' if readiness.detail else ''}"
+                for readiness in blockers
+            ),
+        )
+    )
+    return normalize_status, f"音频标准化暂不可启动。{detail}"
+
+
+def _prepare_audio_source_for_processing(services, normalized_source) -> bool:
+    if normalized_source.source_kind != "audio" or normalized_source.normalize_status != "processing":
+        return False
+
+    blocker = _get_audio_pipeline_blocker(services)
+    if blocker is None:
+        return True
+
+    normalize_status, detail = blocker
+    normalized_source.normalize_status = normalize_status
+    normalized_source.normalize_summary = detail
+    normalized_source.normalized_path = None
+    normalized_source.index_input_mode = None
+    return False
+
+
 def _create_source_record(
     services,
     project_id: str,
@@ -290,6 +335,10 @@ async def create_source(
                 safe_name,
                 await upload.read(),
             )
+            should_enqueue_audio = _prepare_audio_source_for_processing(
+                services,
+                normalized_source,
+            )
             created = _create_source_record(
                 services,
                 project_id,
@@ -298,7 +347,7 @@ async def create_source(
                 storage_path,
                 normalized_source,
             )
-            if created.source_kind == "audio" and created.normalize_status == "processing":
+            if should_enqueue_audio:
                 background_tasks.add_task(
                     services.audio_ingestion.process_source,
                     project_id,
@@ -371,7 +420,21 @@ def reindex_source(
         if source.normalize_status == "processing":
             return _serialize_source_record(source)
 
-        if source.normalize_status in {"failed", "pending"}:
+        if source.normalize_status in {"failed", "pending", "not_configured", "error"}:
+            blocker = _get_audio_pipeline_blocker(services)
+            if blocker is not None:
+                normalize_status, detail = blocker
+                refreshed = services.catalog.update_source_normalization(
+                    source_id=source_id,
+                    normalized_path=None,
+                    index_input_mode=None,
+                    normalize_status=normalize_status,
+                    normalize_summary=detail,
+                    index_status="normalization_failed",
+                    index_error=f"资料标准化失败，尚未进入项目知识库。{detail}",
+                )
+                return _serialize_source_record(refreshed)
+
             refreshed = services.catalog.update_source_normalization(
                 source_id=source_id,
                 normalized_path=None,

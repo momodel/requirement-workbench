@@ -21,7 +21,7 @@ def _with_audio_detail(readiness: ProviderReadiness, *, sources) -> ProviderRead
     failed_count = sum(
         1
         for source in sources
-        if source.source_kind == "audio" and source.normalize_status in {"failed", "error"}
+        if source.source_kind == "audio" and source.normalize_status in {"failed", "error", "not_configured"}
     )
 
     detail_parts: list[str] = []

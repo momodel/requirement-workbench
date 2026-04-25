@@ -204,6 +204,56 @@ def install_not_configured_evidence_runtime(app, monkeypatch) -> None:
     )
 
 
+def install_ready_audio_providers(app, monkeypatch) -> None:
+    monkeypatch.setattr(
+        app.state.services.object_storage,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="QINIU_OSS",
+            status="ready",
+            summary="七牛对象存储已就绪。",
+            detail="bucket=audio-bucket",
+            action_label=None,
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.audio_transcription,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="ALIYUN_FILETRANS",
+            status="ready",
+            summary="阿里云音频转写已就绪。",
+            detail="region=cn-shanghai",
+            action_label=None,
+        ),
+    )
+
+
+def install_not_configured_audio_providers(app, monkeypatch) -> None:
+    monkeypatch.setattr(
+        app.state.services.object_storage,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="QINIU_OSS",
+            status="not_configured",
+            summary="七牛对象存储未就绪。",
+            detail="缺少七牛 AccessKey、SecretKey、Bucket 或 Domain 配置。",
+            action_label="配置七牛对象存储",
+        ),
+    )
+    monkeypatch.setattr(
+        app.state.services.audio_transcription,
+        "get_readiness",
+        lambda: ProviderReadiness(
+            provider="ALIYUN_FILETRANS",
+            status="not_configured",
+            summary="阿里云音频转写未就绪。",
+            detail="缺少阿里云 AccessKeyId、AccessKeySecret 或 AppKey 配置。",
+            action_label="配置阿里云音频转写",
+        ),
+    )
+
+
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_not_configured_evidence_runtime(app, monkeypatch)
@@ -906,32 +956,11 @@ def test_audio_upload_returns_processing_and_exposes_runtime_readiness(
     install_fake_evidence_runtime(app, monkeypatch)
     queued: list[tuple[str, str]] = []
 
+    install_ready_audio_providers(app, monkeypatch)
     monkeypatch.setattr(
         app.state.services.audio_ingestion,
         "process_source",
         lambda project_id, source_id: queued.append((project_id, source_id)),
-    )
-    monkeypatch.setattr(
-        app.state.services.object_storage,
-        "get_readiness",
-        lambda: ProviderReadiness(
-            provider="QINIU_OSS",
-            status="ready",
-            summary="七牛对象存储已就绪。",
-            detail="bucket=audio-bucket",
-            action_label=None,
-        ),
-    )
-    monkeypatch.setattr(
-        app.state.services.audio_transcription,
-        "get_readiness",
-        lambda: ProviderReadiness(
-            provider="ALIYUN_FILETRANS",
-            status="ready",
-            summary="阿里云音频转写已就绪。",
-            detail="region=cn-shanghai",
-            action_label=None,
-        ),
     )
 
     with TestClient(app) as client:
@@ -979,6 +1008,60 @@ def test_audio_upload_returns_processing_and_exposes_runtime_readiness(
     assert "failed_audio_sources=0" in (project_readiness["audio_transcription"]["detail"] or "")
 
 
+def test_audio_upload_reports_not_configured_when_audio_providers_are_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    install_not_configured_audio_providers(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频 provider 未配置上传测试",
+                "scenario_type": "general",
+                "summary": "验证音频 provider 未配置时不会伪装成 processing。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+
+    assert upload_response.status_code == 201
+    source = upload_response.json()
+    assert_source_payload_is_neutral_only(source)
+    assert source["source_kind"] == "audio"
+    assert source["normalize_status"] == "not_configured"
+    assert source["index_status"] == "normalization_failed"
+    assert source["normalized_path"] is None
+    assert source["index_input_mode"] is None
+    assert "七牛" in (source["normalize_summary"] or "")
+    assert "阿里云" in (source["normalize_summary"] or "")
+    assert "尚未进入项目知识库" in (source["index_error"] or "")
+    assert queued == []
+
+    stored = app.state.services.catalog.get_source(source["id"])
+    assert stored is not None
+    assert stored.normalize_status == "not_configured"
+    assert stored.index_status == "normalization_failed"
+    assert stored.normalize_summary == source["normalize_summary"]
+    assert stored.index_error == source["index_error"]
+
+
 def test_audio_reindex_restarts_transcription_when_normalized_text_missing(
     tmp_path: Path,
     monkeypatch,
@@ -987,6 +1070,7 @@ def test_audio_reindex_restarts_transcription_when_normalized_text_missing(
     install_fake_evidence_runtime(app, monkeypatch)
     queued: list[tuple[str, str]] = []
 
+    install_ready_audio_providers(app, monkeypatch)
     monkeypatch.setattr(
         app.state.services.audio_ingestion,
         "process_source",
@@ -1056,6 +1140,80 @@ def test_audio_reindex_restarts_transcription_when_normalized_text_missing(
     refreshed_readiness = refreshed_readiness_response.json()
     assert "processing_audio_sources=1" in (refreshed_readiness["object_storage"]["detail"] or "")
     assert "failed_audio_sources=0" in (refreshed_readiness["audio_transcription"]["detail"] or "")
+
+
+def test_audio_reindex_reports_not_configured_when_audio_providers_are_unavailable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    install_ready_audio_providers(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频 provider 未配置重试测试",
+                "scenario_type": "general",
+                "summary": "验证音频 provider 未配置时 reindex 会同步报未配置。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        assert upload_response.status_code == 201
+        created_source = upload_response.json()
+        source_id = created_source["id"]
+        assert queued == [(project_id, source_id)]
+        queued.clear()
+
+        app.state.services.catalog.update_source_normalization(
+            source_id=source_id,
+            normalized_path=None,
+            index_input_mode=None,
+            normalize_status="failed",
+            normalize_summary="阿里云转写超时。",
+            index_status="normalization_failed",
+            index_error="资料标准化失败，尚未进入项目知识库。阿里云转写超时。",
+        )
+        install_not_configured_audio_providers(app, monkeypatch)
+
+        reindex_response = client.post(
+            f"/api/projects/{project_id}/sources/{source_id}/reindex",
+        )
+
+    assert reindex_response.status_code == 200
+    payload = reindex_response.json()
+    assert_source_payload_is_neutral_only(payload)
+    assert payload["id"] == source_id
+    assert payload["source_kind"] == "audio"
+    assert payload["normalize_status"] == "not_configured"
+    assert payload["index_status"] == "normalization_failed"
+    assert payload["normalized_path"] is None
+    assert payload["index_input_mode"] is None
+    assert "七牛" in (payload["normalize_summary"] or "")
+    assert "阿里云" in (payload["normalize_summary"] or "")
+    assert queued == []
+
+    refreshed = app.state.services.catalog.get_source(source_id)
+    assert refreshed is not None
+    assert refreshed.normalize_status == "not_configured"
+    assert refreshed.index_status == "normalization_failed"
+    assert refreshed.normalize_summary == payload["normalize_summary"]
+    assert refreshed.index_error == payload["index_error"]
 
 
 def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
