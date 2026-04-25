@@ -188,8 +188,7 @@ class WikiStore:
         results: list[WikiPageMeta] = []
         for entry in sorted(pages_dir.iterdir()):
             if entry.is_file() and entry.suffix == ".md":
-                page = self._read_page_at(entry)
-                results.append(_meta_from_page(page))
+                results.append(self._read_meta_at(entry))
         return results
 
     def read_page(self, project_id: str, slug: str) -> WikiPage:
@@ -272,6 +271,45 @@ class WikiStore:
         text = path.read_text(encoding="utf-8")
         slug = path.stem
         return parse_page(text, slug=slug)
+
+    @staticmethod
+    def _read_meta_at(path: Path) -> WikiPageMeta:
+        """Read just the JSON front-matter block; skip the body for cheap listings."""
+        slug = path.stem
+        front_lines: list[str] = []
+        with path.open("r", encoding="utf-8") as handle:
+            first = handle.readline()
+            if first.rstrip("\n") != FRONT_MATTER_FENCE:
+                raise WikiStoreError(f"page `{slug}` 缺少 front-matter")
+            for line in handle:
+                if line.rstrip("\n") == FRONT_MATTER_FENCE:
+                    break
+                front_lines.append(line)
+            else:
+                raise WikiStoreError(f"page `{slug}` front-matter 未闭合")
+        try:
+            front = json.loads("".join(front_lines))
+        except json.JSONDecodeError as exc:
+            raise WikiStoreError(f"page `{slug}` front-matter JSON 解析失败: {exc}") from exc
+        if not isinstance(front, dict):
+            raise WikiStoreError(f"page `{slug}` front-matter 不是对象")
+        title = front.get("title")
+        kind = front.get("kind")
+        source_ids = front.get("source_ids") or []
+        if not isinstance(title, str) or not title.strip():
+            raise WikiStoreError(f"page `{slug}` 缺少 title")
+        if not isinstance(kind, str):
+            raise WikiStoreError(f"page `{slug}` 缺少 kind")
+        if not isinstance(source_ids, list):
+            raise WikiStoreError(f"page `{slug}` source_ids 必须是数组")
+        return WikiPageMeta(
+            slug=slug,
+            title=title,
+            kind=kind,
+            source_ids=[str(item) for item in source_ids],
+            last_maintained_at=front.get("last_maintained_at"),
+            last_maintained_by=front.get("last_maintained_by"),
+        )
 
 
 # ---------- pure helpers ----------

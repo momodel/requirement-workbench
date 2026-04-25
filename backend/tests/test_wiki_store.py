@@ -131,6 +131,42 @@ def test_list_pages_returns_skeleton_metadata(tmp_path: Path):
     }
 
 
+def test_list_pages_skips_body_for_cheap_listing(tmp_path: Path):
+    store = WikiStore(make_settings(tmp_path))
+    store.ensure_skeleton(make_project())
+
+    # Inject a deliberately huge body to confirm list_pages does not load it.
+    page = WikiPage(
+        slug="entity-big",
+        title="Big",
+        kind="entity",
+        source_ids=["src-1"],
+        last_maintained_at=None,
+        last_maintained_by="subagent",
+        body="X" * 1_000_000,
+    )
+    store.write_page("p-1", page)
+
+    metas = store.list_pages("p-1")
+    big = next(m for m in metas if m.slug == "entity-big")
+    # WikiPageMeta has no body attribute — the body must not have been loaded.
+    assert not hasattr(big, "body")
+    assert big.source_ids == ["src-1"]
+
+
+def test_list_pages_rejects_unterminated_front_matter(tmp_path: Path):
+    store = WikiStore(make_settings(tmp_path))
+    store.ensure_skeleton(make_project())
+
+    pages_dir = tmp_path / "data" / "projects" / "p-1" / "wiki" / "pages"
+    (pages_dir / "broken.md").write_text(
+        '---\n{"title": "Broken", "kind": "entity"\n# never closed\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(WikiStoreError):
+        store.list_pages("p-1")
+
+
 def test_write_page_rejects_expanded_kind_without_source_ids(tmp_path: Path):
     store = WikiStore(make_settings(tmp_path))
     store.ensure_skeleton(make_project())
