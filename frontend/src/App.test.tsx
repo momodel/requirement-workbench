@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from './App';
@@ -26,6 +26,8 @@ function installFetchMock(routes: Record<string, RoutePayload>) {
 
 describe('App', () => {
   afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     window.history.replaceState({}, '', '/');
   });
@@ -1828,7 +1830,18 @@ describe('App', () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     const encoder = new TextEncoder();
-    let chatCompleted = false;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+    function encodeEvent(event: string, payload: Record<string, unknown>) {
+      return encoder.encode([`event: ${event}`, `data: ${JSON.stringify(payload)}`, '', ''].join('\n'));
+    }
+
+    function enqueueEvent(event: string, payload: Record<string, unknown>) {
+      if (!streamController) {
+        throw new Error('SSE stream has not started.');
+      }
+      streamController.enqueue(encodeEvent(event, payload));
+    }
 
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
@@ -1838,6 +1851,7 @@ describe('App', () => {
       if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
         const stream = new ReadableStream<Uint8Array>({
           start(controller) {
+            streamController = controller;
             controller.enqueue(
               encoder.encode(
                 [
@@ -1852,47 +1866,6 @@ describe('App', () => {
                 ].join('\n')
               )
             );
-
-            setTimeout(() => {
-              controller.enqueue(
-                encoder.encode(
-                  [
-                    'event: message_chunk',
-                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:01+08:00","text":"第二段"}',
-                    '',
-                    '',
-                  ].join('\n')
-                )
-              );
-            }, 30);
-
-            setTimeout(() => {
-              controller.enqueue(
-                encoder.encode(
-                  [
-                    'event: message_chunk',
-                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:01+08:00","text":"第一段第二段","replace":true}',
-                    '',
-                    '',
-                  ].join('\n')
-                )
-              );
-            }, 45);
-
-            setTimeout(() => {
-              chatCompleted = true;
-              controller.enqueue(
-                encoder.encode(
-                  [
-                    'event: done',
-                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:02+08:00","stream_group_id":"stream-1"}',
-                    '',
-                    '',
-                  ].join('\n')
-                )
-              );
-              controller.close();
-            }, 80);
           },
         });
 
@@ -1914,32 +1887,9 @@ describe('App', () => {
           seed_key: 'seed-reconciliation',
         },
         '/api/projects/seed-reconciliation/sources': [],
-        '/api/projects/seed-reconciliation/messages': chatCompleted
-          ? [
-              {
-                id: 'msg-assistant-final',
-                role: 'assistant',
-                content: '第一段第二段',
-                source_refs: [],
-                created_at: '2026-04-16T00:00:02+08:00',
-                stream_group_id: 'stream-1',
-              },
-            ]
-          : [],
+        '/api/projects/seed-reconciliation/messages': [],
         '/api/projects/seed-reconciliation/state': {
-          current_understanding: chatCompleted
-            ? [
-                {
-                  id: 'new-understanding-1',
-                  title: '当前需求定义',
-                  body: '先确认逐笔对账范围，再推进 MVP。',
-                  status: 'active',
-                  category: 'current_understanding',
-                  updated_at: '2026-04-16T10:00:00+08:00',
-                  source_ids: ['src-1'],
-                },
-              ]
-            : [],
+          current_understanding: [],
           pending_items: [],
           confirmed_items: [],
           conflict_items: [],
@@ -1997,8 +1947,27 @@ describe('App', () => {
     expect(await screen.findByText('第一段')).toBeInTheDocument();
     expect(screen.queryByText('第一段第二段')).not.toBeInTheDocument();
 
+    await act(async () => {
+      enqueueEvent('message_chunk', {
+        project_id: 'seed-reconciliation',
+        created_at: '2026-04-16T00:00:01+08:00',
+        text: '第二段',
+      });
+      await Promise.resolve();
+    });
+
     await waitFor(() => {
       expect(screen.getByText('第一段第二段')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      enqueueEvent('done', {
+        project_id: 'seed-reconciliation',
+        created_at: '2026-04-16T00:00:02+08:00',
+        stream_group_id: 'stream-1',
+      });
+      streamController?.close();
+      await Promise.resolve();
     });
   });
 
