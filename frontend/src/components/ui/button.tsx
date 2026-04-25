@@ -5,21 +5,30 @@ import { Slot } from '@radix-ui/react-slot';
 import { cn } from '../../lib/utils';
 
 const buttonVariants = cva(
-  'inline-flex items-center justify-center rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-1.5 rounded-[10px] text-sm font-medium tracking-tightish transition-[background-color,color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focusBlue/60 focus-visible:ring-offset-2 focus-visible:ring-offset-parchment disabled:pointer-events-none disabled:opacity-55 active:scale-[0.99]',
   {
     variants: {
       variant: {
-        default: 'bg-accent text-white hover:bg-[#113a5a]',
-        secondary: 'bg-white text-ink border border-line hover:bg-slate-50',
-        ghost: 'text-muted hover:bg-slate-100 hover:text-ink',
-        subtle: 'bg-accentSoft text-accent hover:bg-[#c9e0f6]',
-        danger: 'bg-rose-600 text-white hover:bg-rose-700',
+        default:
+          'bg-terracotta text-ivory shadow-ringTerracotta hover:bg-[#b95a39] hover:shadow-[0_0_0_1px_#b95a39,0_8px_24px_-12px_rgba(201,100,66,0.55)]',
+        secondary:
+          'bg-sand text-charcoal shadow-ringWarm hover:bg-[#dcd9cd] hover:shadow-ringDeep',
+        ghost:
+          'bg-transparent text-charcoal hover:bg-sand/70 hover:text-nearBlack',
+        subtle:
+          'bg-accentSoft text-terracotta shadow-[0_0_0_1px_rgba(201,100,66,0.18)] hover:bg-[#eed4c2] hover:text-[#a14e30]',
+        outline:
+          'bg-ivory text-nearBlack shadow-ringWarm hover:bg-sand/70',
+        dark:
+          'bg-warmDark text-ivory shadow-ringDark hover:bg-[#3a3a37]',
+        danger:
+          'bg-errorWarm text-ivory shadow-[0_0_0_1px_#9a2a2a] hover:bg-[#9c2a2a]',
       },
       size: {
-        default: 'h-10 px-4 py-2',
-        sm: 'h-8 px-3',
-        lg: 'h-11 px-5',
-        icon: 'h-10 w-10 rounded-full',
+        default: 'h-9 px-3.5 py-2',
+        sm: 'h-8 px-3 text-[13px]',
+        lg: 'h-11 px-5 text-[15px]',
+        icon: 'h-9 w-9 rounded-[10px]',
       },
     },
     defaultVariants: {

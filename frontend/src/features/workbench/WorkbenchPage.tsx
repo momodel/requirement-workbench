@@ -178,7 +178,7 @@ function stageTone(
   if (stage === primaryStage) {
     return {
       badge: '当前重点',
-      cardClass: 'border-accent/20 bg-accentSoft/70 text-accent',
+      cardClass: 'border-terracotta/30 bg-accentSoft text-[#7a3a22]',
       badgeVariant: 'accent' as const,
     };
   }
@@ -186,7 +186,7 @@ function stageTone(
   if (revisitingStages.includes(stage)) {
     return {
       badge: '补充中',
-      cardClass: 'border-amber-200 bg-amber-50 text-amber-900',
+      cardClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]',
       badgeVariant: 'warning' as const,
     };
   }
@@ -197,14 +197,14 @@ function stageTone(
   if (stageIndex < primaryIndex) {
     return {
       badge: '已形成',
-      cardClass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+      cardClass: 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]',
       badgeVariant: 'success' as const,
     };
   }
 
   return {
     badge: '待进入',
-    cardClass: 'border-line bg-slate-50 text-muted',
+    cardClass: 'border-borderCream bg-parchment/60 text-stone',
     badgeVariant: 'default' as const,
   };
 }
@@ -304,7 +304,7 @@ function SourcePreview({
 }) {
   return createPortal(
     <div
-      className="fixed z-50 w-[360px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
+      className="fixed z-50 w-[360px] rounded-[24px] border border-borderCream bg-ivory p-5 shadow-panel"
       style={{ top: position.top, left: position.left }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -343,14 +343,14 @@ function WorkbenchStageRail({
   revisitingStages: WorkbenchStage[];
 }) {
   return (
-    <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
+    <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[16px] border border-borderCream bg-ivory p-1.5 shadow-whisper">
       {WORKBENCH_STAGE_ORDER.map((stage) => {
         const tone = stageTone(stage, primaryStage, revisitingStages);
 
         return (
           <div
             key={stage}
-            className={cn('rounded-[16px] border px-3 py-2 transition-colors', tone.cardClass)}
+            className={cn('rounded-[12px] border px-3 py-2 transition-colors', tone.cardClass)}
           >
             <div className="flex items-center justify-between gap-2">
               <div className="text-sm font-semibold">{WORKBENCH_STAGE_LABELS[stage]}</div>
@@ -438,11 +438,11 @@ function StateSectionCard({
   }, [defaultOpen, section.id]);
 
   return (
-    <div className="rounded-[14px] border border-line bg-slate-50/80 px-2.5 py-2">
+    <div className="rounded-[14px] border border-line bg-parchment/70 px-2.5 py-2">
       <div className="flex min-h-8 items-center gap-2">
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white hover:text-accent"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-sand hover:text-terracotta"
           aria-label={`${isExpanded ? '收起' : '展开'} ${section.title}`}
           aria-expanded={isExpanded}
           onClick={() => setIsExpanded((open) => !open)}
@@ -489,9 +489,9 @@ function StateSectionCard({
       </div>
 
       {isExpanded ? (
-        <div className="mt-2 grid gap-2 border-t border-line/70 pt-2">
+        <div className="mt-2 grid gap-2 border-t border-borderCream pt-2">
           {previewItems.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-line bg-white/80 p-2.5 text-sm text-muted">
+            <div className="rounded-[12px] border border-dashed border-borderCream bg-ivory/80 p-2.5 text-sm text-muted">
               {getSectionEmptyText(section.id)}
             </div>
           ) : (
@@ -504,8 +504,8 @@ function StateSectionCard({
                   role="button"
                   tabIndex={0}
                   className={cn(
-                    'rounded-[12px] border bg-white p-2.5 text-left transition hover:border-accent/25 hover:bg-slate-50',
-                    item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
+                    'rounded-[12px] border bg-ivory p-2.5 text-left transition hover:border-terracotta/25 hover:bg-sand/60',
+                    item.isRecent ? 'border-terracotta/25 bg-accentSoft/50' : 'border-borderCream'
                   )}
                   onClick={() => onOpenItem(item)}
                   onKeyDown={(event) => {
@@ -571,7 +571,7 @@ function RecentUpdatesCard({
         <Badge variant="accent">{items.length}</Badge>
       </div>
       {items.length === 0 ? (
-        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
+        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-terracotta/20 bg-ivory/70 px-2.5 py-1.5 text-xs text-muted">
           暂无最近更新。
         </div>
       ) : (
@@ -582,7 +582,7 @@ function RecentUpdatesCard({
               key={`${section.id}-${item.id}`}
               role="button"
               tabIndex={0}
-              className="min-w-0 max-w-full overflow-hidden rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
+              className="min-w-0 max-w-full overflow-hidden rounded-[12px] border border-borderCream bg-ivory p-2.5 text-left transition hover:border-terracotta/25 hover:bg-ivory"
               onClick={() => onOpenItem(section, item)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
@@ -619,7 +619,7 @@ function RecentUpdatesCard({
           {items.length > 1 ? (
             <button
               type="button"
-              className="mt-2 w-full rounded-[10px] border border-accent/15 bg-white/65 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-white"
+              className="mt-2 w-full rounded-[10px] border border-terracotta/20 bg-ivory/70 px-2.5 py-1.5 text-xs font-medium text-terracotta transition hover:bg-ivory"
               onClick={() => setIsExpanded((open) => !open)}
             >
               {isExpanded ? '收起本轮更新' : `展开其余 ${hiddenCount} 条更新`}
@@ -650,7 +650,7 @@ function StateSectionDrawer({
       {section ? (
         <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[min(980px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
           <div className="grid h-full grid-cols-[320px_minmax(0,1fr)]">
-            <div className="flex min-h-0 flex-col border-r border-line bg-slate-50/80">
+            <div className="flex min-h-0 flex-col border-r border-line bg-parchment/70">
               <DialogHeader className="border-b border-line px-5 py-4">
                 <DialogTitle>{section.title}</DialogTitle>
                 <DialogDescription>{section.description}</DialogDescription>
@@ -658,7 +658,7 @@ function StateSectionDrawer({
               <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 <div className="grid gap-2">
                   {section.items.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                    <div className="rounded-[16px] border border-dashed border-borderCream bg-ivory p-3 text-sm text-muted">
                       {getSectionEmptyText(section.id)}
                     </div>
                   ) : (
@@ -670,7 +670,7 @@ function StateSectionDrawer({
                           'rounded-[18px] border p-3 text-left transition',
                           activeItem?.id === item.id
                             ? 'border-accent bg-accentSoft/50'
-                            : 'border-line bg-white hover:border-accent/25 hover:bg-slate-50'
+                            : 'border-borderCream bg-ivory hover:border-terracotta/25 hover:bg-sand/60'
                         )}
                         onClick={() => onSelectItem(item)}
                       >
@@ -700,7 +700,7 @@ function StateSectionDrawer({
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-col bg-white">
+            <div className="flex min-h-0 flex-col bg-ivory">
               <div className="border-b border-line px-5 py-4">
                 <div className="text-sm font-medium text-muted">条目详情</div>
               </div>
@@ -769,7 +769,7 @@ function StateSectionDrawer({
                       ) : null}
                     </div>
 
-                    <div className="grid gap-3 rounded-[22px] border border-line bg-slate-50/80 p-4 text-sm">
+                    <div className="grid gap-3 rounded-[22px] border border-line bg-parchment/70 p-4 text-sm">
                       {activeItem.kind === 'artifact' ? (
                         <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
                           <div className="font-medium text-muted">产物类型</div>
@@ -799,7 +799,7 @@ function StateSectionDrawer({
                       </div>
                     </div>
 
-                    <div className="rounded-[22px] border border-line bg-white p-4">
+                    <div className="rounded-[14px] border border-borderCream bg-ivory p-4">
                       <div className="mb-3 text-sm font-medium text-muted">正文</div>
                       <div className="whitespace-pre-wrap text-sm leading-7 text-ink">
                         {activeItem.kind === 'artifact' ? activeItem.body || '当前还没有摘要。' : activeItem.body}
@@ -809,7 +809,7 @@ function StateSectionDrawer({
                     );
                   })()
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+                  <div className="rounded-[20px] border border-dashed border-borderCream bg-parchment p-4 text-sm leading-6 text-muted">
                     先从左侧列表选择一个条目，再查看详情。
                   </div>
                 )}
@@ -835,12 +835,12 @@ function MessageMarkdown({ content }: { content: string }) {
           strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
           pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto rounded-2xl bg-slate-950/95 p-3 font-mono text-[0.92em] text-slate-100 last:mb-0">
+            <pre className="mb-3 overflow-x-auto rounded-[14px] bg-warmDarker p-3 font-mono text-[0.92em] text-warmSilver last:mb-0">
               {children}
             </pre>
           ),
           code: ({ children }) => (
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-ink">
+            <code className="rounded-[6px] bg-sand px-1.5 py-0.5 font-mono text-[0.92em] text-charcoal">
               {children}
             </code>
           ),
@@ -849,7 +849,7 @@ function MessageMarkdown({ content }: { content: string }) {
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="text-sky-700 underline decoration-sky-300 underline-offset-2"
+              className="text-terracotta underline decoration-terracotta/40 underline-offset-[3px] hover:decoration-terracotta"
             >
               {children}
             </a>
@@ -864,21 +864,21 @@ function MessageMarkdown({ content }: { content: string }) {
 
 function actionEventTone(kind: MessageActionEvent['kind']) {
   if (kind === 'artifact') {
-    return 'border-sky-200 bg-sky-50 text-sky-900';
+    return 'border-[#e6cfbf] bg-[#f4e3d2] text-[#7a4520]';
   }
   if (kind === 'version') {
-    return 'border-violet-200 bg-violet-50 text-violet-900';
+    return 'border-[#dfd4e0] bg-[#ebe4ec] text-[#5e4a6b]';
   }
   if (kind === 'state') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    return 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]';
   }
   if (kind === 'tool_running') {
-    return 'border-amber-200 bg-amber-50 text-amber-900';
+    return 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]';
   }
   if (kind === 'tool_completed') {
-    return 'border-slate-200 bg-slate-100 text-slate-800';
+    return 'border-borderWarm bg-sand text-charcoal';
   }
-  return 'border-line bg-white/80 text-muted';
+  return 'border-borderCream bg-ivory text-olive';
 }
 
 export function WorkbenchPage({
@@ -1005,13 +1005,13 @@ export function WorkbenchPage({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(23,71,111,0.12),_transparent_26%),linear-gradient(180deg,_#eef4f9_0%,_#f8fafc_50%,_#eef2f7_100%)] px-3 pb-3 pt-3 text-ink md:px-4">
+    <main className="h-screen overflow-hidden px-3 pb-3 pt-3 text-nearBlack md:px-4">
       <div className="mx-auto flex h-full max-w-[1700px] flex-col gap-3">
-        <Card className="shrink-0 border-white/70 bg-white/90">
-          <CardContent className="flex items-center justify-between gap-4 p-3">
+        <Card className="shrink-0 border-borderCream bg-ivory">
+          <CardContent className="flex items-center justify-between gap-4 p-3.5">
             <div className="flex min-w-0 items-center gap-2.5">
-              <Sparkles className="h-4 w-4 shrink-0 text-muted" />
-              <h1 className="truncate text-[1.65rem] font-semibold tracking-tight">{project.name}</h1>
+              <Sparkles className="h-4 w-4 shrink-0 text-terracotta" />
+              <h1 className="truncate font-display text-[1.55rem] font-medium leading-tight tracking-tightish">{project.name}</h1>
             </div>
 
             <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1019,18 +1019,18 @@ export function WorkbenchPage({
               <Badge>{project.scenario_type}</Badge>
               {readiness ? (
                 <>
-                  <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude: ${readiness.claude.status}`}</Badge>
-                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{`项目知识库: ${readiness.evidence?.status ?? 'unknown'}`}</Badge>
+                  <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude · ${readiness.claude.status}`}</Badge>
+                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{`知识库 · ${readiness.evidence?.status ?? 'unknown'}`}</Badge>
                 </>
               ) : null}
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/">
-                  <FolderKanban className="mr-1.5 h-4 w-4" />
+                  <FolderKanban className="h-3.5 w-3.5" />
                   项目列表
                 </Link>
               </Button>
               <Button variant="ghost" size="sm" onClick={() => setIsRuntimeDialogOpen(true)}>
-                <MonitorCog className="mr-1.5 h-4 w-4" />
+                <MonitorCog className="h-3.5 w-3.5" />
                 运行状态
               </Button>
             </div>
@@ -1043,7 +1043,7 @@ export function WorkbenchPage({
         />
 
         <section className="grid min-h-0 flex-1 grid-cols-[292px_minmax(0,1fr)_332px] gap-3">
-          <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="relative flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">项目知识库</CardTitle>
@@ -1054,7 +1054,7 @@ export function WorkbenchPage({
               data-testid="sources-panel-content"
               className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-3 pb-3 pt-0"
             >
-              <div className="flex flex-wrap gap-2 rounded-[18px] border border-line bg-slate-50/80 p-2.5">
+              <div className="flex flex-wrap gap-2 rounded-[18px] border border-line bg-parchment/70 p-2.5">
                 <Button variant="subtle" size="sm" onClick={() => setIsImportDialogOpen(true)} disabled={uploading}>
                   {uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
                   导入文本资料
@@ -1086,7 +1086,7 @@ export function WorkbenchPage({
                     return (
                       <div
                         key={source.id}
-                        className="rounded-[18px] border border-line bg-white p-2 transition hover:border-accent/30 hover:bg-slate-50"
+                        className="rounded-[14px] border border-borderCream bg-ivory p-2 transition hover:border-terracotta/30 hover:bg-sand/60"
                       >
                         <div className="flex items-start gap-2">
                           <button
@@ -1162,8 +1162,8 @@ export function WorkbenchPage({
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
-            <CardHeader className="shrink-0 border-b border-line/70 px-3 py-2.5">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
+            <CardHeader className="shrink-0 border-b border-borderCream px-3 py-2.5">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
                   <CardTitle className="text-base">需求分析</CardTitle>
@@ -1191,27 +1191,27 @@ export function WorkbenchPage({
                     >
                       <div
                         className={cn(
-                          'max-w-[78%] rounded-[24px] px-4 py-3.5 shadow-sm',
+                          'max-w-[78%] rounded-[18px] px-4 py-3.5',
                           message.role === 'user'
-                            ? 'bg-accent text-white'
+                            ? 'bg-terracotta text-ivory shadow-ringTerracotta'
                             : message.role === 'assistant'
-                              ? 'border border-line bg-slate-50 text-ink'
-                              : 'border border-amber-200 bg-amber-50 text-amber-900'
+                              ? 'border border-borderCream bg-ivory text-nearBlack shadow-whisper'
+                              : 'border border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]'
                         )}
                       >
-                        <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] opacity-80">
-                          {message.role === 'assistant' ? <Bot className="h-3.5 w-3.5" /> : null}
+                        <div className="mb-2 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.18em] opacity-75">
+                          {message.role === 'assistant' ? <Bot className="h-3 w-3" /> : null}
                           {message.role}
                         </div>
                         {message.role === 'assistant' && message.status_label ? (
-                          <div className="mb-2.5 flex items-center gap-2 rounded-[14px] border border-line/80 bg-white/70 px-3 py-2 text-xs font-medium text-muted">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          <div className="mb-2.5 flex items-center gap-2 rounded-[10px] border border-borderCream bg-parchment px-3 py-2 text-xs font-medium text-olive">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-terracotta" />
                             <span>{message.status_label}</span>
                           </div>
                         ) : null}
                         {message.role === 'assistant' && (message.action_events?.length ?? 0) > 0 ? (
-                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-white/75 px-3 py-2.5">
-                            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+                          <div className="mb-2.5 rounded-[12px] border border-borderCream bg-parchment/80 px-3 py-2.5">
+                            <div className="text-[10px] font-medium uppercase tracking-[0.18em] text-stone">
                               系统行动
                             </div>
                             <div className="mt-2 flex flex-col gap-2">
@@ -1219,11 +1219,11 @@ export function WorkbenchPage({
                                 <div
                                   key={action.id}
                                   className={cn(
-                                    'flex items-start gap-2 rounded-[12px] border px-2.5 py-2 text-xs leading-5',
+                                    'flex items-start gap-2 rounded-[10px] border px-2.5 py-2 text-xs leading-5',
                                     actionEventTone(action.kind)
                                   )}
                                 >
-                                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-80" />
                                   <span>{action.label}</span>
                                 </div>
                               ))}
@@ -1236,12 +1236,12 @@ export function WorkbenchPage({
                             {message.image_results?.map((image) => (
                               <figure
                                 key={image.id}
-                                className="overflow-hidden rounded-[18px] border border-line bg-white shadow-sm"
+                                className="overflow-hidden rounded-[14px] border border-borderCream bg-ivory shadow-whisper"
                               >
                                 <img
                                   src={image.url}
                                   alt={image.title}
-                                  className="max-h-[420px] w-full object-contain bg-slate-50"
+                                  className="max-h-[420px] w-full object-contain bg-parchment"
                                 />
                                 <figcaption className="border-t border-line px-3 py-2 text-xs text-muted">
                                   <span className="font-medium text-ink">{image.title}</span>
@@ -1267,10 +1267,15 @@ export function WorkbenchPage({
                   {notices.map((notice) => (
                     <div
                       key={notice.id}
-                      className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                      className={cn(
+                        'rounded-[14px] border px-4 py-3 text-sm',
+                        notice.kind === 'error'
+                          ? 'border-[#e3c8c4] bg-[#fbeeec] text-errorWarm'
+                          : 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]'
+                      )}
                     >
                       <div className="flex items-center gap-2 font-medium">
-                        <AlertCircle className="h-4 w-4" />
+                        <AlertCircle className="h-4 w-4 opacity-80" />
                         {notice.title}
                       </div>
                       <p className="mt-2 whitespace-pre-wrap leading-6">{notice.body}</p>
@@ -1280,7 +1285,7 @@ export function WorkbenchPage({
                 </div>
               </div>
 
-              <div className="border-t border-line/70 px-3 py-2.5">
+              <div className="border-t border-borderCream px-3 py-2.5">
                 <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
                   <Textarea
                     id="chat-composer"
@@ -1310,7 +1315,7 @@ export function WorkbenchPage({
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -1379,9 +1384,9 @@ export function WorkbenchPage({
                   {`${getArtifactDisplayLabel(activeArtifact)} · ${activeArtifact.summary}`}
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 bg-slate-100">
+              <div className="min-h-0 flex-1 bg-parchment">
                 {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
-                  <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+                  <div className="flex h-full items-center justify-center bg-parchment p-6">
                     <img
                       src={activeArtifact.preview_url}
                       alt={activeArtifact.title}
@@ -1429,7 +1434,7 @@ export function WorkbenchPage({
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+              <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-ink">Claude Agent SDK</div>
@@ -1442,7 +1447,7 @@ export function WorkbenchPage({
                 </div>
               </div>
 
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+              <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-ink">项目知识库</div>

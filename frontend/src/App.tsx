@@ -195,9 +195,9 @@ function HomeRoute() {
 
   if (error) {
     return (
-      <main className="min-h-screen p-8 text-ink">
-        <div className="mx-auto max-w-3xl rounded-[28px] border border-rose-200 bg-rose-50 p-6 text-rose-800 shadow-panel">
-          <div className="text-sm font-medium uppercase tracking-[0.18em]">加载失败</div>
+      <main className="min-h-screen p-8 text-nearBlack">
+        <div className="mx-auto max-w-3xl rounded-[20px] border border-[#e3c8c4] bg-[#fbeeec] p-6 text-errorWarm shadow-whisper">
+          <div className="text-[11px] font-medium uppercase tracking-[0.18em]">加载失败</div>
           <p className="mt-3 leading-7">{error}</p>
         </div>
       </main>
@@ -815,11 +815,11 @@ function WorkbenchRoute() {
 
   if (loading || !data.project || !data.state) {
     return (
-      <main className="min-h-screen p-8 text-ink">
-        <div className="mx-auto max-w-4xl rounded-[28px] border border-line bg-white p-8 shadow-panel">
-          <div className="text-xs uppercase tracking-[0.18em] text-muted">Loading</div>
-          <h1 className="mt-3 text-3xl font-semibold">正在加载工作台</h1>
-          <p className="mt-3 text-sm leading-7 text-muted">项目、资料、聊天与沉淀总集正在初始化。</p>
+      <main className="min-h-screen p-8 text-nearBlack">
+        <div className="mx-auto max-w-4xl rounded-[22px] border border-borderCream bg-ivory p-8 shadow-whisper">
+          <div className="text-[11px] uppercase tracking-[0.18em] text-stone">Loading</div>
+          <h1 className="mt-3 font-display text-[1.85rem] font-medium leading-tight tracking-tightish">正在加载工作台</h1>
+          <p className="mt-3 text-sm leading-7 text-olive">项目、资料、聊天与沉淀总集正在初始化。</p>
         </div>
       </main>
     );
