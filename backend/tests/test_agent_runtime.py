@@ -20,14 +20,17 @@ from app.services.project_state import ProjectStateService
 from app.services.seed_projects import ensure_seed_project
 
 
-def test_visual_mockup_reference_urls_are_absolutized() -> None:
+def test_visual_mockup_reference_urls_are_absolutized(tmp_path: Path) -> None:
     settings = AppSettings(
-        root_dir=Path("/tmp/project"),
-        data_dir=Path("/tmp/project/data"),
-        sqlite_dir=Path("/tmp/project/data/sqlite"),
-        sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
-        projects_dir=Path("/tmp/project/data/projects"),
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
     )
+    image_dir = settings.projects_dir / "project-1" / "chat-images" / "image-abc"
+    image_dir.mkdir(parents=True)
+    (image_dir / "image.png").write_bytes(b"fake-png")
     runtime = ClaudeAgentRuntime(settings)
 
     urls = runtime._normalize_reference_image_urls(
@@ -39,7 +42,7 @@ def test_visual_mockup_reference_urls_are_absolutized() -> None:
     )
 
     assert urls == [
-        "http://127.0.0.1:8001/api/projects/project-1/chat-images/image-abc",
+        "data:image/png;base64,ZmFrZS1wbmc=",
         "https://cdn.example.test/existing.png",
     ]
 
@@ -84,9 +87,9 @@ def test_format_recent_messages_includes_generated_image_urls() -> None:
 
     assert "历史图片" in history
     assert "第一版视觉稿" in history
-    assert "https://upload.apimart.ai/f/image/reference.png" in history
+    assert "/api/projects/project-1/chat-images/image-abc" in history
     assert "reference_image_urls" in history
-    assert "/api/projects/project-1/chat-images/image-abc" not in history
+    assert "https://upload.apimart.ai/f/image/reference.png" not in history
 
 
 def test_coerce_json_payload_extracts_json_from_wrapped_text() -> None:

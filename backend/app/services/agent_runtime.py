@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+import mimetypes
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import uuid
 from typing import AsyncIterator
+from urllib.parse import urlparse
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -743,7 +746,7 @@ class ClaudeAgentRuntime:
             for image in message.image_results:
                 if not isinstance(image, dict):
                     continue
-                reference_url = str(image.get("provider_url") or image.get("url") or "").strip()
+                reference_url = str(image.get("url") or image.get("provider_url") or "").strip()
                 if not reference_url:
                     continue
                 title = str(image.get("title") or image.get("id") or "历史图片").strip()
@@ -1383,11 +1386,44 @@ class ClaudeAgentRuntime:
             url = str(raw_url or "").strip()
             if not url:
                 continue
-            if url.startswith("/"):
-                # Provider 需要能从服务端外部拉取图片；聊天内相对地址转成本地后端绝对地址。
-                url = f"{self.settings.public_api_base_url}{url}"
-            normalized.append(url)
+            local_data_url = self._chat_image_data_url(url)
+            normalized.append(local_data_url or url)
         return normalized
+
+    def _chat_image_data_url(self, url: str) -> str | None:
+        path = url
+        if url.startswith("http://") or url.startswith("https://"):
+            parsed = urlparse(url)
+            public_base = self.settings.public_api_base_url.rstrip("/")
+            parsed_public_base = urlparse(public_base)
+            if (
+                parsed.scheme != parsed_public_base.scheme
+                or parsed.netloc != parsed_public_base.netloc
+            ):
+                return None
+            path = parsed.path
+
+        parts = [part for part in path.split("/") if part]
+        if len(parts) != 5 or parts[:2] != ["api", "projects"] or parts[3] != "chat-images":
+            return None
+
+        project_id = parts[2]
+        image_id = parts[4]
+        image_dir = self.settings.projects_dir / project_id / "chat-images" / image_id
+        if not image_dir.exists() or not image_dir.is_dir():
+            return None
+
+        candidates = sorted(
+            path for path in image_dir.iterdir()
+            if path.is_file() and path.name.startswith("image.")
+        )
+        if not candidates:
+            return None
+
+        image_path = candidates[0]
+        content_type = mimetypes.guess_type(image_path.name)[0] or "image/png"
+        encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        return f"data:{content_type};base64,{encoded}"
 
     def _make_generate_visual_mockup_tool(
         self,

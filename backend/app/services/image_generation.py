@@ -4,7 +4,6 @@ import asyncio
 import base64
 import json
 import mimetypes
-import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -157,33 +156,39 @@ class ApimartImageGenerationService:
 
     def _request_json(self, method: str, path: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         url = urljoin(self.settings.apimart_base_url.rstrip("/") + "/", path.lstrip("/"))
-        command = [
-            "curl",
-            "--silent",
-            "--show-error",
-            "--request",
-            method,
-            "--url",
-            url,
-            "--header",
-            f"Authorization: Bearer {self.settings.apimart_api_key}",
-            "--header",
-            "Content-Type: application/json",
-            "--header",
-            "Accept: application/json",
-            "--max-time",
-            str(int(self.settings.image_generation_request_timeout_seconds)),
-        ]
+        request_body: bytes | None = None
         if payload is not None:
-            command.extend(["--data", json.dumps(payload, ensure_ascii=False)])
+            request_body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            url,
+            data=request_body,
+            headers={
+                "Authorization": f"Bearer {self.settings.apimart_api_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "User-Agent": "requirement-workbench/0.2",
+            },
+            method=method,
+        )
         try:
-            completed = subprocess.run(command, check=False, capture_output=True, text=True)
-        except OSError as exc:
-            raise ProviderIssue(provider="APIMART_IMAGE", message=f"图像生成接口调用失败：{exc}", status_code=502) from exc
-
-        raw = completed.stdout.strip()
-        if completed.returncode != 0:
-            raise ProviderIssue(provider="APIMART_IMAGE", message=f"图像生成接口调用失败：{completed.stderr.strip() or raw}", status_code=502)
+            with urllib.request.urlopen(
+                request,
+                timeout=self.settings.image_generation_request_timeout_seconds,
+            ) as response:
+                raw = response.read().decode("utf-8").strip()
+        except urllib.error.HTTPError as exc:
+            raw_error = exc.read().decode("utf-8", errors="replace")
+            raise ProviderIssue(
+                provider="APIMART_IMAGE",
+                message=f"图像生成接口返回错误：{raw_error[:1000]}",
+                status_code=exc.code if exc.code >= 400 else 502,
+            ) from exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            raise ProviderIssue(
+                provider="APIMART_IMAGE",
+                message=f"图像生成接口调用失败：{exc}",
+                status_code=502,
+            ) from exc
         try:
             result = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -209,24 +214,19 @@ class ApimartImageGenerationService:
 
     def _download_image(self, url: str) -> tuple[bytes, str]:
         try:
-            completed = subprocess.run(
-                [
-                    "curl",
-                    "--silent",
-                    "--show-error",
-                    "--location",
-                    "--max-time",
-                    str(int(self.settings.image_generation_request_timeout_seconds)),
-                    url,
-                ],
-                check=False,
-                capture_output=True,
+            request = urllib.request.Request(
+                url,
+                headers={"User-Agent": "requirement-workbench/0.2"},
+                method="GET",
             )
-        except OSError as exc:
+            with urllib.request.urlopen(
+                request,
+                timeout=self.settings.image_generation_request_timeout_seconds,
+            ) as response:
+                content_type = response.headers.get_content_type() or "image/png"
+                return response.read(), content_type
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
             raise ProviderIssue(provider="APIMART_IMAGE", message=f"下载生成图片失败：{exc}", status_code=502) from exc
-        if completed.returncode != 0:
-            raise ProviderIssue(provider="APIMART_IMAGE", message=f"下载生成图片失败：{completed.stderr.decode('utf-8', errors='replace')}", status_code=502)
-        return completed.stdout, "image/png"
 
     @staticmethod
     def _deep_get(payload: Any, path: list[str]) -> Any:
