@@ -19,14 +19,15 @@
 
 - `frontend/`：项目列表 + 三栏工作台
 - `backend/`：FastAPI + SQLite + SSE + provider 接入
-- `data/`：项目文件、artifact、NotebookLM 本地数据
+- `data/`：项目文件、artifact、项目知识库 本地数据
 
 当前这版的真实基线是：
 
 - 前端工作台已经接真实 API，不再靠纯前端阶段页驱动
-- NotebookLM 正式 provider 已切到 `notebooklm-py`
+- 项目知识库 正式 provider 已切到 `Docling + Qdrant + LlamaIndex`
 - Claude 正式运行时已接 `claude-agent-sdk` 和 `claude` CLI
-- 后端运行时 skills 收口在 `backend/.claude/skills/`
+- 后端 CAS skills 收口在 `backend/.claude/skills/`
+- 后端 CAS project cwd 已固定为 `backend/`
 - `archive/legacy-demo/` 只作为视觉、交互和叙事基线
 
 ## 3. 已完成
@@ -35,8 +36,10 @@
 
 - [x] 主规格重写到“全栈一期”口径
 - [x] `AGENTS.md` 补充项目级基本规则
-- [x] 项目级方法论 skill 已建立并纳入后端运行时
-- [x] NotebookLM 工作流 skill 已迁到 `backend/.claude/skills/`
+- [x] 项目级方法论 skill 已建立并纳入项目级运行时
+- [x] 项目知识库 工作流 skill 已迁到 `backend/.claude/skills/`
+- [x] 交付物生成约束 skill 已建立
+- [x] 后端 CAS 全局规则已迁到 `backend/CLAUDE.md`
 - [x] 旧 demo、旧文档、旧 HTML 原型已归档到 `archive/legacy-demo/`
 
 ### 3.2 前端主路径
@@ -48,7 +51,7 @@
 - [x] 左栏 source 支持文件上传
 - [x] 左栏 source 支持多文件上传
 - [x] 左栏 source 支持删除
-- [x] 左栏 source 支持 `sync_failed` 后重试同步
+- [x] 左栏 source 支持 `index_failed` 后重试索引
 - [x] source 文件卡片改成更紧凑的两行信息布局
 - [x] source 摘要改成悬浮浮卡，不再塞到滚动区底部
 - [x] 中栏聊天支持回车发送、`Shift + Enter` 换行
@@ -66,35 +69,45 @@
 - [x] `GET /api/health` 已建立
 - [x] SSE 聊天主路由已建立
 - [x] source 标准化、入库、落盘主路径已建立
-- [x] source 删除时已补本地与 notebook 侧删除联动
-- [x] source 同步失败状态已统一为 `sync_failed`
-- [x] 项目级 notebook binding、create-and-bind、library 查询 API 已建立
+- [x] source 删除时已补本地与 knowledge base 侧删除联动
+- [x] source 索引失败状态已统一为 `index_failed`
+- [x] 项目级 knowledge base 初始化和 readiness API 已建立
 
 ### 3.4 Provider 接入
 
 - [x] `claude-agent-sdk` Python 依赖已进入 `backend/requirements.txt`
 - [x] Claude 运行时已显式依赖 `claude` CLI 或 `CLAUDE_CODE_CLI_PATH`
-- [x] `notebooklm-py` 已作为正式 NotebookLM provider 接入
-- [x] NotebookLM 认证路径已改为项目内 `data/notebooklm/`
-- [x] source 自动同步 notebook 的文本和文件主路径已接通
-- [x] Notebook query 结果已映射回本地 source 引用
-- [x] 新项目和 seed project 都有项目级 notebook binding 模型
+- [x] `Docling + Qdrant + LlamaIndex` 已作为正式 项目知识库 provider 接入
+- [x] 项目知识库 认证路径已改为项目内 `data/rag/`
+- [x] source 自动索引项目知识库 的文本和文件主路径已接通
+- [x] RAG query 结果已映射回本地 source 引用
+- [x] 新项目和 seed project 都有项目级 knowledge base binding 模型
+
+### 3.5 CAS 风格主链路
+
+- [x] 后端聊天主链路已收成单 Agent SDK loop
+- [x] `ChatService` 已降为薄宿主，只负责持久化、SSE 转发和错误处理
+- [x] 项目知识库 查询已改成 agent 可调用工具，不再由宿主前置固定查询
+- [x] 状态写入、版本快照、artifact 生成都已收口到 runtime 工具
+- [x] 前后端已按统一 loop 事件协议对接 `assistant_status / message_chunk / citations / *_patch`
+- [x] 前端五步轨道已降级为弱语义投影，不再依赖正文关键词猜阶段
+- [x] `backend/CLAUDE.md` 已补全后端 CAS 全局硬规则
 
 ## 4. 进行中
 
 ### 4.1 聊天主链路加固
 
-- [ ] 优化 Claude 首 token 时间，让用户更早看到真实进度反馈
-- [ ] 把“聊天流式输出”和“结构化沉淀 patch”彻底拆开，避免互相阻塞
-- [ ] 把“正在检索证据 / 正在分析 / 正在写入沉淀”这些阶段状态前置到 UI
+- [ ] 继续压缩 Claude 首 token 时间和正文粒度，减少碎片化 chunk
+- [ ] 收短讨论轮正文，避免回答过长
+- [ ] 继续优化工具调用前后的状态展示和行动反馈
 - [ ] 继续压缩“发送问题后长时间停顿”的体感
 
-### 4.2 NotebookLM 体验加固
+### 4.2 项目知识库 体验加固
 
-- [ ] 继续排查 `NotebookLM 查询超时` 的真实高频原因
-- [ ] 为 notebook library 和 readiness 补更清楚的 loading 态
-- [ ] 减少全页等待，把 NotebookLM 慢请求的影响限制在局部区域
-- [ ] 为新项目默认 notebook 绑定补更顺手的引导
+- [ ] 排查真实 项目知识库 模式下 tool 调用失败或不可用的原因
+- [ ] 为 knowledge base readiness 补更清楚的 loading 态
+- [ ] 减少全页等待，把 项目知识库 慢请求的影响限制在局部区域
+- [ ] 为新项目默认 knowledge base 初始化补更顺手的引导
 
 ### 4.3 上下文连续性
 
@@ -114,16 +127,16 @@
 
 ### 5.2 状态沉淀和版本
 
-- [ ] 收敛哪些轮次必须做结构化沉淀，哪些轮次只保留聊天输出
-- [ ] 减少“每轮都写沉淀”带来的延迟
-- [ ] 版本快照只保留关键节点自动生成
+- [ ] 继续校准哪些讨论轮只聊天、不落盘
+- [ ] 继续减少“过度沉淀”导致的延迟和噪音
+- [ ] 版本快照触发条件再收紧一轮
 - [ ] 右栏版本区补齐时间、触发原因、摘要
 
 ### 5.3 Source 侧补强
 
 - [ ] URL 导入入口补齐到 UI
 - [ ] source 标准化结果展示再做一轮可读性整理
-- [ ] source 异常信息和同步错误信息再收敛成统一文案
+- [ ] source 异常信息和索引错误信息再收敛成统一文案
 - [ ] source 上传后的局部 loading、错误、重试态继续细化
 
 ### 5.4 UI 回到正确产品感
@@ -138,12 +151,12 @@
 ### Phase A: Provider 真伪和失败路径验收
 
 - [ ] 检查 Claude 主路径是否全部真走 `claude-agent-sdk + claude CLI`
-- [ ] 检查 NotebookLM 主路径是否全部真走 `notebooklm-py`
+- [ ] 检查 项目知识库 主路径是否全部真走 `Docling + Qdrant + LlamaIndex`
 - [ ] 清理残留的误导性命名、注释和文档
 - [ ] 未配置 Claude 时必须明确报错
-- [ ] 未认证 NotebookLM 时必须明确报错
-- [ ] 项目未绑定 notebook 时必须明确报错
-- [ ] NotebookLM 查询超时时必须明确报错
+- [ ] 未认证 项目知识库 时必须明确报错
+- [ ] 项目 knowledge base 未初始化时必须明确报错
+- [ ] 项目知识库检索超时时必须明确报错
 - [ ] artifact 生成失败时必须明确报错
 - [ ] 不允许静默 fallback 成本地假成功
 
@@ -182,7 +195,7 @@
 接下来默认按这个顺序继续推进：
 
 1. 继续压缩聊天首响应时间，拆开流式输出和结构化沉淀
-2. 补强 NotebookLM 慢查询和超时的前后端反馈
+2. 补强 项目知识库 慢查询和超时的前后端反馈
 3. 收口 artifact 生成、校验和预览
 4. 收口版本快照和关键轮次沉淀
 5. 继续把 UI 拉回到 `archive/legacy-demo` 的产品感基线
@@ -195,3 +208,4 @@
 - [产品规格](../product/fullstack-phase1-spec.md)
 - [文档索引](../README.md)
 - [项目根 README](../../README.md)
+- [后端运行规则](../../backend/CLAUDE.md)

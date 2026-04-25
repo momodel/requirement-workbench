@@ -1,8 +1,11 @@
 import {
   AlertCircle,
   ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  List,
   Bot,
-  FileText,
+  CheckCircle2,
   FolderKanban,
   Loader2,
   MonitorCog,
@@ -31,18 +34,32 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
+import {
+  getArtifactDisplayLabel,
+  getArtifactFormatLabel,
+  getArtifactStatusLabel,
+  getArtifactTypeLabel,
+} from '../../lib/artifact-display';
 import { Textarea } from '../../components/ui/textarea';
 import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
+  MessageActionEvent,
   MessageRecord,
-  NotebookLibraryItem,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
   SourceRecord,
-  StateItem,
 } from '../../lib/types';
+import {
+  deriveStageState,
+  deriveStateOverviewSections,
+  type StateOverviewItem,
+  type StateOverviewSection,
+  WORKBENCH_STAGE_LABELS,
+  WORKBENCH_STAGE_ORDER,
+  type WorkbenchStage,
+} from './workbench-derived';
 
 type WorkbenchPageProps = {
   project: ProjectSummary;
@@ -52,43 +69,19 @@ type WorkbenchPageProps = {
   state: ProjectState;
   artifacts: ArtifactRecord[];
   recentInsightIds: string[];
-  notebookLibrary: NotebookLibraryItem[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
   sending: boolean;
   uploading: boolean;
   deletingSourceId: string | null;
   retryingSourceId: string | null;
-  bindingNotebook: boolean;
-  generatingArtifactType: string | null;
+  initializingKnowledgeBase: boolean;
   onSendMessage: (message: string) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
-  onRetrySourceSync: (sourceId: string) => Promise<void>;
-  onBindProjectNotebook: (payload: { sourceUrl?: string; notebookId?: string }) => Promise<void>;
-  onCreateAndBindProjectNotebook: () => Promise<void>;
-  onGenerateArtifact: (artifactType: 'document' | 'page_solution' | 'interaction_flow') => Promise<void>;
+  onReindexSource: (sourceId: string) => Promise<void>;
+  onInitializeKnowledgeBase: () => Promise<boolean>;
 };
-
-const STAGES = [
-  '需求接入',
-  '业务理解',
-  '需求收敛',
-  '方案定义',
-  '设计交付',
-];
-
-const STATE_SECTIONS: Array<{
-  key: keyof ProjectState;
-  label: string;
-}> = [
-  { key: 'current_understanding', label: '当前理解' },
-  { key: 'pending_items', label: '待确认项' },
-  { key: 'confirmed_items', label: '已确认项' },
-  { key: 'conflict_items', label: '冲突项' },
-  { key: 'mvp_items', label: 'MVP' },
-  { key: 'versions', label: '版本快照' },
-];
 
 function relativeTime(value: string) {
   return new Date(value).toLocaleString('zh-CN');
@@ -125,14 +118,31 @@ function parseStatusLabel(status: string) {
   return status;
 }
 
-function syncStatusLabel(status: string) {
-  if (status === 'synced') return '已同步';
-  if (status === 'pending_sync') return '待同步';
-  if (status === 'sync_failed') return '同步失败';
+function indexStatusLabel(status: string) {
+  if (status === 'indexed') return '已索引';
+  if (status === 'indexing') return '索引中';
+  if (status === 'pending') return '待索引';
+  if (status === 'index_failed') return '索引失败';
+  if (status === 'knowledge_base_missing') return '待初始化知识库';
+  if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
-  if (status === 'binding_required') return '未绑定';
-  if (status === 'not_configured') return '未配置';
   return status;
+}
+
+function sourceNormalizeStatus(source: SourceRecord): string {
+  return source.normalize_status ?? (source as unknown as { parse_status?: string }).parse_status ?? 'pending';
+}
+
+function sourceNormalizeSummary(source: SourceRecord): string | null {
+  return source.normalize_summary ?? (source as unknown as { parse_summary?: string | null }).parse_summary ?? null;
+}
+
+function sourceIndexStatus(source: SourceRecord): string {
+  return source.index_status ?? (source as unknown as { sync_status?: string }).sync_status ?? 'pending';
+}
+
+function sourceIndexError(source: SourceRecord): string | null {
+  return source.index_error ?? (source as unknown as { sync_error?: string | null }).sync_error ?? null;
 }
 
 function sanitizeStateBody(title: string, body: string) {
@@ -160,14 +170,127 @@ function sanitizeStateBody(title: string, body: string) {
   return deduped.join('；') || body;
 }
 
-function getLatestArtifactsByType(artifacts: ArtifactRecord[]) {
-  const latest = new Map<string, ArtifactRecord>();
-  for (const artifact of artifacts) {
-    if (!latest.has(artifact.artifact_type)) {
-      latest.set(artifact.artifact_type, artifact);
-    }
+function stageTone(
+  stage: WorkbenchStage,
+  primaryStage: WorkbenchStage,
+  revisitingStages: WorkbenchStage[]
+) {
+  if (stage === primaryStage) {
+    return {
+      badge: '当前重点',
+      cardClass: 'border-accent/20 bg-accentSoft/70 text-accent',
+      badgeVariant: 'accent' as const,
+    };
   }
-  return Array.from(latest.values());
+
+  if (revisitingStages.includes(stage)) {
+    return {
+      badge: '补充中',
+      cardClass: 'border-amber-200 bg-amber-50 text-amber-900',
+      badgeVariant: 'warning' as const,
+    };
+  }
+
+  const primaryIndex = WORKBENCH_STAGE_ORDER.indexOf(primaryStage);
+  const stageIndex = WORKBENCH_STAGE_ORDER.indexOf(stage);
+
+  if (stageIndex < primaryIndex) {
+    return {
+      badge: '已形成',
+      cardClass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+      badgeVariant: 'success' as const,
+    };
+  }
+
+  return {
+    badge: '待进入',
+    cardClass: 'border-line bg-slate-50 text-muted',
+    badgeVariant: 'default' as const,
+  };
+}
+
+function getSectionEmptyText(sectionId: string) {
+  if (sectionId === 'artifacts') return '当前还没有交付物。';
+  if (sectionId === 'versions') return '关键快照还没有生成。';
+  return '当前还没有内容。';
+}
+
+function getItemBody(item: StateOverviewItem) {
+  if (item.kind === 'artifact') {
+    return item.body || '当前还没有摘要。';
+  }
+  return sanitizeStateBody(item.title, item.body);
+}
+
+
+function toArtifactRecord(item: StateOverviewItem): ArtifactRecord {
+  return {
+    id: item.id,
+    project_id: '',
+    artifact_type: item.artifactType ?? 'artifact',
+    title: item.title,
+    summary: item.body,
+    status: item.status,
+    content_format: item.contentFormat ?? 'document',
+    storage_path: null,
+    preview_url: item.previewUrl ?? null,
+    body: item.documentBody ?? null,
+    updated_at: item.updatedAt ?? '',
+  };
+}
+
+function itemTimestamp(item: StateOverviewItem) {
+  if (!item.updatedAt) return 0;
+  const timestamp = new Date(item.updatedAt).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getSectionLastUpdated(section: StateOverviewSection) {
+  const latestTimestamp = Math.max(0, ...section.items.map(itemTimestamp));
+  if (latestTimestamp === 0) return '暂无更新';
+  return relativeTime(new Date(latestTimestamp).toISOString());
+}
+
+function getRecentOverviewItems(sections: StateOverviewSection[]) {
+  return sections
+    .flatMap((section) =>
+      section.items
+        .filter((item) => item.isRecent || (item.kind === 'artifact' && itemTimestamp(item) > 0))
+        .map((item) => ({ section, item }))
+    )
+    .sort((left, right) => itemTimestamp(right.item) - itemTimestamp(left.item))
+    .slice(0, 5);
+}
+
+function getArtifactStatusSummaryLabel(section: StateOverviewSection) {
+  const summary = section.artifactStatusSummary;
+  if (!summary) return null;
+
+  const parts = [];
+  if (summary.generating > 0) parts.push(`${summary.generating} 生成中`);
+  if (summary.generated > 0) parts.push(`${summary.generated} 已生成`);
+  if (summary.failed > 0) parts.push(`${summary.failed} 失败`);
+  return parts.length > 0 ? parts.join(' · ') : '暂无交付物';
+}
+
+function getSectionSummaryLine(section: StateOverviewSection) {
+  return getArtifactStatusSummaryLabel(section) ?? section.description;
+}
+
+function getArtifactMeta(item: StateOverviewItem) {
+  if (item.kind !== 'artifact') {
+    return null;
+  }
+
+  return {
+    typeLabel: getArtifactTypeLabel(item.artifactType ?? ''),
+    displayLabel: getArtifactDisplayLabel({
+      artifact_type: item.artifactType ?? '',
+      content_format: item.contentFormat ?? '',
+    }),
+    formatLabel: getArtifactFormatLabel(item.artifactType ?? '', item.contentFormat),
+    statusLabel: getArtifactStatusLabel(item.status),
+  };
 }
 
 function SourcePreview({
@@ -196,14 +319,14 @@ function SourcePreview({
       <div className="mt-4 space-y-3 text-sm text-muted">
         <div className="flex flex-wrap gap-2">
           <Badge>{source.source_kind}</Badge>
-          <Badge variant={statusVariant(source.parse_status)}>{`解析：${source.parse_status}`}</Badge>
-          <Badge variant={statusVariant(source.sync_status)}>{`同步：${source.sync_status}`}</Badge>
+          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>{`解析：${sourceNormalizeStatus(source)}`}</Badge>
+          <Badge variant={statusVariant(sourceIndexStatus(source))}>{`索引：${sourceIndexStatus(source)}`}</Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{source.parse_summary ?? '当前还没有解析摘要。'}</p>
-        {source.sync_error ? (
+        <p>{sourceNormalizeSummary(source) ?? '当前还没有解析摘要。'}</p>
+        {sourceIndexError(source) ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
-            {source.sync_error}
+            {sourceIndexError(source)}
           </div>
         ) : null}
       </div>
@@ -212,50 +335,490 @@ function SourcePreview({
   );
 }
 
-function StateBlock({
-  label,
-  items,
-  recentInsightIds,
+function WorkbenchStageRail({
+  primaryStage,
+  revisitingStages,
 }: {
-  label: string;
-  items: StateItem[];
-  recentInsightIds: string[];
+  primaryStage: WorkbenchStage;
+  revisitingStages: WorkbenchStage[];
 }) {
   return (
-    <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-ink">{label}</h3>
-        <Badge>{items.length}</Badge>
-      </div>
-      <div className="mt-2.5 grid gap-2.5">
-        {items.length === 0 ? (
-          <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
-            当前还没有内容。
+    <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
+      {WORKBENCH_STAGE_ORDER.map((stage) => {
+        const tone = stageTone(stage, primaryStage, revisitingStages);
+
+        return (
+          <div
+            key={stage}
+            className={cn('rounded-[16px] border px-3 py-2 transition-colors', tone.cardClass)}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold">{WORKBENCH_STAGE_LABELS[stage]}</div>
+              <Badge variant={tone.badgeVariant}>{tone.badge}</Badge>
+            </div>
+            <div className="mt-1 text-[12px] leading-5 opacity-80">
+              {stage === primaryStage
+                ? '当前主线推进重点。'
+                : revisitingStages.includes(stage)
+                  ? '有新信息正在回流补充。'
+                  : '作为分析过程中的阶段语义展示。'}
+            </div>
           </div>
-        ) : (
-          items.slice(0, 4).map((item) => (
-            <div
-              key={item.id}
-              className={cn(
-                'rounded-[16px] border border-white bg-white p-3 transition-colors',
-                recentInsightIds.includes(item.id) && 'border-accent/30 bg-accentSoft/40'
-              )}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium text-ink">{item.title}</div>
-                {recentInsightIds.includes(item.id) ? <Badge variant="accent">本轮新增</Badge> : null}
+        );
+      })}
+    </div>
+  );
+}
+
+function ArtifactInlineActions({
+  item,
+  onOpenArtifact,
+  onOpenDocument,
+  showPendingBadge = true,
+}: {
+  item: StateOverviewItem;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+  showPendingBadge?: boolean;
+}) {
+  if (item.kind !== 'artifact') return null;
+
+  const artifact = toArtifactRecord(item);
+  const isHtml = item.contentFormat === 'html';
+
+  if (item.status === 'generating') {
+    return showPendingBadge ? <Badge variant="warning">生成中</Badge> : null;
+  }
+  if (item.status === 'failed') {
+    return showPendingBadge ? <Badge variant="danger">失败</Badge> : null;
+  }
+
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant="secondary"
+      className="h-7 px-2.5 text-xs"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (isHtml) {
+          onOpenArtifact(artifact);
+          return;
+        }
+        onOpenDocument(artifact);
+      }}
+    >
+      {isHtml ? '预览' : '正文'}
+    </Button>
+  );
+}
+
+function StateSectionCard({
+  section,
+  defaultOpen,
+  onOpen,
+  onOpenItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  section: StateOverviewSection;
+  defaultOpen: boolean;
+  onOpen: () => void;
+  onOpenItem: (item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(defaultOpen);
+  const previewItems = section.items.slice(0, section.id === 'artifacts' ? 3 : 2);
+  const summaryLine = getSectionSummaryLine(section);
+  const hasGeneratingArtifacts = Boolean(section.artifactStatusSummary?.generating);
+
+  useEffect(() => {
+    setIsExpanded(defaultOpen);
+  }, [defaultOpen, section.id]);
+
+  return (
+    <div className="rounded-[14px] border border-line bg-slate-50/80 px-2.5 py-2">
+      <div className="flex min-h-8 items-center gap-2">
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-white hover:text-accent"
+          aria-label={`${isExpanded ? '收起' : '展开'} ${section.title}`}
+          aria-expanded={isExpanded}
+          onClick={() => setIsExpanded((open) => !open)}
+        >
+          {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+        </button>
+
+        <button
+          type="button"
+          className="min-w-0 flex-1 text-left transition hover:text-accent"
+          aria-label={section.title}
+          onClick={onOpen}
+          title={section.description}
+        >
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+              <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
+              {hasGeneratingArtifacts ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-label="交付物生成中" /> : null}
+              {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
               </div>
-              <p className="mt-1.5 text-sm leading-6 text-muted">{sanitizeStateBody(item.title, item.body)}</p>
-              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
-                {item.status ? <span>{`状态：${item.status}`}</span> : null}
-                {item.updated_at ? <span>{`更新于 ${relativeTime(item.updated_at)}`}</span> : null}
-                <span>{`来源 ${item.source_ids.length} 份资料`}</span>
+              <div className="truncate text-[11px] text-muted" title={summaryLine}>
+                {summaryLine}
               </div>
             </div>
-          ))
-        )}
+            <div className="flex shrink-0 items-center gap-1 text-[11px] text-muted">
+              <Badge>{section.totalCount}</Badge>
+              {section.artifactStatusSummary?.failed ? <Badge variant="danger">失败</Badge> : null}
+            {section.recentCount > 0 ? <Badge variant="accent">+{section.recentCount}</Badge> : null}
+            </div>
+          </div>
+        </button>
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 shrink-0 rounded-full p-0"
+          aria-label={`查看全部 ${section.title}`}
+          onClick={onOpen}
+        >
+          <List className="h-3.5 w-3.5" />
+        </Button>
       </div>
+
+      {isExpanded ? (
+        <div className="mt-2 grid gap-2 border-t border-line/70 pt-2">
+          {previewItems.length === 0 ? (
+            <div className="rounded-[12px] border border-dashed border-line bg-white/80 p-2.5 text-sm text-muted">
+              {getSectionEmptyText(section.id)}
+            </div>
+          ) : (
+            previewItems.map((item) => {
+              const artifactMeta = getArtifactMeta(item);
+
+              return (
+                <div
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  className={cn(
+                    'rounded-[12px] border bg-white p-2.5 text-left transition hover:border-accent/25 hover:bg-slate-50',
+                    item.isRecent ? 'border-accent/25 bg-accentSoft/30' : 'border-white'
+                  )}
+                  onClick={() => onOpenItem(item)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      onOpenItem(item);
+                    }
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    {item.title === section.title ? (
+                      <div className="text-sm font-medium text-ink">{item.kind === 'artifact' ? item.title : '最新条目'}</div>
+                    ) : (
+                      <div className="text-sm font-medium text-ink">{item.title}</div>
+                    )}
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {artifactMeta ? <Badge variant="default">{artifactMeta.typeLabel}</Badge> : null}
+                      <ArtifactInlineActions item={item} onOpenArtifact={onOpenArtifact} onOpenDocument={onOpenDocument} />
+                    </div>
+                  </div>
+                  <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-[11px] text-muted">
+                    {artifactMeta ? (
+                      <>
+                        <span>{artifactMeta.formatLabel}</span>
+                        <span>{artifactMeta.statusLabel}</span>
+                      </>
+                    ) : null}
+                    <span>{`形成于 ${WORKBENCH_STAGE_LABELS[item.formedStage]}`}</span>
+                    {item.updatedAt ? <span>{relativeTime(item.updatedAt)}</span> : null}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      ) : null}
     </div>
+  );
+}
+function RecentUpdatesCard({
+  items,
+  onOpenItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  items: Array<{ section: StateOverviewSection; item: StateOverviewItem }>;
+  onOpenItem: (section: StateOverviewSection, item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visibleItems = isExpanded ? items : items.slice(0, 1);
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
+
+  return (
+    <div className="min-w-0 overflow-hidden rounded-[14px] border border-accent/20 bg-accentSoft/35 px-2.5 py-2">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-ink">本轮更新</div>
+          <div className="truncate text-[11px] text-muted">最近新增或改动，先看这里。</div>
+        </div>
+        <Badge variant="accent">{items.length}</Badge>
+      </div>
+      {items.length === 0 ? (
+        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
+          暂无最近更新。
+        </div>
+      ) : (
+        <div className="mt-2 min-w-0 border-t border-accent/10 pt-2">
+          <div className={cn('grid min-w-0 gap-1.5', isExpanded ? 'max-h-[260px] overflow-y-auto pr-1' : '')}>
+          {visibleItems.map(({ section, item }) => (
+            <div
+              key={`${section.id}-${item.id}`}
+              role="button"
+              tabIndex={0}
+              className="min-w-0 max-w-full overflow-hidden rounded-[12px] border border-white bg-white/90 p-2.5 text-left transition hover:border-accent/25 hover:bg-white"
+              onClick={() => onOpenItem(section, item)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onOpenItem(section, item);
+                }
+              }}
+            >
+              <div className="w-full min-w-0 overflow-hidden">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 overflow-hidden">
+                  <Badge variant="default" className="shrink-0">{section.title}</Badge>
+                  {item.kind === 'artifact' ? (
+                    <Badge variant={statusVariant(item.status)} className="shrink-0">
+                      {getArtifactStatusLabel(item.status)}
+                    </Badge>
+                  ) : null}
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">{item.title}</span>
+                </div>
+                <p className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                {item.kind === 'artifact' ? (
+                  <div className="mt-2 flex justify-end">
+                    <ArtifactInlineActions
+                      item={item}
+                      onOpenArtifact={onOpenArtifact}
+                      onOpenDocument={onOpenDocument}
+                      showPendingBadge={false}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ))}
+          </div>
+          {items.length > 1 ? (
+            <button
+              type="button"
+              className="mt-2 w-full rounded-[10px] border border-accent/15 bg-white/65 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-white"
+              onClick={() => setIsExpanded((open) => !open)}
+            >
+              {isExpanded ? '收起本轮更新' : `展开其余 ${hiddenCount} 条更新`}
+            </button>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+function StateSectionDrawer({
+  section,
+  activeItem,
+  onClose,
+  onSelectItem,
+  onOpenArtifact,
+  onOpenDocument,
+}: {
+  section: StateOverviewSection | null;
+  activeItem: StateOverviewItem | null;
+  onClose: () => void;
+  onSelectItem: (item: StateOverviewItem) => void;
+  onOpenArtifact: (artifact: ArtifactRecord) => void;
+  onOpenDocument: (artifact: ArtifactRecord) => void;
+}) {
+  return (
+    <Dialog open={Boolean(section)} onOpenChange={(open) => !open && onClose()}>
+      {section ? (
+        <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[min(980px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
+          <div className="grid h-full grid-cols-[320px_minmax(0,1fr)]">
+            <div className="flex min-h-0 flex-col border-r border-line bg-slate-50/80">
+              <DialogHeader className="border-b border-line px-5 py-4">
+                <DialogTitle>{section.title}</DialogTitle>
+                <DialogDescription>{section.description}</DialogDescription>
+              </DialogHeader>
+              <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                <div className="grid gap-2">
+                  {section.items.length === 0 ? (
+                    <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                      {getSectionEmptyText(section.id)}
+                    </div>
+                  ) : (
+                    section.items.map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        className={cn(
+                          'rounded-[18px] border p-3 text-left transition',
+                          activeItem?.id === item.id
+                            ? 'border-accent bg-accentSoft/50'
+                            : 'border-line bg-white hover:border-accent/25 hover:bg-slate-50'
+                        )}
+                        onClick={() => onSelectItem(item)}
+                      >
+                        {(() => {
+                          const artifactMeta = getArtifactMeta(item);
+                          return (
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="text-sm font-semibold text-ink">{item.title}</div>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {artifactMeta ? <Badge variant="default">{artifactMeta.typeLabel}</Badge> : null}
+                            {item.isRecent ? <Badge variant="accent">本轮新增</Badge> : null}
+                          </div>
+                        </div>
+                          );
+                        })()}
+                        <p className="mt-1.5 line-clamp-2 text-sm leading-6 text-muted">{getItemBody(item)}</p>
+                        {item.kind === 'artifact' ? (
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted">
+                            <span>{getArtifactFormatLabel(item.artifactType ?? '', item.contentFormat)}</span>
+                            <span>{getArtifactStatusLabel(item.status)}</span>
+                          </div>
+                        ) : null}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-col bg-white">
+              <div className="border-b border-line px-5 py-4">
+                <div className="text-sm font-medium text-muted">条目详情</div>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                {activeItem ? (
+                  (() => {
+                    const artifactMeta = getArtifactMeta(activeItem);
+
+                    return (
+                      <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-semibold text-ink">{activeItem.title}</h3>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {artifactMeta ? <Badge variant="default">{artifactMeta.displayLabel}</Badge> : null}
+                          <Badge variant={statusVariant(activeItem.status)}>
+                            {artifactMeta ? artifactMeta.statusLabel : activeItem.status}
+                          </Badge>
+                          {activeItem.isRecent ? <Badge variant="accent">本轮新增</Badge> : null}
+                        </div>
+                      </div>
+                      {activeItem.kind === 'artifact' ? (
+                        activeItem.contentFormat === 'html' ? (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              onOpenArtifact({
+                                id: activeItem.id,
+                                project_id: '',
+                                artifact_type: activeItem.artifactType ?? 'artifact',
+                                title: activeItem.title,
+                                summary: activeItem.body,
+                                status: activeItem.status,
+                                content_format: activeItem.contentFormat ?? 'html',
+                                storage_path: null,
+                                preview_url: activeItem.previewUrl ?? null,
+                                body: activeItem.documentBody ?? null,
+                                updated_at: activeItem.updatedAt ?? '',
+                              })
+                            }
+                          >
+                            打开预览
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() =>
+                              onOpenDocument({
+                                id: activeItem.id,
+                                project_id: '',
+                                artifact_type: activeItem.artifactType ?? 'artifact',
+                                title: activeItem.title,
+                                summary: activeItem.body,
+                                status: activeItem.status,
+                                content_format: activeItem.contentFormat ?? 'document',
+                                storage_path: null,
+                                preview_url: activeItem.previewUrl ?? null,
+                                body: activeItem.documentBody ?? null,
+                                updated_at: activeItem.updatedAt ?? '',
+                              })
+                            }
+                          >
+                            查看正文
+                          </Button>
+                        )
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-3 rounded-[22px] border border-line bg-slate-50/80 p-4 text-sm">
+                      {activeItem.kind === 'artifact' ? (
+                        <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                          <div className="font-medium text-muted">产物类型</div>
+                          <div className="text-ink">{getArtifactDisplayLabel({
+                            artifact_type: activeItem.artifactType ?? '',
+                            content_format: activeItem.contentFormat ?? '',
+                          })}</div>
+                        </div>
+                      ) : null}
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">形成于</div>
+                        <div className="text-ink">{WORKBENCH_STAGE_LABELS[activeItem.formedStage]}</div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">最近更新于</div>
+                        <div className="text-ink">{WORKBENCH_STAGE_LABELS[activeItem.updatedStage]}</div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">更新时间</div>
+                        <div className="text-ink">
+                          {activeItem.updatedAt ? relativeTime(activeItem.updatedAt) : '暂无'}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
+                        <div className="font-medium text-muted">来源资料</div>
+                        <div className="text-ink">{`${activeItem.sourceCount} 份`}</div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[22px] border border-line bg-white p-4">
+                      <div className="mb-3 text-sm font-medium text-muted">正文</div>
+                      <div className="whitespace-pre-wrap text-sm leading-7 text-ink">
+                        {activeItem.kind === 'artifact' ? activeItem.body || '当前还没有摘要。' : activeItem.body}
+                      </div>
+                    </div>
+                  </div>
+                    );
+                  })()
+                ) : (
+                  <div className="rounded-[20px] border border-dashed border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+                    先从左侧列表选择一个条目，再查看详情。
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      ) : null}
+    </Dialog>
   );
 }
 
@@ -299,6 +862,25 @@ function MessageMarkdown({ content }: { content: string }) {
   );
 }
 
+function actionEventTone(kind: MessageActionEvent['kind']) {
+  if (kind === 'artifact') {
+    return 'border-sky-200 bg-sky-50 text-sky-900';
+  }
+  if (kind === 'version') {
+    return 'border-violet-200 bg-violet-50 text-violet-900';
+  }
+  if (kind === 'state') {
+    return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  }
+  if (kind === 'tool_running') {
+    return 'border-amber-200 bg-amber-50 text-amber-900';
+  }
+  if (kind === 'tool_completed') {
+    return 'border-slate-200 bg-slate-100 text-slate-800';
+  }
+  return 'border-line bg-white/80 text-muted';
+}
+
 export function WorkbenchPage({
   project,
   readiness,
@@ -307,58 +889,61 @@ export function WorkbenchPage({
   state,
   artifacts,
   recentInsightIds,
-  notebookLibrary,
-  notices,
+    notices,
   sending,
   uploading,
   deletingSourceId,
   retryingSourceId,
-  bindingNotebook,
-  generatingArtifactType,
+  initializingKnowledgeBase,
   onSendMessage,
   onUploadTextSource,
   onUploadFileSource,
   onDeleteSource,
-  onRetrySourceSync,
-  onBindProjectNotebook,
-  onCreateAndBindProjectNotebook,
-  onGenerateArtifact,
+  onReindexSource,
+  onInitializeKnowledgeBase,
 }: WorkbenchPageProps) {
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isBindingDialogOpen, setIsBindingDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
-  const [notebookUrl, setNotebookUrl] = useState('');
-  const [selectedNotebookId, setSelectedNotebookId] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
   const [activeDocument, setActiveDocument] = useState<ArtifactRecord | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [activeSectionItemId, setActiveSectionItemId] = useState<string | null>(null);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
+  const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
+  const lastMessageStatus = messages[messages.length - 1]?.status_label ?? '';
 
-  const latestVersions = state.versions.slice(0, 3);
-  const stageIndex = useMemo(() => {
-    if (state.artifacts.length > 0) return 4;
-    if (state.mvp_items.length > 0) return 3;
-    if (state.confirmed_items.length > 0 || state.conflict_items.length > 0) return 2;
-    if (state.current_understanding.length > 0) return 1;
-    return 0;
-  }, [state]);
-
-  const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
-  const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
+  const stageState = useMemo(
+    () => deriveStageState(state, recentInsightIds),
+    [recentInsightIds, state]
+  );
+  const overviewSections = useMemo(
+    () => deriveStateOverviewSections(state, artifacts, recentInsightIds),
+    [artifacts, recentInsightIds, state]
+  );
+  const activeSection = useMemo(
+    () => overviewSections.find((section) => section.id === activeSectionId) ?? null,
+    [activeSectionId, overviewSections]
+  );
+  const activeSectionItem = useMemo(
+    () => activeSection?.items.find((item) => item.id === activeSectionItemId) ?? null,
+    [activeSection, activeSectionItemId]
+  );
+  const recentOverviewItems = useMemo(() => getRecentOverviewItems(overviewSections), [overviewSections]);
   const referencedSourceCount = sources.filter(
-    (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
+    (source) => sourceIndexStatus(source).includes('indexed') || sourceIndexStatus(source).includes('ready')
   ).length;
   const pendingSourceCount = sources.filter(
     (source) =>
-      source.parse_status.includes('pending') ||
-      source.sync_status.includes('pending') ||
-      source.sync_status.includes('queued')
+      sourceNormalizeStatus(source).includes('pending') ||
+      sourceIndexStatus(source).includes('pending') ||
+      sourceIndexStatus(source).includes('queued')
   ).length;
   const totalInsightCount =
     state.current_understanding.length +
@@ -368,8 +953,27 @@ export function WorkbenchPage({
     state.mvp_items.length;
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ block: 'end' });
-  }, [lastMessageContent, messages.length, notices.length, sending]);
+    const scrollTarget = chatBottomRef.current;
+    if (scrollTarget && typeof scrollTarget.scrollIntoView === 'function') {
+      scrollTarget.scrollIntoView({ block: 'end' });
+    }
+  }, [lastMessageActionCount, lastMessageContent, lastMessageStatus, messages.length, notices.length, sending]);
+
+  useEffect(() => {
+    if (!activeSection) {
+      setActiveSectionItemId(null);
+      return;
+    }
+
+    if (activeSection.items.length === 0) {
+      setActiveSectionItemId(null);
+      return;
+    }
+
+    if (!activeSection.items.some((item) => item.id === activeSectionItemId)) {
+      setActiveSectionItemId(activeSection.items[0]?.id ?? null);
+    }
+  }, [activeSection, activeSectionItemId]);
 
   async function handleSend() {
     const trimmed = composer.trim();
@@ -388,27 +992,6 @@ export function WorkbenchPage({
     setIsImportDialogOpen(false);
   }
 
-  async function handleBindNotebook() {
-    const url = notebookUrl.trim();
-    if (!url) return;
-    await onBindProjectNotebook({ sourceUrl: url });
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleBindExistingNotebook() {
-    if (!selectedNotebookId) return;
-    await onBindProjectNotebook({ notebookId: selectedNotebookId });
-    setSelectedNotebookId('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleCreateAndBindNotebook() {
-    await onCreateAndBindProjectNotebook();
-    setSelectedNotebookId('');
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
 
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
@@ -437,7 +1020,7 @@ export function WorkbenchPage({
               {readiness ? (
                 <>
                   <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude: ${readiness.claude.status}`}</Badge>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{`NotebookLM: ${readiness.notebooklm.status}`}</Badge>
+                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{`项目知识库: ${readiness.evidence?.status ?? 'unknown'}`}</Badge>
                 </>
               ) : null}
               <Button variant="ghost" size="sm" asChild>
@@ -454,29 +1037,17 @@ export function WorkbenchPage({
           </CardContent>
         </Card>
 
-        <div className="grid shrink-0 grid-cols-5 gap-2 rounded-[20px] border border-white/70 bg-white/85 p-1.5 shadow-panel">
-          {STAGES.map((stage, index) => (
-            <div
-              key={stage}
-              className={cn(
-                'rounded-[16px] border border-transparent px-3 py-2 text-sm transition-colors',
-                index < stageIndex && 'bg-emerald-50 text-emerald-900',
-                index === stageIndex && 'border-accent/15 bg-accentSoft text-accent',
-                index > stageIndex && 'bg-slate-50 text-muted'
-              )}
-            >
-              <div className="text-[10px] uppercase tracking-[0.18em]">{`Stage ${index + 1}`}</div>
-              <div className="mt-0.5 font-medium">{stage}</div>
-            </div>
-          ))}
-        </div>
+        <WorkbenchStageRail
+          primaryStage={stageState.primaryStage}
+          revisitingStages={stageState.revisitingStages}
+        />
 
         <section className="grid min-h-0 flex-1 grid-cols-[292px_minmax(0,1fr)_332px] gap-3">
           <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">项目知识库</CardTitle>
-                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已同步 · ${pendingSourceCount} 待处理`}</div>
+                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已索引 · ${pendingSourceCount} 待处理`}</div>
               </div>
             </CardHeader>
             <CardContent
@@ -510,7 +1081,7 @@ export function WorkbenchPage({
                 <div className="grid gap-2.5">
                   {sources.map((source) => {
                     const canRetrySync =
-                      source.sync_status === 'sync_failed' || source.sync_status === 'error';
+                      sourceIndexStatus(source) === 'index_failed' || sourceIndexStatus(source) === 'error';
 
                     return (
                       <div
@@ -541,11 +1112,11 @@ export function WorkbenchPage({
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8"
-                                aria-label={`重试同步 ${source.name}`}
+                                aria-label={`重建索引 ${source.name}`}
                                 disabled={retryingSourceId === source.id}
                                 onClick={async (event) => {
                                   event.stopPropagation();
-                                  await onRetrySourceSync(source.id);
+                                  await onReindexSource(source.id);
                                 }}
                               >
                                 {retryingSourceId === source.id ? (
@@ -576,11 +1147,11 @@ export function WorkbenchPage({
                         </div>
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge>{source.source_kind}</Badge>
-                          <Badge variant={statusVariant(source.parse_status)}>
-                            {parseStatusLabel(source.parse_status)}
+                          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>
+                            {parseStatusLabel(sourceNormalizeStatus(source))}
                           </Badge>
-                          <Badge variant={statusVariant(source.sync_status)}>
-                            {syncStatusLabel(source.sync_status)}
+                          <Badge variant={statusVariant(sourceIndexStatus(source))}>
+                            {indexStatusLabel(sourceIndexStatus(source))}
                           </Badge>
                         </div>
                       </div>
@@ -612,6 +1183,7 @@ export function WorkbenchPage({
                   {messages.map((message) => (
                     <div
                       key={message.id}
+                      data-testid={`chat-message-${message.id}`}
                       className={cn(
                         'flex gap-3',
                         message.role === 'user' ? 'justify-end' : 'justify-start'
@@ -637,7 +1209,48 @@ export function WorkbenchPage({
                             <span>{message.status_label}</span>
                           </div>
                         ) : null}
+                        {message.role === 'assistant' && (message.action_events?.length ?? 0) > 0 ? (
+                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-white/75 px-3 py-2.5">
+                            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
+                              系统行动
+                            </div>
+                            <div className="mt-2 flex flex-col gap-2">
+                              {message.action_events?.map((action) => (
+                                <div
+                                  key={action.id}
+                                  className={cn(
+                                    'flex items-start gap-2 rounded-[12px] border px-2.5 py-2 text-xs leading-5',
+                                    actionEventTone(action.kind)
+                                  )}
+                                >
+                                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                  <span>{action.label}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
                         <MessageMarkdown content={message.content} />
+                        {(message.image_results?.length ?? 0) > 0 ? (
+                          <div className="mt-3 grid gap-3">
+                            {message.image_results?.map((image) => (
+                              <figure
+                                key={image.id}
+                                className="overflow-hidden rounded-[18px] border border-line bg-white shadow-sm"
+                              >
+                                <img
+                                  src={image.url}
+                                  alt={image.title}
+                                  className="max-h-[420px] w-full object-contain bg-slate-50"
+                                />
+                                <figcaption className="border-t border-line px-3 py-2 text-xs text-muted">
+                                  <span className="font-medium text-ink">{image.title}</span>
+                                  {image.summary ? <span className="ml-2">{image.summary}</span> : null}
+                                </figcaption>
+                              </figure>
+                            ))}
+                          </div>
+                        ) : null}
                         {message.source_refs.length > 0 ? (
                           <div className="mt-2.5 flex flex-wrap gap-2">
                             {message.source_refs.map((reference, index) => (
@@ -705,105 +1318,35 @@ export function WorkbenchPage({
                   <CardTitle className="text-base">沉淀总集</CardTitle>
                 </div>
                 <div className="text-xs text-muted">
-                  {`${state.current_understanding.length} 当前理解 · ${state.pending_items.length} 待确认 · ${artifacts.length} 交付物`}
+                  {`${overviewSections.length} 个资产分区 · ${totalInsightCount} 条沉淀 · ${artifacts.length} 份交付物`}
                 </div>
               </div>
             </CardHeader>
-            <CardContent className="min-h-0 flex-1 overflow-y-auto space-y-3 px-3 pb-3 pt-0">
-              {STATE_SECTIONS.map((section) => (
-                <StateBlock
-                  key={section.key}
-                  label={section.label}
-                  items={state[section.key]}
-                  recentInsightIds={recentInsightIds}
+            <CardContent className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overflow-x-hidden px-3 pb-3 pt-0">
+              <RecentUpdatesCard
+                items={recentOverviewItems}
+                onOpenItem={(section, item) => {
+                  setActiveSectionId(section.id);
+                  setActiveSectionItemId(item.id);
+                }}
+                onOpenArtifact={setActiveArtifact}
+                onOpenDocument={setActiveDocument}
+              />
+
+              {overviewSections.map((section) => (
+                <StateSectionCard
+                  key={section.id}
+                  section={section}
+                  defaultOpen={section.recentCount > 0}
+                  onOpen={() => setActiveSectionId(section.id)}
+                  onOpenItem={(item) => {
+                    setActiveSectionId(section.id);
+                    setActiveSectionItemId(item.id);
+                  }}
+                  onOpenArtifact={setActiveArtifact}
+                  onOpenDocument={setActiveDocument}
                 />
               ))}
-
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-3.5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-ink">交付物</h3>
-                  <Badge>{latestArtifacts.length}</Badge>
-                </div>
-                <div className="mt-2.5 grid gap-2.5">
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      disabled={generatingArtifactType === 'document'}
-                      onClick={() => onGenerateArtifact('document')}
-                    >
-                      {generatingArtifactType === 'document' ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <FileText className="mr-2 h-3.5 w-3.5" />}
-                      生成文档稿
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      disabled={generatingArtifactType === 'page_solution'}
-                      onClick={() => onGenerateArtifact('page_solution')}
-                    >
-                      页面方案
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      disabled={generatingArtifactType === 'interaction_flow'}
-                      onClick={() => onGenerateArtifact('interaction_flow')}
-                    >
-                      交互稿
-                    </Button>
-                  </div>
-                  {latestArtifacts.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-sm text-muted">
-                      当前还没有交付物。
-                    </div>
-                  ) : (
-                    latestArtifacts.map((artifact) => (
-                      <button
-                        key={artifact.id}
-                        type="button"
-                        className="rounded-[16px] border border-white bg-white p-3 text-left transition hover:border-accent/25 hover:bg-slate-50"
-                        onClick={() => {
-                          if (artifact.content_format === 'html') {
-                            setActiveArtifact(artifact);
-                          } else {
-                            setActiveDocument(artifact);
-                          }
-                        }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-semibold text-ink">{artifact.title}</div>
-                            <p className="mt-1.5 text-sm leading-6 text-muted">{artifact.summary}</p>
-                          </div>
-                          <Badge variant={statusVariant(artifact.status)}>{artifact.status}</Badge>
-                        </div>
-                        <div className="mt-2 text-xs text-muted">
-                          {artifact.updated_at ? relativeTime(artifact.updated_at) : '刚刚更新'}
-                        </div>
-                      </button>
-                    ))
-                  )}
-                  {artifactHistoryCount > 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-3 text-xs text-muted">
-                      {`当前已折叠 ${artifactHistoryCount} 个历史版本，侧栏默认只显示每类最新交付物。`}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              {latestVersions.length > 0 ? (
-                <div className="rounded-[20px] border border-line bg-white p-3.5">
-                  <div className="text-sm font-semibold text-ink">最近版本</div>
-                  <div className="mt-2.5 grid gap-2.5">
-                    {latestVersions.map((version) => (
-                      <div key={version.id} className="rounded-[16px] border border-line bg-slate-50 p-3">
-                        <div className="text-sm font-medium text-ink">{version.title}</div>
-                        <p className="mt-1.5 text-sm leading-6 text-muted">{version.body}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
             </CardContent>
           </Card>
         </section>
@@ -817,16 +1360,35 @@ export function WorkbenchPage({
         />
       ) : null}
 
+      <StateSectionDrawer
+        section={activeSection}
+        activeItem={activeSectionItem}
+        onClose={() => setActiveSectionId(null)}
+        onSelectItem={(item) => setActiveSectionItemId(item.id)}
+        onOpenArtifact={setActiveArtifact}
+        onOpenDocument={setActiveDocument}
+      />
+
       <Dialog open={Boolean(activeArtifact)} onOpenChange={(open) => !open && setActiveArtifact(null)}>
         {activeArtifact ? (
           <DialogContent className="w-[min(1320px,94vw)] max-w-none p-0">
             <div className="flex h-[82vh] flex-col">
               <DialogHeader className="border-b border-line px-6 py-5">
                 <DialogTitle>{activeArtifact.title}</DialogTitle>
-                <DialogDescription>{activeArtifact.summary}</DialogDescription>
+                <DialogDescription>
+                  {`${getArtifactDisplayLabel(activeArtifact)} · ${activeArtifact.summary}`}
+                </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 bg-slate-100">
-                {activeArtifact.preview_url ? (
+                {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
+                  <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+                    <img
+                      src={activeArtifact.preview_url}
+                      alt={activeArtifact.title}
+                      className="max-h-full max-w-full rounded-[20px] object-contain shadow-panel"
+                    />
+                  </div>
+                ) : activeArtifact.preview_url ? (
                   <iframe
                     title={activeArtifact.title}
                     src={activeArtifact.preview_url}
@@ -845,7 +1407,9 @@ export function WorkbenchPage({
             <div className="flex h-full flex-col">
               <DialogHeader className="border-b border-line px-6 py-5">
                 <DialogTitle>{activeDocument.title}</DialogTitle>
-                <DialogDescription>{activeDocument.summary}</DialogDescription>
+                <DialogDescription>
+                  {`${getArtifactDisplayLabel(activeDocument)} · ${activeDocument.summary}`}
+                </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                 <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-muted">
@@ -861,7 +1425,7 @@ export function WorkbenchPage({
         <DialogContent className="w-[min(640px,92vw)]">
           <DialogHeader>
             <DialogTitle>运行状态</DialogTitle>
-            <DialogDescription>这里放运行链路和项目绑定状态，不占用知识库主区域。</DialogDescription>
+            <DialogDescription>这里放运行链路和项目知识库状态，不占用知识库主区域。</DialogDescription>
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
@@ -881,27 +1445,27 @@ export function WorkbenchPage({
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-medium text-ink">NotebookLM</div>
-                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.notebooklm.summary}</p>
-                    {readiness.notebooklm.detail ? (
+                    <div className="font-medium text-ink">项目知识库</div>
+                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.evidence?.summary ?? '项目知识库状态未返回。'}</p>
+                    {readiness.evidence?.detail ? (
                       <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
-                        {readiness.notebooklm.detail}
+                        {readiness.evidence?.detail}
                       </p>
                     ) : null}
                   </div>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
+                  <Badge variant={readinessVariant(readiness.evidence?.status ?? 'unknown')}>{readiness.evidence?.status ?? 'unknown'}</Badge>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Button
                     variant="secondary"
                     onClick={() => {
                       setIsRuntimeDialogOpen(false);
-                      setIsBindingDialogOpen(true);
+                      void onInitializeKnowledgeBase();
                     }}
-                    disabled={bindingNotebook}
+                    disabled={initializingKnowledgeBase}
                   >
-                    {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    绑定项目 Notebook
+                    {initializingKnowledgeBase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    初始化项目知识库
                   </Button>
                 </div>
               </div>
@@ -947,96 +1511,7 @@ export function WorkbenchPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isBindingDialogOpen} onOpenChange={setIsBindingDialogOpen}>
-        <DialogContent className="w-[min(640px,92vw)]">
-          <DialogHeader>
-            <DialogTitle>绑定项目 Notebook</DialogTitle>
-            <DialogDescription>
-              为当前项目绑定专属的 NotebookLM notebook，后面所有 grounding 都走这个项目自己的 notebook。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">已登记的 Notebook</div>
-              <div className="mt-3 grid gap-3">
-                {notebookLibrary.length === 0 ? (
-                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                    当前项目内还没有可用的 Notebook 列表。你可以直接粘贴 NotebookLM 链接完成绑定，或者直接创建一个项目专属 Notebook。
-                  </div>
-                ) : (
-                  notebookLibrary.map((notebook) => (
-                    <button
-                      key={notebook.id}
-                      type="button"
-                      className={cn(
-                        'rounded-[18px] border p-4 text-left transition',
-                        selectedNotebookId === notebook.id
-                          ? 'border-accent bg-accentSoft'
-                          : 'border-line bg-slate-50 hover:border-accent/30 hover:bg-white'
-                      )}
-                      onClick={() => setSelectedNotebookId(notebook.id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-ink">{notebook.name}</div>
-                          <p className="mt-2 text-sm leading-6 text-muted">{notebook.description}</p>
-                        </div>
-                        <Badge variant={selectedNotebookId === notebook.id ? 'accent' : 'default'}>
-                          {selectedNotebookId === notebook.id ? '已选择' : `使用 ${notebook.use_count} 次`}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {notebook.topics.map((topic) => (
-                          <Badge key={`${notebook.id}-${topic}`}>
-                            {topic}
-                          </Badge>
-                        ))}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button onClick={handleBindExistingNotebook} disabled={bindingNotebook || !selectedNotebookId}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  绑定已登记 Notebook
-                </Button>
-              </div>
-            </div>
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">为当前项目创建专属 Notebook</div>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                直接用当前项目名创建新的 NotebookLM notebook，并自动完成项目绑定。后续新需求项目也走这条正式能力。
-              </p>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={handleCreateAndBindNotebook} disabled={bindingNotebook}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  创建并绑定 Notebook
-                </Button>
-              </div>
-            </div>
-            <Input
-              id="notebook-url"
-              name="notebook-url"
-              value={notebookUrl}
-              onChange={(event) => setNotebookUrl(event.target.value)}
-              placeholder="https://notebooklm.google.com/notebook/..."
-            />
-            <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
-              这里绑定的是项目级 notebook，不再依赖全局默认 notebook。绑定完成后，后续上传到当前项目的资料会按后端标准化结果自动同步到这个 notebook。
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleBindNotebook} disabled={bindingNotebook || !notebookUrl.trim()}>
-                {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                绑定项目 Notebook
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+
     </main>
   );
 }

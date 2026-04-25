@@ -75,6 +75,73 @@ def test_validate_html_accepts_complete_local_document() -> None:
     assert service.validate_html_output("页面方案", html) == html.strip()
 
 
+def test_save_generated_output_normalizes_page_solution_title(tmp_path: Path) -> None:
+    settings = AppSettings(
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
+    )
+    init_db(settings)
+    service = ArtifactGenerationService(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        payload=CreateProjectRequest(
+            name="测试项目",
+            scenario_type="artifact-test",
+            summary="用于测试页面方案标题归一化。",
+        )
+    )
+
+    artifact = service.save_generated_output(
+        project_id=project.id,
+        artifact_type="page_solution",
+        generated=GeneratedArtifactOutput(
+            title="一期页面设计稿",
+            summary="  页面结构与信息架构草稿  ",
+            html="<!doctype html><html><head><title>页面方案</title></head><body><main>ok</main></body></html>",
+        ),
+    )
+
+    assert artifact.title == "一期页面方案"
+    assert artifact.summary == "页面结构与信息架构草稿"
+    assert artifact.content_format == "html"
+
+
+def test_save_generated_output_prefixes_interaction_flow_title_when_missing(tmp_path: Path) -> None:
+    settings = AppSettings(
+        root_dir=tmp_path,
+        data_dir=tmp_path / "data",
+        sqlite_dir=tmp_path / "data" / "sqlite",
+        sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+        projects_dir=tmp_path / "data" / "projects",
+    )
+    init_db(settings)
+    service = ArtifactGenerationService(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        payload=CreateProjectRequest(
+            name="测试项目",
+            scenario_type="artifact-test",
+            summary="用于测试交互稿标题归一化。",
+        )
+    )
+
+    artifact = service.save_generated_output(
+        project_id=project.id,
+        artifact_type="interaction_flow",
+        generated=GeneratedArtifactOutput(
+            title="异常处理流程草稿",
+            summary="",
+            html="<!doctype html><html><head><title>交互稿</title></head><body><main>ok</main></body></html>",
+        ),
+    )
+
+    assert artifact.title == "交互稿 - 异常处理流程草稿"
+    assert artifact.summary == "当前已生成可预览草稿。"
+
+
 def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(tmp_path: Path) -> None:
     settings = AppSettings(
         root_dir=tmp_path,
@@ -82,7 +149,6 @@ def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(t
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
         projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
         claude_artifact_timeout_seconds=5.0,
     )
     init_db(settings)

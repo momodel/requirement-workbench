@@ -1,19 +1,9 @@
 import asyncio
 from pathlib import Path
-import time
 
 from app.config import AppSettings
 from app.db import init_db
-from app.models import (
-    AgentTurnInput,
-    AgentTurnResult,
-    ChatCitation,
-    ChatStreamRequest,
-    EvidenceResult,
-    ProjectState,
-    ProjectSummary,
-    SourceUpsert,
-)
+from app.models import ChatCitation, ChatStreamRequest, ProviderIssue, StateItem
 from app.services.chat_service import ChatService
 from app.services.project_catalog import ProjectCatalog
 from app.services.project_state import ProjectStateService
@@ -28,154 +18,169 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
         claude_cli_path=str(tmp_path / "missing-claude"),
-        claude_stream_timeout_seconds=0.05,
-        claude_structured_timeout_seconds=0.05,
-        notebooklm_query_timeout_seconds=0.05,
+        claude_stream_timeout_seconds=0.1,
+        claude_artifact_timeout_seconds=0.3,
+        evidence_query_timeout_seconds=0.2,
     )
 
 
 class StubEvidenceRuntime:
-    def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
+    def ensure_available(self):
+        return Path("/tmp/qdrant")
 
-    def query(self, project_id: str, question: str) -> EvidenceResult:
-        return EvidenceResult(summary="stub evidence", citations=[])
+    def query(self, project_id: str, question: str, selected_source_ids=None):
+        raise AssertionError("ChatService 不应直接调用证据 runtime。")
 
 
 class StubArtifactGenerationService:
-    async def generate_from_model(self, **kwargs):
-        raise AssertionError("this test should not generate artifacts")
+    pass
 
 
-class EmptyPatchAgentRuntime:
+class StreamingAgentRuntime:
     def ensure_available(self) -> None:
         return None
 
-    async def stream_assistant_text(self, turn: AgentTurnInput):
-        if False:
-            yield ""
-
-    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
+    async def run_streaming_turn(self, turn):
+        yield ("assistant_status", {"phase": "agent_started", "label": "已接收问题，正在启动分析"})
+        yield ("message_chunk", {"text": "先确认真实范围，"})
         yield (
-            "result",
-            AgentTurnResult(
-                assistant_message=assistant_message or "这一轮只补充聊天结论，不应该清空已有沉淀。",
-                citations=[ChatCitation(title="stub", snippet="stub", source_id=None)],
-                state_updates={
-                    "current_understanding": [],
-                    "pending_items": [],
-                    "confirmed_items": [],
-                    "conflict_items": [],
-                    "mvp_items": [],
-                },
-                version_summary=None,
-                request_artifacts=[],
-            ),
+            "assistant_status",
+            {
+                "phase": "tool_running:query_project_evidence",
+                "label": "正在检索资料证据",
+            },
         )
-
-    async def generate_artifact(self, **kwargs):
-        raise AssertionError("this test should not generate artifacts")
-
-
-class ChunkThenPatchAgentRuntime:
-    def ensure_available(self) -> None:
-        return None
-
-    async def stream_assistant_text(self, turn: AgentTurnInput):
-        yield "先确认范围，"
-        yield "再补沉淀。"
-
-    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
         yield (
-            "result",
-            AgentTurnResult(
-                assistant_message=assistant_message or "先确认范围，再补沉淀。",
-                citations=[ChatCitation(title="stub", snippet="stub", source_id=None)],
-                state_updates={
-                    "current_understanding": [
-                        SourceUpsert(
-                            title="真实需求先收敛范围",
-                            body="先确认逐笔对账范围，再推进 MVP 能力。",
-                            source_ids=[],
-                            status="active",
-                        )
-                    ],
-                    "pending_items": [],
-                    "confirmed_items": [],
-                    "conflict_items": [],
-                    "mvp_items": [],
-                },
-                version_summary=None,
-                request_artifacts=[],
-            ),
+            "citations",
+            {
+                "items": [
+                    ChatCitation(
+                        title="订单字段说明",
+                        snippet="订单号与入账记录需要一一映射。",
+                        source_id="source-1",
+                    ).model_dump()
+                ]
+            },
         )
+        yield (
+            "current_understanding_patch",
+            {
+                "op": "replace",
+                "items": [
+                    {
+                        "id": "current-1",
+                        "title": "真实目标是逐笔核对",
+                        "body": "不是泛看报表，而是核对业务单据与财务科目金额是否一致。",
+                        "status": "active",
+                        "category": "current_understanding",
+                        "updated_at": "2026-04-21T10:00:00+08:00",
+                        "source_ids": ["source-1"],
+                    }
+                ],
+            },
+        )
+        yield (
+            "final_message",
+            {
+                "text": "先确认真实范围，再继续拆对账规则。",
+                "citations": [
+                    ChatCitation(
+                        title="订单字段说明",
+                        snippet="订单号与入账记录需要一一映射。",
+                        source_id="source-1",
+                    ).model_dump()
+                ],
+            },
+        )
+        yield ("done", {})
 
-    async def generate_artifact(self, **kwargs):
-        raise AssertionError("this test should not generate artifacts")
 
-
-class SlowEvidenceRuntime:
-    def ensure_available(self) -> Path:
-        return Path("/tmp/notebooklm")
-
-    def query(self, project_id: str, question: str) -> EvidenceResult:
-        time.sleep(0.2)
-        return EvidenceResult(summary="slow evidence", citations=[])
-
-
-class SlowStructuredAgentRuntime:
+class FailingAgentRuntime:
     def ensure_available(self) -> None:
         return None
 
-    async def stream_assistant_text(self, turn: AgentTurnInput):
-        yield "先输出正文。"
-
-    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
-        await asyncio.sleep(0.2)
+    async def run_streaming_turn(self, turn):
+        yield ("message_chunk", {"text": "我先开始分析。"})
+        raise ProviderIssue(provider="CLAUDE_AGENT_SDK", message="Claude 调用失败。")
         if False:
-            yield ("result", None)
-
-    async def generate_artifact(self, **kwargs):
-        raise AssertionError("this test should not generate artifacts")
+            yield ("done", {})
 
 
-class StreamOnlyAgentRuntime:
+class SlowArtifactRuntime:
     def ensure_available(self) -> None:
         return None
 
-    async def stream_assistant_text(self, turn: AgentTurnInput):
-        yield "这是普通追问回复。"
+    async def run_streaming_turn(self, turn):
+        yield (
+            "assistant_status",
+            {
+                "phase": "tool_running:generate_artifact",
+                "label": "正在生成交互稿",
+            },
+        )
+        await asyncio.sleep(0.15)
+        yield (
+            "artifact_patch",
+            {
+                "op": "upsert",
+                "items": [],
+            },
+        )
+        yield (
+            "final_message",
+            {
+                "text": "交互稿已写入交付物区。",
+                "citations": [],
+            },
+        )
+        yield ("done", {})
 
-    async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
-        if False:
-            yield ("result", None)
-        raise AssertionError("ordinary follow-up should not trigger structured patch")
 
-    async def generate_artifact(self, **kwargs):
-        raise AssertionError("this test should not generate artifacts")
+class ImageResultRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        yield (
+            "assistant_status",
+            {
+                "phase": "tool_running:generate_visual_mockup",
+                "label": "正在生成视觉稿",
+            },
+        )
+        yield (
+            "image_result",
+            {
+                "title": "需求分析工作台视觉稿",
+                "summary": "已生成一张工作台界面视觉稿。",
+                "url": "/api/projects/seed-reconciliation/images/img-123",
+                "content_type": "image/png",
+            },
+        )
+        yield (
+            "final_message",
+            {
+                "text": "视觉稿已生成，直接在这条消息里查看。",
+                "citations": [],
+            },
+        )
+        yield ("done", {})
 
 
-def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
+def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_message(
+    tmp_path: Path,
+) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-    project = catalog.get_project("seed-reconciliation")
-    assert project is not None
-
-    before = project_state.get_project_state("seed-reconciliation")
-    assert before.current_understanding, "seed project should start with existing understanding"
-    assert before.pending_items, "seed project should start with pending items"
-
     service = ChatService(
         catalog=catalog,
-        project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=EmptyPatchAgentRuntime(),
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=StreamingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -183,90 +188,45 @@ def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="请总结当前结论", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(message="继续分析", selected_source_ids=[], request_artifact_types=[]),
         ):
             events.append((event_type, payload))
         return events
 
     events = asyncio.run(collect_events())
 
-    after = project_state.get_project_state("seed-reconciliation")
-
-    assert any(event_type == "message_chunk" for event_type, _ in events)
-    assert after.current_understanding == before.current_understanding
-    assert after.pending_items == before.pending_items
-    assert after.confirmed_items == before.confirmed_items
-    assert after.conflict_items == before.conflict_items
-    assert after.mvp_items == before.mvp_items
-
-
-def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_path: Path) -> None:
-    settings = make_settings(tmp_path)
-    init_db(settings)
-    ensure_seed_project(settings)
-
-    catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-
-    service = ChatService(
-        catalog=catalog,
-        project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=ChunkThenPatchAgentRuntime(),
-        artifact_generation=StubArtifactGenerationService(),
-    )
-
-    async def collect_events():
-        events = []
-        async for event_type, payload in service.stream_turn(
-            "seed-reconciliation",
-            ChatStreamRequest(message="请总结当前结论", selected_source_ids=[], request_artifact_types=[]),
-        ):
-            events.append((event_type, payload))
-        return events
-
-    events = asyncio.run(collect_events())
-    status_events = [payload for event_type, payload in events if event_type == "assistant_status"]
-    message_chunks = [payload for event_type, payload in events if event_type == "message_chunk"]
-    patch_indexes = [
-        index for index, (event_type, _) in enumerate(events) if event_type == "current_understanding_patch"
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "message_chunk",
+        "assistant_status",
+        "citations",
+        "current_understanding_patch",
+        "message_chunk",
+        "done",
     ]
-    first_status_index = next(
-        index for index, (event_type, _) in enumerate(events) if event_type == "assistant_status"
-    )
-    first_chunk_index = next(
-        index for index, (event_type, _) in enumerate(events) if event_type == "message_chunk"
-    )
+    assert events[-2][1] == {
+        "text": "先确认真实范围，再继续拆对账规则。",
+        "replace": True,
+    }
 
-    assert status_events, "status events should be emitted before assistant text"
-    assert status_events[0]["phase"] == "source_scan"
-    assert [payload["text"] for payload in message_chunks] == ["先确认范围，", "再补沉淀。"]
-    assert all("replace" not in payload for payload in message_chunks)
-    assert first_status_index < first_chunk_index
-    assert patch_indexes, "structured patches should still be emitted"
-    assert patch_indexes[0] > max(
-        index for index, (event_type, _) in enumerate(events) if event_type == "message_chunk"
-    )
-
-    messages = catalog.list_recent_messages("seed-reconciliation")
+    messages = catalog.list_recent_messages("seed-reconciliation", limit=8)
     assistant_messages = [message for message in messages if message.role == "assistant"]
     assert assistant_messages
-    assert any(message.content == "先确认范围，再补沉淀。" for message in assistant_messages)
+    assert assistant_messages[0].content == "先确认真实范围，再继续拆对账规则。"
+    assert assistant_messages[0].source_refs[0]["title"] == "订单字段说明"
 
 
-def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> None:
+def test_chat_service_emits_error_and_done_when_runtime_fails(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-
     service = ChatService(
         catalog=catalog,
-        project_state=project_state,
-        notebooklm=SlowEvidenceRuntime(),
-        agent_runtime=ChunkThenPatchAgentRuntime(),
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=FailingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -274,35 +234,34 @@ def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> Non
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="请总结当前结论", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(message="继续分析", selected_source_ids=[], request_artifact_types=[]),
         ):
             events.append((event_type, payload))
         return events
 
     events = asyncio.run(collect_events())
 
-    assert not any(event_type == "error" for event_type, _ in events)
-    assert any(
-        event_type == "assistant_status" and payload["phase"] == "drafting"
-        for event_type, payload in events
-    )
-    assert any(event_type == "message_chunk" for event_type, _ in events)
-    assert events[-1][0] == "done"
+    assert [event_type for event_type, _ in events] == [
+        "message_chunk",
+        "error",
+        "done",
+    ]
+    assert events[1][1]["provider"] == "CLAUDE_AGENT_SDK"
+    assert "Claude 调用失败" in events[1][1]["message"]
 
 
-def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> None:
+def test_chat_service_never_queries_evidence_runtime_directly(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-
+    evidence_runtime = StubEvidenceRuntime()
     service = ChatService(
         catalog=catalog,
-        project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=SlowStructuredAgentRuntime(),
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=evidence_runtime,
+        agent_runtime=StreamingAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -310,39 +269,27 @@ def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> No
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="请总结当前结论", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(message="继续分析", selected_source_ids=[], request_artifact_types=[]),
         ):
             events.append((event_type, payload))
         return events
 
     events = asyncio.run(collect_events())
 
-    assert any(event_type == "message_chunk" for event_type, _ in events)
-    assert any(
-        event_type == "assistant_status" and payload["phase"] == "state_patch"
-        for event_type, payload in events
-    )
-    assert not any(event_type == "error" for event_type, _ in events)
-    messages = catalog.list_recent_messages("seed-reconciliation")
-    assistant_messages = [message for message in messages if message.role == "assistant"]
-    assert assistant_messages
-    assert any(message.content == "先输出正文。" for message in assistant_messages)
-    assert events[-1][0] == "done"
+    assert any(event_type == "citations" for event_type, _ in events)
 
 
-def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
+def test_chat_service_extends_timeout_while_generating_artifact(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-
     service = ChatService(
         catalog=catalog,
-        project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=StreamOnlyAgentRuntime(),
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=SlowArtifactRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -350,37 +297,34 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="我前一个问题是啥", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(message="再来个交互稿", selected_source_ids=[], request_artifact_types=[]),
         ):
             events.append((event_type, payload))
         return events
 
     events = asyncio.run(collect_events())
 
-    assert any(event_type == "message_chunk" for event_type, _ in events)
-    assert not any(
-        event_type == "assistant_status" and payload["phase"] == "state_patch"
-        for event_type, payload in events
-    )
-    assert not any(event_type.endswith("_patch") for event_type, _ in events)
-    messages = catalog.list_recent_messages("seed-reconciliation")
-    assistant_messages = [message for message in messages if message.role == "assistant"]
-    assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "artifact_patch",
+        "message_chunk",
+        "done",
+    ]
+    assert events[0][1]["phase"] == "tool_running:generate_artifact"
+    assert events[2][1]["text"] == "交互稿已写入交付物区。"
 
 
-def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Path) -> None:
+def test_chat_service_forwards_image_result_without_creating_artifact(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
-    project_state = ProjectStateService(catalog)
-
     service = ChatService(
         catalog=catalog,
-        project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
-        agent_runtime=StreamOnlyAgentRuntime(),
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=ImageResultRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
 
@@ -388,19 +332,172 @@ def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Pa
         events = []
         async for event_type, payload in service.stream_turn(
             "seed-reconciliation",
-            ChatStreamRequest(message="退款口径怎么处理", selected_source_ids=[], request_artifact_types=[]),
+            ChatStreamRequest(message="生成一张界面图", selected_source_ids=[], request_artifact_types=[]),
         ):
             events.append((event_type, payload))
         return events
 
     events = asyncio.run(collect_events())
 
-    assert any(event_type == "message_chunk" for event_type, _ in events)
-    assert not any(
-        event_type == "assistant_status" and payload["phase"] == "state_patch"
-        for event_type, payload in events
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "image_result",
+        "message_chunk",
+        "done",
+    ]
+    assert events[1][1]["url"] == "/api/projects/seed-reconciliation/images/img-123"
+    assert events[0][1]["phase"] == "tool_running:generate_visual_mockup"
+    assert all(event_type != "artifact_patch" for event_type, _ in events)
+
+    stream_group_id = events[-1][1]["stream_group_id"]
+    assistant_message = next(
+        message
+        for message in catalog.list_recent_messages("seed-reconciliation")
+        if message.role == "assistant" and message.stream_group_id == stream_group_id
     )
-    assert not any(event_type.endswith("_patch") for event_type, _ in events)
-    messages = catalog.list_recent_messages("seed-reconciliation")
-    assistant_messages = [message for message in messages if message.role == "assistant"]
-    assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
+    assert assistant_message.image_results == [events[1][1]]
+    assert assistant_message.source_refs == []
+
+
+def test_chat_service_extends_timeout_while_generating_visual_mockup(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    class SlowImageRuntime:
+        def ensure_available(self) -> None:
+            return None
+
+        async def run_streaming_turn(self, turn):
+            yield (
+                "assistant_status",
+                {
+                    "phase": "tool_running:generate_visual_mockup",
+                    "label": "正在生成视觉稿",
+                },
+            )
+            await asyncio.sleep(0.15)
+            yield (
+                "image_result",
+                {
+                    "title": "视觉稿",
+                    "summary": "图片已生成。",
+                    "url": "/api/projects/seed-reconciliation/images/img-456",
+                    "content_type": "image/png",
+                },
+            )
+            yield ("final_message", {"text": "图已生成。", "citations": []})
+            yield ("done", {})
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=SlowImageRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="生成视觉稿", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "image_result",
+        "message_chunk",
+        "done",
+    ]
+
+
+
+class NeverCalledArtifactRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        raise AssertionError("显式交付物请求不应进入主聊天 Agent loop")
+        if False:
+            yield ("done", {})
+
+    async def generate_artifact(self, **kwargs):
+        await asyncio.sleep(60)
+
+
+def test_chat_service_starts_explicit_artifact_request_as_background_job(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=NeverCalledArtifactRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(
+                message="生成交互稿",
+                selected_source_ids=[],
+                request_artifact_types=["interaction_flow"],
+            ),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert [event_type for event_type, _ in events] == [
+        "assistant_status",
+        "artifact_patch",
+        "message_chunk",
+        "done",
+    ]
+    artifact = events[1][1]["items"][0]
+    assert artifact["artifact_type"] == "interaction_flow"
+    assert artifact["status"] == "generating"
+    assert events[2][1]["text"] == "交付物已开始生成，完成后会出现在右侧交付物区。"
+
+
+def test_project_state_append_category_keeps_existing_items(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+
+    existing = project_state.get_project_state("seed-reconciliation").pending_items
+    project_state.append_category(
+        project_id="seed-reconciliation",
+        category="pending_items",
+        items=[
+            StateItem(
+                id="pending-new-1",
+                title="新增待确认项",
+                body="需要确认一期范围。",
+                status="active",
+                category="pending_items",
+                updated_at="2026-04-21T22:50:00+08:00",
+                source_ids=[],
+            )
+        ],
+    )
+
+    latest = project_state.get_project_state("seed-reconciliation").pending_items
+
+    assert len(latest) == len(existing) + 1
+    assert any(item.id == "pending-new-1" for item in latest)

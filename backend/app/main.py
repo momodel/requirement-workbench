@@ -10,6 +10,8 @@ from .config import AppSettings, DEFAULT_SETTINGS
 from .db import init_db
 from .routes.artifacts import router as artifacts_router
 from .routes.chat import router as chat_router
+from .routes.chat_images import router as chat_images_router
+from .routes.knowledge_base import router as knowledge_base_router
 from .routes.messages import router as messages_router
 from .routes.projects import router as projects_router
 from .routes.readiness import router as readiness_router
@@ -19,7 +21,8 @@ from .routes.versions import router as versions_router
 from .services.agent_runtime import ClaudeAgentRuntime
 from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
-from .services.notebooklm_service import NotebookLMService
+from .services.docling_normalizer import DoclingNormalizer
+from .services.evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
 from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
@@ -32,8 +35,9 @@ class ServiceContainer:
     settings: AppSettings
     catalog: ProjectCatalog
     project_state: ProjectStateService
+    docling_normalizer: DoclingNormalizer
     source_ingestion: SourceIngestionService
-    notebooklm: EvidenceRuntime
+    evidence_runtime: EvidenceRuntime
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
     chat_service: ChatService
@@ -42,14 +46,18 @@ class ServiceContainer:
 def build_services(settings: AppSettings) -> ServiceContainer:
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
-    source_ingestion = SourceIngestionService(settings)
-    notebooklm = NotebookLMService(settings)
-    agent_runtime = ClaudeAgentRuntime(settings)
+    docling_normalizer = DoclingNormalizer()
+    source_ingestion = SourceIngestionService(
+        settings,
+        docling_normalizer=docling_normalizer,
+    )
+    evidence_runtime = QdrantLlamaIndexEvidenceRuntime(settings, catalog=catalog)
+    agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
     artifact_generation = ArtifactGenerationService(settings)
     chat_service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=notebooklm,
+        evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
     )
@@ -57,8 +65,9 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         settings=settings,
         catalog=catalog,
         project_state=project_state,
+        docling_normalizer=docling_normalizer,
         source_ingestion=source_ingestion,
-        notebooklm=notebooklm,
+        evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
         chat_service=chat_service,
@@ -98,9 +107,11 @@ def create_app(settings: AppSettings = DEFAULT_SETTINGS) -> FastAPI:
     app.include_router(projects_router)
     app.include_router(readiness_router)
     app.include_router(sources_router)
+    app.include_router(knowledge_base_router)
     app.include_router(messages_router)
     app.include_router(state_router)
     app.include_router(chat_router)
+    app.include_router(chat_images_router)
     app.include_router(versions_router)
     app.include_router(artifacts_router)
 

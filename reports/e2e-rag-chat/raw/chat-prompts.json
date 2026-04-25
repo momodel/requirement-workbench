@@ -1,0 +1,27 @@
+[
+  {
+    "id": "01-grounded-overview",
+    "message": "请先检索项目知识库，把我们这个“需求分析工作台”项目当成客户需求来分析：梳理产品定位、目标用户、核心使用场景、输入资料类型、输出交付物、当前最关键的不确定点。请把明确结论写入沉淀，引用资料来源。",
+    "request_artifact_types": []
+  },
+  {
+    "id": "02-mvp-scope",
+    "message": "继续基于资料收敛一期 MVP：哪些能力必须做，哪些先不做，主要风险和验收标准是什么？请继续检索项目知识库，必要时更新当前需求定义、关键待确认、风险与冲突、MVP 结论。",
+    "request_artifact_types": []
+  },
+  {
+    "id": "03-document-artifact",
+    "message": "现在请基于当前沉淀和资料，整理一份《需求分析工作台一期需求规格说明》文档稿，要求包含背景、目标用户、核心流程、功能范围、非目标、数据和证据链、验收标准、风险。生成交付物。",
+    "request_artifact_types": ["document"]
+  },
+  {
+    "id": "04-page-solution-artifact",
+    "message": "继续生成页面方案交付物：围绕项目列表、三栏工作台、资料索引状态、聊天区、沉淀区、交付物预览，给出页面结构、关键组件、状态流转和异常态。生成交付物。",
+    "request_artifact_types": ["page_solution"]
+  },
+  {
+    "id": "05-interaction-artifact",
+    "message": "最后生成交互稿交付物：覆盖从创建项目、上传资料、索引、提问、引用、沉淀、生成文档/页面方案/交互稿的完整路径。请生成可预览的 HTML 交互稿。",
+    "request_artifact_types": ["interaction_flow"]
+  }
+]

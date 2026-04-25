@@ -27,7 +27,7 @@
 
 1. 创建或打开一个项目
 2. 上传或导入资料
-3. 资料经过标准化和 NotebookLM 证据接入
+3. 资料经过标准化和 项目内 RAG 证据接入
 4. 用户在工作台中持续对话
 5. 主智能体基于项目状态和证据推进分析
 6. 右侧项目状态持续更新
@@ -59,8 +59,8 @@
 - 前端采用 `React + Vite + TypeScript + shadcn/ui + Tailwind`
 - 后端采用 `FastAPI + SQLite + SSE`
 - 主智能体走真实 `Claude Agent SDK`
-- 证据层走真实 `notebooklm-py` 工作流
-- NotebookLM 认证态和上下文必须收口到项目内 `NOTEBOOKLM_HOME`，不能默认依赖用户家目录
+- 证据层走真实 `Docling + Qdrant + LlamaIndex` 工作流
+- Qdrant 存储、embedding 依赖和 source 索引状态必须收口到项目内配置，不能默认依赖用户家目录
 - `requirement-analysis-methodology` 不能只作为名词提示存在，必须以可执行规则影响主 agent prompt、状态沉淀、追问优先级和 artifact 触发
 - 中间不得用“名字像真 provider、实际是本地拼字串逻辑”的实现冒充正式链路
 
@@ -75,7 +75,7 @@
 - 未配置 provider 就明确报未配置
 - provider 调用失败就明确显示失败
 - 不把 fallback mock 伪装成正式结果
-- 不在 UI 或文档里把 stub 行为写成“已接入 Claude / 已接入 NotebookLM”
+- 不在 UI 或文档里把 stub 行为写成“已接入 Claude / 已接入 项目知识库”
 
 ## 4. 产品形态
 
@@ -117,7 +117,7 @@
 - 上传入口
 - URL / 文本导入入口
 - 解析状态
-- NotebookLM 同步状态
+- 项目知识库索引状态
 - 已引用标记
 - 当前选中 source 的摘要浮卡
 
@@ -262,7 +262,7 @@
 - 项目 CRUD
 - source 入库
 - source 标准化
-- NotebookLM 同步和查询
+- 项目知识库索引和检索
 - 聊天流式接口
 - 项目状态写入与聚合
 - 版本快照
@@ -281,7 +281,7 @@
 - `backend/app/routes/versions.py`
 - `backend/app/routes/artifacts.py`
 - `backend/app/services/agent_runtime.py`
-- `backend/app/services/notebooklm_service.py`
+- `backend/app/services/evidence_runtime.py`
 - `backend/app/services/source_ingestion.py`
 - `backend/app/services/project_state.py`
 - `backend/app/services/artifact_generation.py`
@@ -311,22 +311,22 @@
 - 预置脚本响应，再包一层 SDK 风格接口
 - 用 mock provider 跑主流程，却在文档和 UI 里写成“Claude 已接入”
 
-### 8.2 NotebookLM
+### 8.2 项目知识库
 
-一期选定 `notebooklm-py` 作为资料理解接入路径。
+一期选定 `Docling + Qdrant + LlamaIndex` 作为资料理解接入路径。
 
-这里的“接入 NotebookLM”指的是：
+这里的“接入 项目知识库”指的是：
 
-- 有真实的 NotebookLM 操作链路
-- 项目可以通过正式能力创建并绑定自己的 notebook
-- source 能真实进入 NotebookLM 工作流
-- grounded summary 和 citations 来自真实 NotebookLM 查询
+- 有真实的 项目知识库 操作链路
+- 项目可以通过正式能力初始化自己的 knowledge base
+- source 能真实进入 项目知识库 工作流
+- grounded summary 和 citations 来自真实 项目知识库 查询
 
 不算合格接入的情况：
 
-- 本地对文件做摘要，然后命名成 `NotebookLMService`
+- 本地对文件做摘要，然后命名成 `EvidenceRuntime`
 - 伪造 citation 结构
-- 用本地 mock 证据结果冒充 NotebookLM 输出
+- 用本地 mock 证据结果冒充 项目知识库 输出
 
 ### 8.3 适配层
 
@@ -340,13 +340,13 @@
 一期主路径就是：
 
 - `AgentRuntime -> Claude Agent SDK`
-- `EvidenceRuntime -> notebooklm-py workflow`
+- `EvidenceRuntime -> 项目内 RAG workflow`
 
 ## 9. 项目级 Skills
 
-一期保留两个项目级 skill。
+一期保留三个后端 CAS project skills。
 
-后端运行时以 `backend/.claude/skills/` 为正式维护位置。
+后端 CAS skills 以 `backend/.claude/skills/` 为正式维护位置，并由 `Claude Agent SDK` 在 `backend/` 作用域自动发现。
 
 ### 9.1 requirement-analysis-methodology
 
@@ -370,28 +370,38 @@
 - 后端 handler 的逐行脚本
 - 必须和运行时代码一一同构的机械流程
 
-### 9.2 notebooklm-evidence-workflow
+### 9.2 rag-evidence-workflow
 
 这个 skill 的定位是：
 
-- 约束 source 何时可直入 NotebookLM
+- 约束 source 何时可直入 项目知识库
 - 约束何时必须先标准化
-- 约束何时向 NotebookLM 请求 grounded summary 和 citations
+- 约束何时向 项目知识库 请求 grounded summary 和 citations
 - 约束失败时如何回写状态
 
 它与运行时的关系是：
 
 - 提供工作流指导
 - 帮助 prompt 和服务层保持一致
-- 真实执行仍然由 `NotebookLMService` 和 `EvidenceRuntime` 承担
+- 真实执行仍然由 `QdrantLlamaIndexEvidenceRuntime` 承担
 
-### 9.3 notebooklm-py 与旧 skill 的边界
+### 9.3 项目内 RAG 与旧 skill 的边界
 
-可以参考旧的 [PleasePrompto/notebooklm-skill](https://github.com/PleasePrompto/notebooklm-skill) 设计思路，但它不再是本项目的一期正式运行时。
+可以参考旧的 [PleasePrompto/rag-skill](https://github.com/PleasePrompto/rag-skill) 设计思路，但它不再是本项目的一期正式运行时。
+
+### 9.4 artifact-generation-guidelines
+
+这个 skill 的定位是：
+
+- 约束何时应该把当前分析结果整理成交付物
+- 约束 `document / page_solution / interaction_flow` 的类型选择
+- 约束三类交付物的输出边界，避免跑偏
+
+它默认由主 agent 在统一回合里自己参考，不由宿主先做关键词分流。
 
 在本项目里，它的定位是：
 
-- 参考 NotebookLM 操作方式
+- 参考 项目知识库 操作方式
 - 参考 prompt 组织方式
 - 参考历史 CLI 使用经验
 - 作为迁移审查时的历史参考
@@ -401,7 +411,7 @@
 - 本项目唯一的正式 skill
 - Claude 会自动从 `tools/` 或其他参考目录发现的项目级 skill
 - 本项目运行时的 source of truth
-- 可以直接代替 `NotebookLMService` 的东西
+- 可以直接代替 `EvidenceRuntime` 的东西
 
 ## 10. Source 接入与标准化
 
@@ -418,12 +428,12 @@
 - YouTube URL
 - 飞书纪要文本或导出文件
 
-其中 NotebookLM 直接能力边界按官方 source types 设计。超出其原生边界的输入，要先标准化。
+其中 项目知识库 直接能力边界按官方 source types 设计。超出其原生边界的输入，要先标准化。
 
 一期明确这样处理：
 
-- 文本 / PDF / DOCX / Markdown / Text / 图片 / 音频 / URL / YouTube：按可进入 NotebookLM 的正式路径设计
-- XLSX：先解析 sheet、表头、样例行、统计摘要，再生成 notebook-friendly 文本或 Markdown
+- 文本 / PDF / DOCX / Markdown / Text / 图片 / 音频 / URL / YouTube：按可进入 项目知识库 的正式路径设计
+- XLSX：先解析 sheet、表头、样例行、统计摘要，再生成 knowledge base-friendly 文本或 Markdown
 - 飞书纪要：一期不做 OAuth 接入，只支持粘贴文本或上传导出文件
 
 每个 source 入库后都至少要留下两类结果：
@@ -455,10 +465,10 @@
 - `upload_kind`
 - `storage_path`
 - `normalized_path`
-- `notebook_import_mode`
+- `knowledge base_import_mode`
 - `parse_status`
 - `parse_summary`
-- `sync_status`
+- `index_status`
 - `sync_error`
 - `created_at`
 
@@ -511,13 +521,13 @@
 - `state_json`
 - `created_at`
 
-### 11.8 NotebookBinding
+### 11.8 KnowledgeBaseRecord
 
 - `project_id`
 - `provider`
-- `notebook_id`
-- `sync_status`
-- `last_synced_at`
+- `knowledge_base_id`
+- `index_status`
+- `last_indexed_at`
 
 ### 11.9 DemoArtifact
 
@@ -547,7 +557,7 @@
 
 1. 读取项目当前状态
 2. 读取选中 source 和可用标准化结果
-3. 向 NotebookLM 请求 grounding
+3. 向 项目知识库 请求 grounding
 4. 将项目状态、最近消息和证据交给 Claude Agent SDK
 5. 流式返回 assistant 输出
 6. 同轮产出结构化 patch
@@ -664,16 +674,16 @@ HTML artifact 需要最小校验：
 一期至少明确处理这些情况：
 
 - Claude 未配置
-- NotebookLM 未配置
-- NotebookLM 同步失败
-- NotebookLM 查询失败
+- EvidenceRuntime 未配置
+- 项目知识库索引失败
+- 项目知识库检索失败
 - artifact 生成失败
 - SSE 中途断流
 - source 标准化失败
 
 处理原则：
 
-- source 入库和 provider 同步解耦
+- source 入库和 RAG 索引解耦
 - 有失败就保留失败状态和错误信息
 - 聊天可以在部分依赖失败时继续，但要如实说明证据能力不可用
 - 不生成假的 citations
@@ -691,7 +701,7 @@ HTML artifact 需要最小校验：
 检查：
 
 - Claude 是否真实走 `Claude Agent SDK`
-- NotebookLM 是否真实走 `notebooklm-py`
+- 项目知识库 是否真实走 `Docling + Qdrant + LlamaIndex`
 - 是否仍存在用本地 stub 冒充正式 provider 的命名和实现
 
 ### 17.3 UI 对齐检查

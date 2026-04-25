@@ -44,6 +44,16 @@ class ProjectStateService:
         self.catalog.replace_state_items(project_id, category, items)
         return items
 
+    def append_category(
+        self,
+        *,
+        project_id: str,
+        category: StateCategory,
+        items: list[StateItem],
+    ) -> list[StateItem]:
+        self.catalog.append_state_items(project_id, category, items)
+        return items
+
     def snapshot_json(self, project_id: str) -> str:
         state = self.get_project_state(project_id)
         return state.model_dump_json()
@@ -54,4 +64,17 @@ class ProjectStateService:
             trigger_kind=trigger_kind,
             summary=summary,
             state_json=self.snapshot_json(project_id),
+        )
+
+    def create_artifact_version(
+        self,
+        *,
+        project_id: str,
+        artifact_title: str,
+        artifact_type: str,
+    ) -> StateItem:
+        return self.create_version(
+            project_id=project_id,
+            trigger_kind="artifact_generated",
+            summary=f"已生成 {artifact_type} 交付物：{artifact_title}",
         )

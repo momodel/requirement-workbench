@@ -10,6 +10,7 @@ frontend/dist
 frontend/coverage
 backend/.venv
 backend/.env.local
+backend/.claude-runtime
 backend/__pycache__
 backend/app/__pycache__
 backend/app/routes/__pycache__
@@ -21,3 +22,6 @@ data/projects/*
 !data/projects/.gitkeep
 data/notebooklm/*
 data/notebooklm-skill/*
+.playwright-mcp/
+data/qdrant/*
+!data/qdrant/.gitkeep

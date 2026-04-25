@@ -37,6 +37,34 @@ class ArtifactGenerationService:
         return artifact_dir
 
     @staticmethod
+    def _normalize_title(artifact_type: ArtifactType, title: str) -> str:
+        cleaned = " ".join((title or "").split()).strip()
+        if artifact_type == "document":
+            return cleaned or "需求文档稿"
+
+        if artifact_type == "page_solution":
+            if not cleaned:
+                return "页面方案原型"
+            if "页面方案" in cleaned or "页面原型" in cleaned:
+                return cleaned
+            if "设计稿" in cleaned:
+                return re.sub(r"(页面)?设计稿", "页面方案", cleaned, count=1)
+            return f"页面方案 - {cleaned}"
+
+        if not cleaned:
+            return "交互稿原型"
+        if "交互稿" in cleaned or "交互原型" in cleaned:
+            return cleaned
+        return f"交互稿 - {cleaned}"
+
+    @staticmethod
+    def _normalize_summary(summary: str) -> str:
+        cleaned = " ".join((summary or "").split()).strip()
+        if cleaned and ("<!doctype html" in cleaned.lower() or re.search(r"<[^>]+>", cleaned)):
+            return "当前已生成可预览草稿。"
+        return cleaned or "当前已生成可预览草稿。"
+
+    @staticmethod
     def _state_item_payload(items) -> list[dict]:
         normalized: list[dict] = []
         for item in items:
@@ -57,9 +85,11 @@ class ArtifactGenerationService:
         project: ProjectSummary,
         state: ProjectState,
         artifact_type: ArtifactType,
+        additional_instruction: str | None = None,
     ) -> str:
         payload = {
             "artifact_type": artifact_type,
+            "additional_instruction": additional_instruction or "",
             "project": {
                 "name": project.name,
                 "scenario_type": project.scenario_type,
@@ -99,6 +129,75 @@ class ArtifactGenerationService:
 
         return artifact
 
+    def save_generated_output(
+        self,
+        *,
+        project_id: str,
+        artifact_type: ArtifactType,
+        generated: GeneratedArtifactOutput,
+        metadata: dict | None = None,
+        artifact_id: str | None = None,
+    ) -> ArtifactRecord:
+        normalized_title = self._normalize_title(artifact_type, generated.title)
+        normalized_summary = self._normalize_summary(generated.summary)
+
+        if artifact_type == "document":
+            body = (generated.body or "").strip()
+            if not body:
+                raise ValueError("文档稿正文不能为空。")
+            return self.catalog.save_artifact(
+                project_id=project_id,
+                artifact_type=artifact_type,
+                title=normalized_title,
+                summary=normalized_summary,
+                status="generated",
+                content_format="markdown",
+                storage_path=None,
+                body=body,
+                metadata=metadata,
+                artifact_id=artifact_id,
+            )
+
+        html = self.validate_html_output(normalized_title, generated.html or "")
+        index_path = self._artifact_dir(project_id, artifact_type) / "index.html"
+        index_path.write_text(html, encoding="utf-8")
+        return self.catalog.save_artifact(
+            project_id=project_id,
+            artifact_type=artifact_type,
+            title=normalized_title,
+            summary=normalized_summary,
+            status="generated",
+            content_format="html",
+            storage_path=str(index_path),
+            body=None,
+            metadata=metadata,
+            artifact_id=artifact_id,
+        )
+
+
+    def save_image_output(
+        self,
+        *,
+        project_id: str,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        image_path: Path,
+        metadata: dict | None = None,
+    ) -> ArtifactRecord:
+        return self.catalog.save_artifact(
+            project_id=project_id,
+            artifact_type="visual_mockup",
+            title=self._normalize_title("interaction_flow", title),
+            summary=self._normalize_summary(summary),
+            status="generated",
+            content_format="image",
+            storage_path=str(image_path),
+            body=None,
+            metadata=metadata,
+            artifact_id=artifact_id,
+        )
+
     async def generate_from_model(
         self,
         *,
@@ -106,11 +205,13 @@ class ArtifactGenerationService:
         state: ProjectState,
         artifact_type: ArtifactType,
         agent_runtime: AgentRuntime,
+        additional_instruction: str | None = None,
     ) -> ArtifactRecord:
         generation_cache_key = self._generation_cache_key(
             project=project,
             state=state,
             artifact_type=artifact_type,
+            additional_instruction=additional_instruction,
         )
         cached = self._reusable_artifact(
             project_id=project.id,
@@ -121,12 +222,15 @@ class ArtifactGenerationService:
             return cached
 
         try:
+            runtime_kwargs = {
+                "project": project,
+                "state": state,
+                "artifact_type": artifact_type,
+            }
+            if additional_instruction:
+                runtime_kwargs["additional_instruction"] = additional_instruction
             generated = await asyncio.wait_for(
-                agent_runtime.generate_artifact(
-                    project=project,
-                    state=state,
-                    artifact_type=artifact_type,
-                ),
+                agent_runtime.generate_artifact(**runtime_kwargs),
                 timeout=self.settings.claude_artifact_timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
@@ -136,37 +240,10 @@ class ArtifactGenerationService:
                 status_code=504,
             ) from exc
 
-        if artifact_type == "document":
-            body = (generated.body or "").strip()
-            if not body:
-                raise ValueError("文档稿正文不能为空。")
-            return self.catalog.save_artifact(
-                project_id=project.id,
-                artifact_type=artifact_type,
-                title=generated.title,
-                summary=generated.summary,
-                status="generated",
-                content_format="markdown",
-                storage_path=None,
-                body=body,
-                metadata={
-                    "generator": "claude-agent-sdk",
-                    "generation_cache_key": generation_cache_key,
-                },
-            )
-
-        html = self.validate_html_output(generated.title, generated.html or "")
-        index_path = self._artifact_dir(project.id, artifact_type) / "index.html"
-        index_path.write_text(html, encoding="utf-8")
-        return self.catalog.save_artifact(
+        return self.save_generated_output(
             project_id=project.id,
             artifact_type=artifact_type,
-            title=generated.title,
-            summary=generated.summary,
-            status="generated",
-            content_format="html",
-            storage_path=str(index_path),
-            body=None,
+            generated=generated,
             metadata={
                 "generator": "claude-agent-sdk",
                 "generation_cache_key": generation_cache_key,

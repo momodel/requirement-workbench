@@ -15,28 +15,17 @@ export type CreateProjectRequest = {
   summary: string;
 };
 
-export type NotebookBindingRecord = {
-  project_id: string;
-  notebook_id: string;
-  provider: string;
-  sync_status: string;
-  last_synced_at: string | null;
-  source_url: string | null;
-};
-
-export type CreateNotebookBindingResponse = {
-  notebook: NotebookLibraryItem;
-  binding: NotebookBindingRecord;
-};
-
-export type NotebookLibraryItem = {
+export type KnowledgeBaseRecord = {
   id: string;
-  name: string;
-  url: string;
-  description: string;
-  topics: string[];
-  use_count: number;
-  last_used: string | null;
+  project_id: string;
+  provider: string;
+  external_knowledge_base_id: string;
+  display_name: string | null;
+  description: string | null;
+  status: string;
+  status_error: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ProviderReadiness = {
@@ -49,14 +38,14 @@ export type ProviderReadiness = {
 
 export type GlobalReadiness = {
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
+  evidence: ProviderReadiness;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
-  notebook_binding: NotebookBindingRecord | null;
+  evidence: ProviderReadiness;
+  knowledge_base: KnowledgeBaseRecord | null;
 };
 
 export type SourceRecord = {
@@ -67,11 +56,11 @@ export type SourceRecord = {
   upload_kind: string;
   storage_path: string | null;
   normalized_path: string | null;
-  notebook_import_mode: string | null;
-  parse_status: string;
-  parse_summary: string | null;
-  sync_status: string;
-  sync_error: string | null;
+  index_input_mode: string | null;
+  normalize_status: string;
+  normalize_summary: string | null;
+  index_status: string;
+  index_error: string | null;
   created_at: string;
 };
 
@@ -80,10 +69,34 @@ export type MessageRecord = {
   role: string;
   content: string;
   source_refs: Array<{ title?: string; snippet?: string; source_id?: string }>;
+  image_results?: ChatImageResult[];
   created_at: string;
   stream_group_id: string | null;
   status_label?: string | null;
   status_phase?: string | null;
+  action_events?: MessageActionEvent[];
+};
+
+export type ChatImageResult = {
+  id: string;
+  title: string;
+  summary?: string | null;
+  url: string;
+  content_type?: string | null;
+  prompt?: string | null;
+};
+
+export type MessageActionEvent = {
+  id: string;
+  kind:
+    | 'status'
+    | 'tool_running'
+    | 'tool_completed'
+    | 'state'
+    | 'version'
+    | 'artifact'
+    | 'citation';
+  label: string;
 };
 
 export type StateItem = {
@@ -127,20 +140,6 @@ export type ChatStreamRequest = {
   client_context?: Record<string, unknown>;
 };
 
-export type BindNotebookRequest = {
-  source_url?: string;
-  notebook_id?: string;
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
-};
-
-export type CreateNotebookRequest = {
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
-};
-
 export type ChatCitation = {
   title: string;
   snippet?: string | null;
@@ -149,6 +148,7 @@ export type ChatCitation = {
 
 export type SseEventPayload = {
   project_id: string;
+  [key: string]: unknown;
   created_at: string;
   op?: 'replace' | 'upsert' | 'remove';
   items?: unknown[];
