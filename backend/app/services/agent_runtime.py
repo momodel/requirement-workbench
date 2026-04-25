@@ -7,9 +7,10 @@ import mimetypes
 from pathlib import Path
 import re
 import shutil
+import struct
 import subprocess
 import uuid
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
 from claude_agent_sdk import (
@@ -1429,6 +1430,51 @@ class ClaudeAgentRuntime:
         encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
         return f"data:{content_type};base64,{encoded}"
 
+    @staticmethod
+    def _png_too_small(raw: bytes, min_side: int = 14) -> bool:
+        if len(raw) < 24 or raw[:8] != b"\x89PNG\r\n\x1a\n":
+            return False
+        try:
+            width, height = struct.unpack(">II", raw[16:24])
+        except struct.error:
+            return False
+        return width < min_side or height < min_side
+
+    def _chat_image_content_block(self, url: str) -> dict | None:
+        data_url = self._chat_image_data_url(url)
+        if not data_url:
+            return None
+        header, _, b64 = data_url.partition(",")
+        if not b64 or "base64" not in header:
+            return None
+        media_type = header[len("data:"):].split(";", 1)[0] or "image/png"
+        if media_type not in {"image/png", "image/jpeg", "image/gif", "image/webp"}:
+            media_type = "image/png"
+        if media_type == "image/png":
+            try:
+                raw = base64.b64decode(b64, validate=False)
+            except Exception:
+                return None
+            if self._png_too_small(raw):
+                return None
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": b64},
+        }
+
+    def _user_image_blocks(self, refs: list[dict]) -> list[dict]:
+        blocks: list[dict] = []
+        for ref in refs or []:
+            if not isinstance(ref, dict):
+                continue
+            url = str(ref.get("url") or "").strip()
+            if not url:
+                continue
+            block = self._chat_image_content_block(url)
+            if block:
+                blocks.append(block)
+        return blocks
+
     def _make_generate_visual_mockup_tool(
         self,
         *,
@@ -1738,9 +1784,27 @@ class ClaudeAgentRuntime:
             },
         )
 
+        prompt_text = self._build_loop_prompt(turn)
+        image_blocks = self._user_image_blocks(turn.user_image_refs)
+        if image_blocks:
+            async def _user_message_stream():
+                yield {
+                    "type": "user",
+                    "session_id": "",
+                    "message": {
+                        "role": "user",
+                        "content": image_blocks + [{"type": "text", "text": prompt_text}],
+                    },
+                    "parent_tool_use_id": None,
+                }
+
+            prompt_arg: Any = _user_message_stream()
+        else:
+            prompt_arg = prompt_text
+
         try:
             async for message in query(
-                prompt=self._build_loop_prompt(turn),
+                prompt=prompt_arg,
                 options=options,
             ):
                 if isinstance(message, StreamEvent):

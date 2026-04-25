@@ -326,6 +326,7 @@ class AgentTurnInput:
     evidence_citations: list[ChatCitation]
     request_artifact_types: list[ArtifactType]
     recent_messages: list[MessageRecord] = field(default_factory=list)
+    user_image_refs: list[dict] = field(default_factory=list)
 
 
 @dataclass(slots=True)

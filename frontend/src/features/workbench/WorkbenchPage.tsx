@@ -10,14 +10,13 @@ import {
   Loader2,
   MonitorCog,
   PanelRight,
-  Paperclip,
   Send,
   Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { ClipboardEvent as ReactClipboardEvent, KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1154,7 +1153,6 @@ export function WorkbenchPage({
   const [pendingChatImages, setPendingChatImages] = useState<PendingChatImage[]>([]);
   const pendingChatImagesRef = useRef<PendingChatImage[]>([]);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
-  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
   const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
@@ -1273,7 +1271,16 @@ export function WorkbenchPage({
   }
 
   async function handleSelectChatImages(files: File[]) {
-    const imageFiles = files.filter((file) => file.type.startsWith('image/')).slice(0, 4);
+    const imageFiles = files
+      .filter((file) => file.type.startsWith('image/'))
+      .filter((file) => {
+        if (file.size > 5 * 1024 * 1024) {
+          console.warn(`图片 ${file.name || '(未命名)'} 超过 5MB，已忽略。`);
+          return false;
+        }
+        return true;
+      })
+      .slice(0, 4);
     if (imageFiles.length === 0) return;
     const nextImages = await Promise.all(imageFiles.map((file) => readChatImageFile(file)));
     setPendingChatImages((current) => {
@@ -1286,6 +1293,26 @@ export function WorkbenchPage({
       });
       return merged;
     });
+  }
+
+  async function handleComposerPaste(event: ReactClipboardEvent<HTMLTextAreaElement>) {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i += 1) {
+      const item = items[i];
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length === 0) return;
+    if (sending) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    await handleSelectChatImages(imageFiles);
   }
 
   function removePendingChatImage(imageId: string) {
@@ -1647,31 +1674,11 @@ export function WorkbenchPage({
                       value={composer}
                       onChange={(event) => setComposer(event.target.value)}
                       onKeyDown={handleComposerKeyDown}
-                      placeholder="继续补充业务背景、目标或限制条件..."
-                      className="min-h-[76px] pr-28"
+                      onPaste={handleComposerPaste}
+                      placeholder="继续补充业务背景、目标或限制条件，可直接粘贴截图..."
+                      className="min-h-[76px] pr-16"
                     />
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-muted"
-                        aria-label="添加图片"
-                        onClick={() => chatImageInputRef.current?.click()}
-                      >
-                        <Paperclip className="h-4 w-4" />
-                      </Button>
-                      <input
-                        ref={chatImageInputRef}
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={async (event) => {
-                          const files = Array.from(event.target.files ?? []);
-                          await handleSelectChatImages(files);
-                          event.target.value = '';
-                        }}
-                      />
                       <Button
                         onClick={handleSend}
                         disabled={sending || (!composer.trim() && pendingChatImages.length === 0)}
