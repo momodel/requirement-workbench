@@ -1,19 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    color: #10213a;
+    color: #141413;
     background:
-      radial-gradient(circle at top left, rgba(23, 71, 111, 0.12), transparent 28%),
-      linear-gradient(180deg, #eef4f9 0%, #f6f8fb 55%, #eef2f7 100%);
-    font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", sans-serif;
+      radial-gradient(circle at 12% 0%, rgba(201, 100, 66, 0.08), transparent 36%),
+      radial-gradient(circle at 88% 6%, rgba(48, 48, 46, 0.05), transparent 40%),
+      linear-gradient(180deg, #f5f4ed 0%, #f1ede2 60%, #ece7d8 100%);
+    background-attachment: fixed;
+    font-family: 'Inter', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
     color-scheme: light;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
   }
 
   * {
@@ -28,6 +33,7 @@
 
   body {
     margin: 0;
+    background: transparent;
   }
 
   a {
@@ -41,4 +47,48 @@
   select {
     font: inherit;
   }
+
+  ::selection {
+    background-color: rgba(201, 100, 66, 0.18);
+    color: #141413;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(135, 134, 127, 0.35);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(135, 134, 127, 0.55);
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  .font-display {
+    font-family: 'Source Serif 4', 'Spectral', Georgia, 'Songti SC', serif;
+    font-feature-settings: 'liga', 'kern';
+    letter-spacing: -0.005em;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+.markdown-body p {
+  font-feature-settings: 'liga', 'kern';
+}
+
+.markdown-body code {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
 }

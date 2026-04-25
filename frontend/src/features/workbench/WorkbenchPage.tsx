@@ -10,6 +10,7 @@ import {
   Loader2,
   MonitorCog,
   PanelRight,
+  Paperclip,
   Send,
   Sparkles,
   Trash2,
@@ -124,18 +125,18 @@ function runtimeHealth(readiness: ProjectReadiness | null, initializingKnowledge
   ].filter(Boolean) as string[];
 
   if (statuses.length === 0) {
-    return { label: '未知', dotClass: 'bg-slate-300', buttonClass: 'border-line bg-white text-muted' };
+    return { label: '未知', dotClass: 'bg-stone/40', buttonClass: 'border-line bg-ivory text-muted' };
   }
   if (statuses.some((status) => /failed|error|not_configured|required|missing/i.test(status))) {
-    return { label: '异常', dotClass: 'bg-rose-500', buttonClass: 'border-rose-200 bg-rose-50 text-rose-800' };
+    return { label: '异常', dotClass: 'bg-[#fbeeec]0', buttonClass: 'border-[#e3c8c4] bg-[#fbeeec] text-errorWarm' };
   }
   if (statuses.some((status) => /pending|queued|initializing|binding|config/i.test(status))) {
-    return { label: '处理中', dotClass: 'bg-amber-500', buttonClass: 'border-amber-200 bg-amber-50 text-amber-800' };
+    return { label: '处理中', dotClass: 'bg-[#f5ead2]0', buttonClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]' };
   }
   if (statuses.every((status) => status === 'ready')) {
-    return { label: '就绪', dotClass: 'bg-emerald-500', buttonClass: 'border-line bg-white text-ink' };
+    return { label: '就绪', dotClass: 'bg-[#e6efe5]0', buttonClass: 'border-line bg-ivory text-ink' };
   }
-  return { label: '检查中', dotClass: 'bg-amber-500', buttonClass: 'border-amber-200 bg-amber-50 text-amber-800' };
+  return { label: '检查中', dotClass: 'bg-[#f5ead2]0', buttonClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]' };
 }
 
 function parseStatusLabel(status: string) {
@@ -150,21 +151,21 @@ function sourceCompactStatus(source: SourceRecord) {
   const indexStatus = sourceIndexStatus(source);
 
   if (indexStatus === 'index_failed' || indexStatus === 'error') {
-    return { label: '索引失败', dotClass: 'bg-rose-500', textClass: 'text-rose-700' };
+    return { label: '索引失败', dotClass: 'bg-[#fbeeec]0', textClass: 'text-errorWarm' };
   }
   if (normalizeStatus === 'pending' || normalizeStatus === 'queued') {
-    return { label: parseStatusLabel(normalizeStatus), dotClass: 'bg-amber-500', textClass: 'text-amber-700' };
+    return { label: parseStatusLabel(normalizeStatus), dotClass: 'bg-[#f5ead2]0', textClass: 'text-[#7a5a1d]' };
   }
   if (indexStatus === 'indexing' || indexStatus === 'pending' || indexStatus === 'queued') {
-    return { label: indexStatusLabel(indexStatus), dotClass: 'bg-amber-500', textClass: 'text-amber-700' };
+    return { label: indexStatusLabel(indexStatus), dotClass: 'bg-[#f5ead2]0', textClass: 'text-[#7a5a1d]' };
   }
   if (indexStatus === 'indexed') {
-    return { label: '已索引', dotClass: 'bg-emerald-500', textClass: 'text-emerald-700' };
+    return { label: '已索引', dotClass: 'bg-[#e6efe5]0', textClass: 'text-[#3d6b50]' };
   }
   if (normalizeStatus === 'parsed') {
-    return { label: '已解析', dotClass: 'bg-emerald-500', textClass: 'text-emerald-700' };
+    return { label: '已解析', dotClass: 'bg-[#e6efe5]0', textClass: 'text-[#3d6b50]' };
   }
-  return { label: indexStatusLabel(indexStatus), dotClass: 'bg-slate-300', textClass: 'text-muted' };
+  return { label: indexStatusLabel(indexStatus), dotClass: 'bg-stone/40', textClass: 'text-muted' };
 }
 
 function sourceKindLabel(sourceKind: string) {
@@ -239,7 +240,7 @@ function stageTone(
   if (revisitingStages.includes(stage)) {
     return {
       badge: '补充中',
-      cardClass: 'border-amber-200 bg-amber-50 text-amber-900',
+      cardClass: 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]',
       badgeVariant: 'warning' as const,
     };
   }
@@ -250,14 +251,14 @@ function stageTone(
   if (stageIndex < primaryIndex) {
     return {
       badge: '已形成',
-      cardClass: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+      cardClass: 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]',
       badgeVariant: 'success' as const,
     };
   }
 
   return {
     badge: '待进入',
-    cardClass: 'border-line bg-slate-50 text-muted',
+    cardClass: 'border-line bg-parchment text-muted',
     badgeVariant: 'default' as const,
   };
 }
@@ -357,7 +358,7 @@ function SourcePreview({
 }) {
   return createPortal(
     <div
-      className="fixed z-50 w-[360px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
+      className="fixed z-50 w-[360px] rounded-[24px] border border-borderCream bg-ivory p-5 shadow-whisper"
       style={{ top: position.top, left: position.left }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -378,7 +379,7 @@ function SourcePreview({
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
         <p>{sourceNormalizeSummary(source) ?? '当前还没有解析摘要。'}</p>
         {sourceIndexError(source) ? (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
+          <div className="rounded-2xl border border-[#e6d3b3] bg-[#f5ead2] p-3 text-[#7a5a1d]">
             {sourceIndexError(source)}
           </div>
         ) : null}
@@ -407,11 +408,11 @@ function SourceFileRow({
   const compactStatus = sourceCompactStatus(source);
 
   return (
-    <div className="group overflow-hidden rounded-[16px] border border-line bg-white px-2.5 py-2 transition hover:border-accent/25 hover:bg-slate-50/80">
+    <div className="group overflow-hidden rounded-[16px] border border-borderCream bg-ivory px-2.5 py-2 transition hover:border-accent/25 hover:bg-parchment/70">
       <div className="flex items-center gap-2.5">
         <button
           type="button"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] border border-line bg-slate-50 text-xs font-semibold text-muted transition group-hover:border-accent/20 group-hover:text-accent"
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-[12px] border border-line bg-parchment text-xs font-semibold text-muted transition group-hover:border-accent/20 group-hover:text-accent"
           onClick={(event) => onPreview(source, event.currentTarget.getBoundingClientRect())}
           aria-label={`查看 ${source.name}`}
         >
@@ -521,9 +522,9 @@ function WorkbenchStageRail({
                 isActive
                   ? 'bg-accentSoft text-accent shadow-sm'
                   : isDone
-                    ? 'text-emerald-700'
+                    ? 'text-[#3d6b50]'
                     : revisitingStages.includes(stage)
-                      ? 'bg-amber-50 text-amber-800'
+                      ? 'bg-[#f5ead2] text-[#7a5a1d]'
                       : 'text-muted'
               )}
               title={tone.badge}
@@ -534,8 +535,8 @@ function WorkbenchStageRail({
                   isActive
                     ? 'border-accent bg-accent text-white'
                     : isDone
-                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                      : 'border-line bg-white text-muted'
+                      ? 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]'
+                      : 'border-borderCream bg-ivory text-muted'
                 )}
               >
                 {index + 1}
@@ -613,11 +614,11 @@ function StateSectionCard({
   const hasGeneratingArtifacts = Boolean(section.artifactStatusSummary?.generating);
 
   return (
-    <div className="rounded-[14px] border border-line bg-white px-2.5 py-2 transition hover:border-accent/20">
+    <div className="rounded-[14px] border border-borderCream bg-ivory px-2.5 py-2 transition hover:border-accent/20">
       <div className="flex min-h-8 items-center gap-2">
         <button
           type="button"
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-slate-50 hover:text-accent"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-parchment hover:text-accent"
           aria-label={`${isExpanded ? '收起' : '展开'} ${section.title}`}
           aria-expanded={isExpanded}
           onClick={onToggle}
@@ -637,7 +638,7 @@ function StateSectionCard({
               <div className="flex min-w-0 items-center gap-1.5">
                 <h3 className="truncate text-sm font-semibold text-ink">{section.title}</h3>
                 {hasGeneratingArtifacts ? (
-                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-600" aria-label="交付物生成中" />
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-[#9a7c2e]" aria-label="交付物生成中" />
                 ) : null}
                 {section.recentCount > 0 ? <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="本轮新增" /> : null}
               </div>
@@ -646,9 +647,9 @@ function StateSectionCard({
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              {section.artifactStatusSummary?.failed ? <span className="h-2 w-2 rounded-full bg-rose-500" aria-label="失败" /> : null}
+              {section.artifactStatusSummary?.failed ? <span className="h-2 w-2 rounded-full bg-[#fbeeec]0" aria-label="失败" /> : null}
               {section.recentCount > 0 ? <span className="h-2 w-2 rounded-full bg-accent" aria-label="本轮新增" /> : null}
-              <span className="grid h-6 min-w-6 place-items-center rounded-full border border-line bg-slate-50 px-1.5 text-[11px] text-muted">
+              <span className="grid h-6 min-w-6 place-items-center rounded-full border border-line bg-parchment px-1.5 text-[11px] text-muted">
                 {section.totalCount}
               </span>
             </div>
@@ -670,7 +671,7 @@ function StateSectionCard({
       {isExpanded ? (
         <div className="mt-1.5 border-t border-line/60 pt-1.5">
           {previewItems.length === 0 ? (
-            <div className="rounded-[10px] border border-dashed border-line bg-slate-50/70 px-2.5 py-1.5 text-xs text-muted">
+            <div className="rounded-[10px] border border-dashed border-line bg-parchment/70 px-2.5 py-1.5 text-xs text-muted">
               {getSectionEmptyText(section.id)}
             </div>
           ) : (
@@ -680,15 +681,15 @@ function StateSectionCard({
                   key={item.id}
                   type="button"
                   className={cn(
-                    'group flex min-w-0 items-center gap-2 rounded-[8px] px-2 py-1 text-left transition hover:bg-slate-50',
+                    'group flex min-w-0 items-center gap-2 rounded-[8px] px-2 py-1 text-left transition hover:bg-parchment',
                     item.isRecent ? 'bg-accentSoft/30' : ''
                   )}
                   onClick={() => onOpenItem(item)}
                 >
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300 group-hover:bg-accent" />
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-stone/40 group-hover:bg-accent" />
                   <span className="min-w-0 flex-1 truncate text-xs leading-5 text-muted">
                     <span className="font-medium text-ink">{item.title === section.title ? '最新条目' : item.title}</span>
-                    <span className="text-slate-300"> · </span>
+                    <span className="text-stone"> · </span>
                     {getItemBody(item)}
                   </span>
                 </button>
@@ -732,7 +733,7 @@ function RecentUpdatesCard({
         </span>
       </div>
       {items.length === 0 ? (
-        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-white/70 px-2.5 py-1.5 text-xs text-muted">
+        <div className="mt-1.5 truncate rounded-[10px] border border-dashed border-accent/20 bg-ivory/75 px-2.5 py-1.5 text-xs text-muted">
           暂无最近更新。
         </div>
       ) : (
@@ -744,7 +745,7 @@ function RecentUpdatesCard({
                 <button
                   key={`${section.id}-${item.id}`}
                   type="button"
-                  className="group grid min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 rounded-[8px] px-1.5 py-1 text-left transition hover:bg-white/70"
+                  className="group grid min-w-0 grid-cols-[10px_minmax(0,1fr)_auto] items-center gap-2 rounded-[8px] px-1.5 py-1 text-left transition hover:bg-ivory/70"
                   onClick={() => onOpenItem(section, item)}
                 >
                   <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_0_3px_rgba(37,99,235,0.12)]" />
@@ -761,7 +762,7 @@ function RecentUpdatesCard({
           {items.length > 3 ? (
             <button
               type="button"
-              className="mt-1.5 w-full rounded-[10px] border border-accent/15 bg-white/65 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-white"
+              className="mt-1.5 w-full rounded-[10px] border border-accent/15 bg-ivory/70 px-2.5 py-1.5 text-xs font-medium text-accent transition hover:bg-ivory"
               onClick={() => setIsExpanded((open) => !open)}
             >
               {isExpanded ? '收起本轮更新' : `展开其余 ${hiddenCount} 条更新`}
@@ -789,7 +790,7 @@ function ArtifactStickyPanel({
   const items = section?.items.slice(0, 3) ?? [];
 
   return (
-    <div className="shrink-0 border-t border-line/70 bg-white/95 px-3 pb-3 pt-2.5">
+    <div className="shrink-0 border-t border-line/70 bg-ivory px-3 pb-3 pt-2.5">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div>
           <div className="text-sm font-semibold text-ink">交付物</div>
@@ -802,7 +803,7 @@ function ArtifactStickyPanel({
       {items.length === 0 ? (
         <button
           type="button"
-          className="w-full rounded-[14px] border border-dashed border-line bg-slate-50/80 px-3 py-3 text-left text-sm text-muted"
+          className="w-full rounded-[14px] border border-dashed border-line bg-parchment/70 px-3 py-3 text-left text-sm text-muted"
           onClick={onOpen}
         >
           当前还没有交付物。
@@ -817,8 +818,8 @@ function ArtifactStickyPanel({
                 role="button"
                 tabIndex={0}
                 className={cn(
-                  'min-w-0 rounded-[14px] border bg-white px-2.5 py-2 text-left transition hover:border-accent/30 hover:bg-slate-50',
-                  item.status === 'failed' ? 'border-rose-100' : 'border-line'
+                  'min-w-0 rounded-[14px] border bg-ivory px-2.5 py-2 text-left transition hover:border-accent/30 hover:bg-parchment',
+                  item.status === 'failed' ? 'border-[#e9d4cf]' : 'border-line'
                 )}
                 onClick={() => onOpenItem(item)}
                 onKeyDown={(event) => {
@@ -834,18 +835,18 @@ function ArtifactStickyPanel({
                     className={cn(
                       'h-1.5 w-1.5 rounded-full',
                       item.status === 'generated'
-                        ? 'bg-emerald-500'
+                        ? 'bg-[#e6efe5]0'
                         : item.status === 'failed'
-                          ? 'bg-rose-500'
+                          ? 'bg-[#fbeeec]0'
                           : item.status === 'generating'
                             ? 'bg-blue-500'
-                            : 'bg-amber-500'
+                            : 'bg-[#f5ead2]0'
                     )}
                   />
                   <span className="truncate">{artifactMeta?.statusLabel ?? item.status}</span>
                 </div>
                 {item.status === 'generating' ? (
-                  <div className="mt-2 h-1.5 rounded-full bg-slate-100">
+                  <div className="mt-2 h-1.5 rounded-full bg-sand">
                     <div className="h-full w-3/5 rounded-full bg-accent" />
                   </div>
                 ) : null}
@@ -885,7 +886,7 @@ function StateSectionDrawer({
       {section ? (
         <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[min(980px,calc(100vw-2rem))] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
           <div className="grid h-full grid-cols-[320px_minmax(0,1fr)]">
-            <div className="flex min-h-0 flex-col border-r border-line bg-slate-50/80">
+            <div className="flex min-h-0 flex-col border-r border-line bg-parchment/70">
               <DialogHeader className="border-b border-line px-5 py-4">
                 <DialogTitle>{section.title}</DialogTitle>
                 <DialogDescription>{section.description}</DialogDescription>
@@ -893,7 +894,7 @@ function StateSectionDrawer({
               <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 <div className="grid gap-2">
                   {section.items.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white p-3 text-sm text-muted">
+                    <div className="rounded-[16px] border border-dashed border-borderCream bg-ivory p-3 text-sm text-muted">
                       {getSectionEmptyText(section.id)}
                     </div>
                   ) : (
@@ -905,7 +906,7 @@ function StateSectionDrawer({
                           'rounded-[18px] border p-3 text-left transition',
                           activeItem?.id === item.id
                             ? 'border-accent bg-accentSoft/50'
-                            : 'border-line bg-white hover:border-accent/25 hover:bg-slate-50'
+                            : 'border-borderCream bg-ivory hover:border-accent/25 hover:bg-parchment'
                         )}
                         onClick={() => onSelectItem(item)}
                       >
@@ -935,7 +936,7 @@ function StateSectionDrawer({
               </div>
             </div>
 
-            <div className="flex min-h-0 flex-col bg-white">
+            <div className="flex min-h-0 flex-col bg-ivory">
               <div className="border-b border-line px-5 py-4">
                 <div className="text-sm font-medium text-muted">条目详情</div>
               </div>
@@ -1004,7 +1005,7 @@ function StateSectionDrawer({
                       ) : null}
                     </div>
 
-                    <div className="grid gap-3 rounded-[22px] border border-line bg-slate-50/80 p-4 text-sm">
+                    <div className="grid gap-3 rounded-[22px] border border-line bg-parchment/70 p-4 text-sm">
                       {activeItem.kind === 'artifact' ? (
                         <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-3">
                           <div className="font-medium text-muted">产物类型</div>
@@ -1034,7 +1035,7 @@ function StateSectionDrawer({
                       </div>
                     </div>
 
-                    <div className="rounded-[22px] border border-line bg-white p-4">
+                    <div className="rounded-[22px] border border-borderCream bg-ivory p-4">
                       <div className="mb-3 text-sm font-medium text-muted">正文</div>
                       <div className="whitespace-pre-wrap text-sm leading-7 text-ink">
                         {activeItem.kind === 'artifact' ? activeItem.body || '当前还没有摘要。' : activeItem.body}
@@ -1044,7 +1045,7 @@ function StateSectionDrawer({
                     );
                   })()
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
+                  <div className="rounded-[20px] border border-dashed border-line bg-parchment p-4 text-sm leading-6 text-muted">
                     先从左侧列表选择一个条目，再查看详情。
                   </div>
                 )}
@@ -1070,12 +1071,12 @@ function MessageMarkdown({ content }: { content: string }) {
           strong: ({ children }) => <strong className="font-semibold text-ink">{children}</strong>,
           em: ({ children }) => <em className="italic">{children}</em>,
           pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto rounded-2xl bg-slate-950/95 p-3 font-mono text-[0.92em] text-slate-100 last:mb-0">
+            <pre className="mb-3 overflow-x-auto rounded-2xl bg-warmDarker p-3 font-mono text-[0.92em] text-warmSilver last:mb-0">
               {children}
             </pre>
           ),
           code: ({ children }) => (
-            <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[0.92em] text-ink">
+            <code className="rounded-[6px] bg-sand px-1.5 py-0.5 font-mono text-[0.92em] text-charcoal">
               {children}
             </code>
           ),
@@ -1084,7 +1085,7 @@ function MessageMarkdown({ content }: { content: string }) {
               href={href}
               target="_blank"
               rel="noreferrer"
-              className="text-sky-700 underline decoration-sky-300 underline-offset-2"
+              className="text-terracotta underline decoration-terracotta/40 underline-offset-2"
             >
               {children}
             </a>
@@ -1099,21 +1100,21 @@ function MessageMarkdown({ content }: { content: string }) {
 
 function actionEventTone(kind: MessageActionEvent['kind']) {
   if (kind === 'artifact') {
-    return 'border-sky-200 bg-sky-50 text-sky-900';
+    return 'border-[#e6cfbf] bg-[#f4e3d2] text-[#7a4520]';
   }
   if (kind === 'version') {
-    return 'border-violet-200 bg-violet-50 text-violet-900';
+    return 'border-[#dfd4e0] bg-[#ebe4ec] text-[#5e4a6b]';
   }
   if (kind === 'state') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+    return 'border-[#cdded0] bg-[#e6efe5] text-[#3d6b50]';
   }
   if (kind === 'tool_running') {
-    return 'border-amber-200 bg-amber-50 text-amber-900';
+    return 'border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]';
   }
   if (kind === 'tool_completed') {
-    return 'border-slate-200 bg-slate-100 text-slate-800';
+    return 'border-borderWarm bg-sand text-charcoal';
   }
-  return 'border-line bg-white/80 text-muted';
+  return 'border-line bg-ivory/85 text-muted';
 }
 
 export function WorkbenchPage({
@@ -1153,6 +1154,7 @@ export function WorkbenchPage({
   const [pendingChatImages, setPendingChatImages] = useState<PendingChatImage[]>([]);
   const pendingChatImagesRef = useRef<PendingChatImage[]>([]);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
+  const chatImageInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
   const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
@@ -1363,9 +1365,9 @@ export function WorkbenchPage({
   }
 
   return (
-    <main className="h-screen overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(23,71,111,0.12),_transparent_26%),linear-gradient(180deg,_#eef4f9_0%,_#f8fafc_50%,_#eef2f7_100%)] px-3 pb-3 pt-3 text-ink md:px-4">
+    <main className="h-screen overflow-hidden px-3 pb-3 pt-3 text-nearBlack md:px-4">
       <div className="mx-auto flex h-full max-w-[1700px] flex-col gap-3">
-        <Card className="shrink-0 border-white/70 bg-white/92">
+        <Card className="shrink-0 border-borderCream bg-ivory">
           <CardContent className="relative flex items-center justify-between gap-4 p-3">
             <div className="z-10 flex min-w-0 max-w-[36%] items-center gap-2.5">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-accent text-white shadow-sm">
@@ -1375,7 +1377,7 @@ export function WorkbenchPage({
                 <h1 className="truncate text-xl font-semibold tracking-tight">{project.name}</h1>
                 <div className="mt-0.5 flex min-w-0 items-center gap-2 text-xs text-muted">
                   <span className="truncate">{project.scenario_type}</span>
-                  <span className="h-1 w-1 rounded-full bg-slate-300" />
+                  <span className="h-1 w-1 rounded-full bg-stone/40" />
                   <span className="truncate">{project.status}</span>
                 </div>
               </div>
@@ -1405,7 +1407,7 @@ export function WorkbenchPage({
         </Card>
 
         <section className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)_360px] gap-3">
-          <Card className="relative flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="relative flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">项目资料</CardTitle>
@@ -1416,7 +1418,7 @@ export function WorkbenchPage({
               data-testid="sources-panel-content"
               className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-hidden px-3 pb-3 pt-0"
             >
-              <div className="flex gap-2 rounded-[16px] border border-line bg-slate-50/80 p-2">
+              <div className="flex gap-2 rounded-[16px] border border-line bg-parchment/70 p-2">
                 <Button
                   variant="subtle"
                   size="sm"
@@ -1476,7 +1478,7 @@ export function WorkbenchPage({
                     />
                   ))}
                   {sources.length === 0 ? (
-                    <div className="rounded-[16px] border border-dashed border-line bg-white/80 p-4 text-sm leading-6 text-muted">
+                    <div className="rounded-[16px] border border-dashed border-line bg-ivory/85 p-4 text-sm leading-6 text-muted">
                       先导入访谈、需求原话或业务说明，项目资料会在这里形成可检索来源。
                     </div>
                   ) : null}
@@ -1485,7 +1487,7 @@ export function WorkbenchPage({
 
               <button
                 type="button"
-                className="shrink-0 rounded-[16px] border border-dashed border-line bg-white/70 px-3 py-2.5 text-center text-xs leading-5 text-muted transition hover:border-accent/30 hover:bg-slate-50"
+                className="shrink-0 rounded-[16px] border border-dashed border-line bg-ivory/75 px-3 py-2.5 text-center text-xs leading-5 text-muted transition hover:border-accent/30 hover:bg-parchment"
                 onClick={() => sourceInputRef.current?.click()}
                 disabled={isUploadingSource}
               >
@@ -1499,14 +1501,14 @@ export function WorkbenchPage({
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 border-b border-line/70 px-3 py-2.5">
               <div className="flex items-start justify-between gap-4">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base">需求分析对话</CardTitle>
-                    <span className="flex items-center gap-1 text-xs text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span className="flex items-center gap-1 text-xs text-[#3d6b50]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#e6efe5]0" />
                       AI 在线
                     </span>
                   </div>
@@ -1536,10 +1538,10 @@ export function WorkbenchPage({
                         className={cn(
                           'max-w-[78%] rounded-[22px] px-4 py-3.5 shadow-sm',
                           message.role === 'user'
-                            ? 'bg-[#eaf3ff] text-ink'
+                            ? 'bg-accentSoft text-nearBlack shadow-[0_0_0_1px_rgba(201,100,66,0.18)]'
                             : message.role === 'assistant'
-                              ? 'border border-line bg-white text-ink'
-                              : 'border border-amber-200 bg-amber-50 text-amber-900'
+                              ? 'border border-borderCream bg-ivory text-nearBlack'
+                              : 'border border-[#e6d3b3] bg-[#f5ead2] text-[#7a5a1d]'
                         )}
                       >
                         <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-[0.16em] opacity-80">
@@ -1547,13 +1549,13 @@ export function WorkbenchPage({
                           {message.role === 'assistant' ? 'AI 助手' : message.role === 'user' ? '你' : message.role}
                         </div>
                         {message.role === 'assistant' && message.status_label ? (
-                          <div className="mb-2.5 flex items-center gap-2 rounded-[14px] border border-line/80 bg-white/70 px-3 py-2 text-xs font-medium text-muted">
+                          <div className="mb-2.5 flex items-center gap-2 rounded-[14px] border border-line/80 bg-ivory/75 px-3 py-2 text-xs font-medium text-muted">
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             <span>{message.status_label}</span>
                           </div>
                         ) : null}
                         {message.role === 'assistant' && (message.action_events?.length ?? 0) > 0 ? (
-                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-white/75 px-3 py-2.5">
+                          <div className="mb-2.5 rounded-[16px] border border-line/80 bg-ivory/80 px-3 py-2.5">
                             <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted">
                               系统行动
                             </div>
@@ -1579,12 +1581,12 @@ export function WorkbenchPage({
                             {message.image_results?.map((image) => (
                               <figure
                                 key={image.id}
-                                className="overflow-hidden rounded-[18px] border border-line bg-white shadow-sm"
+                                className="overflow-hidden rounded-[14px] border border-borderCream bg-ivory shadow-whisper"
                               >
                                 <img
                                   src={image.url}
                                   alt={image.title}
-                                  className="max-h-[420px] w-full object-contain bg-slate-50"
+                                  className="max-h-[420px] w-full object-contain bg-parchment"
                                 />
                                 <figcaption className="border-t border-line px-3 py-2 text-xs text-muted">
                                   <span className="font-medium text-ink">{image.title}</span>
@@ -1610,7 +1612,7 @@ export function WorkbenchPage({
                   {notices.map((notice) => (
                     <div
                       key={notice.id}
-                      className="rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+                      className="rounded-[20px] border border-[#e6d3b3] bg-[#f5ead2] px-4 py-3 text-sm text-[#7a5a1d]"
                     >
                       <div className="flex items-center gap-2 font-medium">
                         <AlertCircle className="h-4 w-4" />
@@ -1641,11 +1643,11 @@ export function WorkbenchPage({
                   </div>
                   <div className="relative">
                     {pendingChatImages.length > 0 ? (
-                      <div className="mb-2 flex flex-wrap gap-2 rounded-[16px] border border-line bg-white/80 p-2">
+                      <div className="mb-2 flex flex-wrap gap-2 rounded-[16px] border border-line bg-ivory/85 p-2">
                         {pendingChatImages.map((image) => (
                           <div
                             key={image.id}
-                            className="group relative flex items-center gap-2 rounded-[12px] border border-line bg-slate-50 px-2 py-1.5"
+                            className="group relative flex items-center gap-2 rounded-[12px] border border-line bg-parchment px-2 py-1.5"
                           >
                             <img
                               src={image.previewUrl}
@@ -1659,7 +1661,7 @@ export function WorkbenchPage({
                             <button
                               type="button"
                               aria-label={`移除图片 ${image.name}`}
-                              className="grid h-6 w-6 place-items-center rounded-full text-muted transition hover:bg-white hover:text-rose-600"
+                              className="grid h-6 w-6 place-items-center rounded-full text-muted transition hover:bg-ivory hover:text-errorWarm"
                               onClick={() => removePendingChatImage(image.id)}
                             >
                               <X className="h-3.5 w-3.5" />
@@ -1680,6 +1682,29 @@ export function WorkbenchPage({
                     />
                     <div className="absolute bottom-3 right-3 flex items-center gap-2">
                       <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted hover:text-terracotta"
+                        aria-label="添加图片"
+                        onClick={() => chatImageInputRef.current?.click()}
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </Button>
+                      <input
+                        ref={chatImageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={async (event) => {
+                          const files = Array.from(event.target.files ?? []);
+                          if (files.length > 0) {
+                            await handleSelectChatImages(files);
+                          }
+                          event.target.value = '';
+                        }}
+                      />
+                      <Button
                         onClick={handleSend}
                         disabled={sending || (!composer.trim() && pendingChatImages.length === 0)}
                         className="h-9 w-9 p-0"
@@ -1694,7 +1719,7 @@ export function WorkbenchPage({
             </CardContent>
           </Card>
 
-          <Card className="flex min-h-0 flex-col overflow-hidden border-white/80 bg-white/92">
+          <Card className="flex min-h-0 flex-col overflow-hidden border-borderCream bg-ivory">
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -1788,9 +1813,9 @@ export function WorkbenchPage({
                   {`${getArtifactDisplayLabel(activeArtifact)} · ${activeArtifact.summary}`}
                 </DialogDescription>
               </DialogHeader>
-              <div className="min-h-0 flex-1 bg-slate-100">
+              <div className="min-h-0 flex-1 bg-sand">
                 {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
-                  <div className="flex h-full items-center justify-center bg-slate-100 p-6">
+                  <div className="flex h-full items-center justify-center bg-sand p-6">
                     <img
                       src={activeArtifact.preview_url}
                       alt={activeArtifact.title}
@@ -1838,7 +1863,7 @@ export function WorkbenchPage({
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+              <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-ink">Claude Agent SDK</div>
@@ -1851,7 +1876,7 @@ export function WorkbenchPage({
                 </div>
               </div>
 
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+              <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-medium text-ink">项目知识库</div>

@@ -1362,7 +1362,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
 
     await user.type(composer, '第一行');
     await user.keyboard('{Shift>}{Enter}{/Shift}第二行');
@@ -1544,7 +1544,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
@@ -1658,7 +1658,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
@@ -1779,7 +1779,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
     await user.type(composer, '请整理成交互稿');
     await user.keyboard('{Enter}');
 
@@ -1895,7 +1895,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
     await user.type(composer, '请给我结论');
     await user.keyboard('{Enter}');
 
@@ -2320,7 +2320,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件，可直接粘贴截图...');
     await user.type(composer, '请继续分析');
     await user.keyboard('{Enter}');
 
