@@ -126,6 +126,7 @@ CLAUDE_MODEL=glm-5
 
 - 如果 `claude` 已经在 `PATH` 里，后端会直接使用
 - 如果不在 `PATH` 里，就在 `.env.local` 里补 `CLAUDE_CODE_CLI_PATH=/absolute/path/to/claude`
+- 没装过的话，可以用 `npm i -g @anthropic-ai/claude-code` 装一份
 
 快速检查方式：
 
@@ -171,16 +172,20 @@ source .venv/bin/activate
 - 初始化数据目录
 - 确保 seed project 存在
 
+**首次启动注意**：第一次写入 source 或第一次发问题时，FastEmbed 会拉取 `BAAI/bge-small-zh-v1.5`（约 100MB），Docling 也会按需下载解析模型，整体可能要等几分钟。在此期间 readiness 显示就绪不代表索引就绪，看到日志确认模型下载完成再操作更稳。
+
 ### 6. 启动前端
 
 ```bash
 cd frontend
-npm run dev -- --host 127.0.0.1 --port 4173
+npm run dev
 ```
+
+Vite 默认起在 `5174`，并把 `/api` 反代到 `127.0.0.1:8000`，所以后端必须先按上一节起在 `8000`，否则前端所有请求都会 502。
 
 打开：
 
-- 前端工作台：[http://127.0.0.1:4173](http://127.0.0.1:4173)
+- 前端工作台：[http://127.0.0.1:5174](http://127.0.0.1:5174)
 - 后端健康检查：[http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
 
 ## 首次进入后怎么验证
