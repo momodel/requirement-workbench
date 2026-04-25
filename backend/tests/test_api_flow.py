@@ -450,6 +450,73 @@ def test_source_content_endpoint_returns_full_docling_text_for_image_upload(
     assert "超过 240 字后的正文仍然可见" in payload["content"]
 
 
+def test_source_content_endpoint_returns_full_transcript_for_audio_upload(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_ready_audio_providers(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    transcript_body = (
+        "# 通话转写\n\n"
+        "00:00-00:05 逐笔对账需要人工确认\n"
+        "00:05-00:12 退款差异先走人工复核。"
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频预览测试",
+                "scenario_type": "general",
+                "summary": "验证音频 source 在标准化完成后返回完整转写全文。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        assert upload_response.status_code == 201
+        created_source = upload_response.json()
+        source_id = created_source["id"]
+
+        stored_source = app.state.services.catalog.get_source(source_id)
+        assert stored_source is not None
+        normalized_path = Path(stored_source.storage_path).with_suffix(".normalized.md")
+        normalized_path.write_text(transcript_body, encoding="utf-8")
+        app.state.services.catalog.update_source_normalization(
+            source_id=source_id,
+            normalized_path=str(normalized_path),
+            index_input_mode="normalized_text",
+            normalize_status="parsed",
+            normalize_summary="ASR 已生成转写文本。",
+            index_status="indexed",
+            index_error=None,
+        )
+
+        content_response = client.get(
+            f"/api/projects/{project_id}/sources/{source_id}/content"
+        )
+
+    assert queued == [(project_id, source_id)]
+    assert content_response.status_code == 200
+    payload = content_response.json()
+    assert payload["source_id"] == source_id
+    assert payload["content_status"] == "full_text"
+    assert payload["content_origin"] == "normalized_path"
+    assert "00:00-00:05 逐笔对账需要人工确认" in (payload["content"] or "")
+
+
 def test_project_knowledge_base_init_and_get_flow(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_evidence_runtime(app, monkeypatch)

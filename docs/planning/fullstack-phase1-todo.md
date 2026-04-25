@@ -82,6 +82,9 @@
 - [x] source 自动索引项目知识库 的文本和文件主路径已接通
 - [x] RAG query 结果已映射回本地 source 引用
 - [x] 新项目和 seed project 都有项目级 knowledge base binding 模型
+- [x] 音频 source 走“七牛对象存储 + 阿里云转写 + normalized text + 项目内索引”正式主链路
+- [x] 音频 source 支持 processing / failed / indexed 的真实状态暴露
+- [x] 音频 source 保持音频样式标记，同时支持标准化全文预览
 
 ### 3.5 CAS 风格主链路
 
