@@ -7,6 +7,7 @@ import type {
   ProjectState,
   ProjectReadiness,
   ProjectSummary,
+  SourceContentRecord,
   SourceRecord,
   SseEventPayload,
 } from './types';
@@ -134,6 +135,10 @@ export function reindexProjectSource(projectId: string, sourceId: string) {
   return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/reindex`, {
     method: 'POST',
   });
+}
+
+export function getProjectSourceContent(projectId: string, sourceId: string) {
+  return fetchJson<SourceContentRecord>(`/api/projects/${projectId}/sources/${sourceId}/content`);
 }
 
 export function initProjectKnowledgeBase(projectId: string) {

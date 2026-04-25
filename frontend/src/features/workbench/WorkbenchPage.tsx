@@ -49,6 +49,7 @@ import type {
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
+  SourceContentRecord,
   SourceRecord,
 } from '../../lib/types';
 import {
@@ -80,6 +81,7 @@ type WorkbenchPageProps = {
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
   onReindexSource: (sourceId: string) => Promise<void>;
+  onRequestSourceContent: (sourceId: string) => Promise<SourceContentRecord>;
   onInitializeKnowledgeBase: () => Promise<boolean>;
 };
 
@@ -139,6 +141,7 @@ function indexStatusLabel(status: string) {
   if (status === 'normalization_pending') return '待标准化';
   if (status === 'normalization_failed') return '标准化失败';
   if (status === 'index_failed') return '入库失败';
+  if (status === 'not_configured') return '未配置';
   if (status === 'knowledge_base_missing') return '待初始化知识库';
   if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
@@ -159,6 +162,32 @@ function sourceIndexStatus(source: SourceRecord): string {
 
 function sourceIndexError(source: SourceRecord): string | null {
   return source.index_error ?? (source as unknown as { sync_error?: string | null }).sync_error ?? null;
+}
+
+function canRetrySource(source: SourceRecord) {
+  const indexStatus = sourceIndexStatus(source);
+  if (
+    indexStatus === 'index_failed' ||
+    indexStatus === 'error' ||
+    indexStatus === 'normalization_failed' ||
+    indexStatus === 'not_configured'
+  ) {
+    return true;
+  }
+
+  if (source.source_kind !== 'audio') {
+    return false;
+  }
+
+  const normalizeStatus = sourceNormalizeStatus(source);
+  return normalizeStatus === 'failed' || normalizeStatus === 'error' || normalizeStatus === 'not_configured';
+}
+
+function sourceContentLabel(record: SourceContentRecord | null) {
+  if (!record) return '完整正文';
+  if (record.content_status === 'summary_only') return '当前摘要';
+  if (record.content_status === 'unavailable') return '暂无正文';
+  return '完整正文';
 }
 
 function sanitizeStateBody(title: string, body: string) {
@@ -337,15 +366,36 @@ function RuntimeProviderCard({
 function SourcePreview({
   source,
   position,
+  contentRecord,
+  loading,
+  error,
   onClose,
 }: {
   source: SourceRecord;
   position: { top: number; left: number };
+  contentRecord: SourceContentRecord | null;
+  loading: boolean;
+  error: string | null;
   onClose: () => void;
 }) {
+  const contentScrollRef = useRef<HTMLDivElement | null>(null);
+  const previewText = contentRecord?.content ?? sourceNormalizeSummary(source) ?? '当前还没有可展示的正文。';
+
+  useEffect(() => {
+    const scrollContainer = contentScrollRef.current;
+    if (!scrollContainer) {
+      return;
+    }
+    if (typeof scrollContainer.scrollTo === 'function') {
+      scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+      return;
+    }
+    scrollContainer.scrollTop = 0;
+  }, [source.id]);
+
   return createPortal(
     <div
-      className="fixed z-50 w-[360px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
+      className="fixed z-50 w-[420px] rounded-[24px] border border-line bg-white p-5 shadow-panel"
       style={{ top: position.top, left: position.left }}
     >
       <div className="flex items-start justify-between gap-4">
@@ -368,7 +418,36 @@ function SourcePreview({
           </Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{sourceNormalizeSummary(source) ?? '当前还没有标准化摘要。'}</p>
+        <div className="rounded-[18px] border border-line bg-slate-50/80 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted">
+              {sourceContentLabel(contentRecord)}
+            </div>
+            {loading ? <Loader2 className="h-4 w-4 animate-spin text-muted" /> : null}
+          </div>
+          <p className="mt-2 text-xs leading-5 text-muted">
+            {error ?? contentRecord?.detail ?? '正在拉取资料正文。'}
+          </p>
+          <div
+            ref={contentScrollRef}
+            className="mt-3 max-h-[52vh] overflow-y-auto rounded-[14px] border border-white bg-white px-3 py-3 text-sm leading-7 text-ink"
+          >
+            {loading ? (
+              <div className="flex items-center gap-2 text-sm text-muted">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>正在加载完整正文…</span>
+              </div>
+            ) : (
+              <div className="whitespace-pre-wrap">{previewText}</div>
+            )}
+          </div>
+        </div>
+        {sourceNormalizeSummary(source) && contentRecord?.content_status === 'full_text' ? (
+          <div className="rounded-[18px] border border-line bg-white p-4">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted">标准化摘要</div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted">{sourceNormalizeSummary(source)}</p>
+          </div>
+        ) : null}
         {sourceIndexError(source) ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
             {sourceIndexError(source)}
@@ -934,7 +1013,7 @@ export function WorkbenchPage({
   state,
   artifacts,
   recentInsightIds,
-    notices,
+  notices,
   sending,
   uploading,
   deletingSourceId,
@@ -945,6 +1024,7 @@ export function WorkbenchPage({
   onUploadFileSource,
   onDeleteSource,
   onReindexSource,
+  onRequestSourceContent,
   onInitializeKnowledgeBase,
 }: WorkbenchPageProps) {
   const [composer, setComposer] = useState('');
@@ -953,6 +1033,9 @@ export function WorkbenchPage({
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
+  const [selectedSourceContent, setSelectedSourceContent] = useState<SourceContentRecord | null>(null);
+  const [selectedSourceContentError, setSelectedSourceContentError] = useState<string | null>(null);
+  const [loadingSourceContent, setLoadingSourceContent] = useState(false);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
   const [activeDocument, setActiveDocument] = useState<ArtifactRecord | null>(null);
@@ -960,6 +1043,7 @@ export function WorkbenchPage({
   const [activeSectionItemId, setActiveSectionItemId] = useState<string | null>(null);
   const sourceInputRef = useRef<HTMLInputElement | null>(null);
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const sourcePreviewRequestRef = useRef(0);
   const lastMessageContent = messages[messages.length - 1]?.content ?? '';
   const lastMessageActionCount = messages[messages.length - 1]?.action_events?.length ?? 0;
   const lastMessageStatus = messages[messages.length - 1]?.status_label ?? '';
@@ -1028,6 +1112,44 @@ export function WorkbenchPage({
       setActiveSectionItemId(activeSection.items[0]?.id ?? null);
     }
   }, [activeSection, activeSectionItemId]);
+
+  function closeSourcePreview() {
+    sourcePreviewRequestRef.current += 1;
+    setSelectedSource(null);
+    setSelectedSourceContent(null);
+    setSelectedSourceContentError(null);
+    setLoadingSourceContent(false);
+  }
+
+  async function openSourcePreview(source: SourceRecord, rect: DOMRect) {
+    const requestId = sourcePreviewRequestRef.current + 1;
+    sourcePreviewRequestRef.current = requestId;
+    setSourcePreviewPosition({
+      top: Math.min(rect.top, window.innerHeight - 300),
+      left: Math.min(rect.right + 12, window.innerWidth - 440),
+    });
+    setSelectedSource(source);
+    setSelectedSourceContent(null);
+    setSelectedSourceContentError(null);
+    setLoadingSourceContent(true);
+
+    try {
+      const contentRecord = await onRequestSourceContent(source.id);
+      if (sourcePreviewRequestRef.current !== requestId) {
+        return;
+      }
+      setSelectedSourceContent(contentRecord);
+    } catch (error) {
+      if (sourcePreviewRequestRef.current !== requestId) {
+        return;
+      }
+      setSelectedSourceContentError(error instanceof Error ? error.message : '资料正文加载失败。');
+    } finally {
+      if (sourcePreviewRequestRef.current === requestId) {
+        setLoadingSourceContent(false);
+      }
+    }
+  }
 
   async function handleSend() {
     const trimmed = composer.trim();
@@ -1134,8 +1256,7 @@ export function WorkbenchPage({
               <div data-testid="sources-scroll-area" className="min-h-0 flex-1 overflow-y-auto pr-1">
                 <div className="grid gap-2.5">
                   {sources.map((source) => {
-                    const canRetrySync =
-                      sourceIndexStatus(source) === 'index_failed' || sourceIndexStatus(source) === 'error';
+                    const canRetrySync = canRetrySource(source);
 
                     return (
                       <div
@@ -1146,13 +1267,8 @@ export function WorkbenchPage({
                           <button
                             type="button"
                             className="min-w-0 flex-1 text-left"
-                            onClick={(event) => {
-                              const rect = event.currentTarget.getBoundingClientRect();
-                              setSourcePreviewPosition({
-                                top: Math.min(rect.top, window.innerHeight - 300),
-                                left: Math.min(rect.right + 12, window.innerWidth - 380),
-                              });
-                              setSelectedSource(source);
+                            onClick={async (event) => {
+                              await openSourcePreview(source, event.currentTarget.getBoundingClientRect());
                             }}
                           >
                             <div className="flex items-start justify-between gap-2">
@@ -1415,7 +1531,10 @@ export function WorkbenchPage({
         <SourcePreview
           source={selectedSource}
           position={sourcePreviewPosition}
-          onClose={() => setSelectedSource(null)}
+          contentRecord={selectedSourceContent}
+          loading={loadingSourceContent}
+          error={selectedSourceContentError}
+          onClose={closeSourcePreview}
         />
       ) : null}
 

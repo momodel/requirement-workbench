@@ -1054,7 +1054,7 @@ describe('App', () => {
 
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
-    installFetchMock({
+    const fetchSpy = installFetchMock({
       '/api/projects/seed-reconciliation': {
         id: 'seed-reconciliation',
         name: '集团业财逐笔对账需求分析',
@@ -1082,6 +1082,16 @@ describe('App', () => {
           created_at: '2026-04-16T00:00:00+08:00',
         },
       ],
+      '/api/projects/seed-reconciliation/sources/src-audio-2/content': {
+        source_id: 'src-audio-2',
+        project_id: 'seed-reconciliation',
+        source_name: '门店复盘录音.mp3',
+        content_status: 'full_text',
+        content_origin: 'normalized_path',
+        content:
+          '00:00-00:05 先统一订单口径，再对齐财务科目映射。\n00:05-00:11 退款要单独看收入确认与冲销时间差。',
+        detail: '预览内容来自标准化正文。',
+      },
       '/api/projects/seed-reconciliation/messages': [],
       '/api/projects/seed-reconciliation/state': {
         current_understanding: [],
@@ -1141,6 +1151,12 @@ describe('App', () => {
     expect(await screen.findByText('标准化：已标准化')).toBeInTheDocument();
     expect(screen.getByText('入库：已入库')).toBeInTheDocument();
     expect(screen.getByText('音频转写摘要：退款口径和收入确认口径都需要补一轮澄清。')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '门店复盘录音.mp3' }));
+
+    expect(await screen.findByText(/00:00-00:05 先统一订单口径/)).toBeInTheDocument();
+    expect(screen.getByText(/00:05-00:11 退款要单独看收入确认与冲销时间差/)).toBeInTheDocument();
+    expect(fetchSpy).toHaveBeenCalledWith('/api/projects/seed-reconciliation/sources/src-audio-2/content', undefined);
 
     await user.click(screen.getByRole('button', { name: '运行状态' }));
 
@@ -1376,6 +1392,147 @@ describe('App', () => {
     await waitFor(() => {
       expect(retried).toBe(true);
       expect(screen.getByText('入库：已入库')).toBeInTheDocument();
+    });
+  });
+
+  it('shows retry for audio normalization failures from the workbench', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    let retried = false;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/sources/src-audio-3/reindex' && method === 'POST') {
+        retried = true;
+        return new Response(
+          JSON.stringify({
+            id: 'src-audio-3',
+            project_id: 'seed-reconciliation',
+            name: '门店复盘录音.mp3',
+            source_kind: 'audio',
+            upload_kind: 'file',
+            storage_path: '/tmp/store-call.mp3',
+            normalized_path: null,
+            index_input_mode: null,
+            normalize_status: 'processing',
+            normalize_summary: '正在重新转写音频；完成后会自动进入项目知识库。',
+            index_status: 'normalization_pending',
+            index_error: '音频正在转写，完成后会自动进入项目知识库。',
+            created_at: '2026-04-16T00:00:00+08:00',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [
+          {
+            id: 'src-audio-3',
+            project_id: 'seed-reconciliation',
+            name: '门店复盘录音.mp3',
+            source_kind: 'audio',
+            upload_kind: 'file',
+            storage_path: '/tmp/store-call.mp3',
+            normalized_path: null,
+            index_input_mode: null,
+            normalize_status: retried ? 'processing' : 'not_configured',
+            normalize_summary: retried
+              ? '正在重新转写音频；完成后会自动进入项目知识库。'
+              : '音频标准化暂不可启动。七牛未配置；阿里云未配置。',
+            index_status: retried ? 'normalization_pending' : 'normalization_failed',
+            index_error: retried
+              ? '音频正在转写，完成后会自动进入项目知识库。'
+              : '资料标准化失败，尚未进入项目知识库。音频标准化暂不可启动。七牛未配置；阿里云未配置。',
+            created_at: '2026-04-16T00:00:00+08:00',
+          },
+        ],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'ready',
+            summary: '项目知识库已就绪。',
+            detail: 'Knowledge Base ID: nb-seed-001',
+            action_label: null,
+          },
+          object_storage: {
+            provider: 'QINIU_KODO',
+            status: retried ? 'ready' : 'not_configured',
+            summary: retried ? '七牛对象存储已就绪。' : '七牛对象存储未配置。',
+            detail: null,
+            action_label: retried ? null : '配置七牛',
+          },
+          audio_transcription: {
+            provider: 'ALIYUN_ASR',
+            status: retried ? 'ready' : 'not_configured',
+            summary: retried ? '阿里云音频转写已就绪。' : '阿里云音频转写未配置。',
+            detail: null,
+            action_label: retried ? null : '配置阿里云',
+          },
+          knowledge_base: {
+            project_id: 'seed-reconciliation',
+            id: 'nb-seed-001',
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'bound',
+            updated_at: null,
+            status_error: 'https://qdrant.local/knowledge-base/nb-seed-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/knowledge-base': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(await screen.findByText('入库：标准化失败')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '重建索引 门店复盘录音.mp3' }));
+
+    await waitFor(() => {
+      expect(retried).toBe(true);
+      expect(screen.getByText('标准化：标准化中')).toBeInTheDocument();
+      expect(screen.getByText('入库：待标准化')).toBeInTheDocument();
     });
   });
 

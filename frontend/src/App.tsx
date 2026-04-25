@@ -11,6 +11,7 @@ import {
   getGlobalReadiness,
   getProject,
   getProjectReadiness,
+  getProjectSourceContent,
   getProjectState,
   listArtifacts,
   listMessages,
@@ -851,6 +852,10 @@ function WorkbenchRoute() {
     }
   }
 
+  function handleRequestSourceContent(sourceId: string) {
+    return getProjectSourceContent(projectId, sourceId);
+  }
+
   const cleanedNotices = useMemo(() => notices.slice(0, 4), [notices]);
 
   if (loading || !data.project || !data.state) {
@@ -881,12 +886,13 @@ function WorkbenchRoute() {
       retryingSourceId={retryingSourceId}
       initializingKnowledgeBase={initializingKnowledgeBase}
       onSendMessage={handleSendMessage}
-        onUploadTextSource={handleUploadTextSource}
-        onUploadFileSource={handleUploadFileSource}
-        onDeleteSource={handleDeleteSource}
-        onReindexSource={handleRetrySourceSync}
-        onInitializeKnowledgeBase={ensureProjectKnowledgeBase}
-      />
+      onUploadTextSource={handleUploadTextSource}
+      onUploadFileSource={handleUploadFileSource}
+      onDeleteSource={handleDeleteSource}
+      onReindexSource={handleRetrySourceSync}
+      onRequestSourceContent={handleRequestSourceContent}
+      onInitializeKnowledgeBase={ensureProjectKnowledgeBase}
+    />
   );
 }
 

@@ -1357,6 +1357,79 @@ def test_audio_reindex_repairs_stale_processing_when_audio_providers_are_unavail
     assert refreshed.index_error == payload["index_error"]
 
 
+def test_audio_reindex_does_not_restart_truly_inflight_processing_source(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = create_app(make_settings(tmp_path))
+    install_fake_evidence_runtime(app, monkeypatch)
+    queued: list[tuple[str, str]] = []
+
+    install_ready_audio_providers(app, monkeypatch)
+    monkeypatch.setattr(
+        app.state.services.audio_ingestion,
+        "process_source",
+        lambda project_id, source_id: queued.append((project_id, source_id)),
+    )
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "音频 processing 幂等重试测试",
+                "scenario_type": "general",
+                "summary": "验证 truly in-flight 音频 reindex 不会重复发起转写。",
+            },
+        )
+        assert create_response.status_code == 201
+        project_id = create_response.json()["id"]
+
+        upload_response = client.post(
+            f"/api/projects/{project_id}/sources",
+            data={"upload_kind": "file", "name": "call.mp3"},
+            files={"file": ("call.mp3", b"ID3", "audio/mpeg")},
+        )
+        assert upload_response.status_code == 201
+        created_source = upload_response.json()
+        source_id = created_source["id"]
+        assert queued == [(project_id, source_id)]
+        queued.clear()
+
+        app.state.services.catalog.update_source_normalization(
+            source_id=source_id,
+            normalized_path=None,
+            index_input_mode=None,
+            normalize_status="processing",
+            normalize_summary="音频正在转写，完成后会自动进入项目知识库。",
+            index_status="normalization_pending",
+            index_error="音频正在转写，完成后会自动进入项目知识库。",
+        )
+
+        reindex_response = client.post(
+            f"/api/projects/{project_id}/sources/{source_id}/reindex",
+        )
+
+    assert reindex_response.status_code == 200
+    payload = reindex_response.json()
+    assert_source_payload_is_neutral_only(payload)
+    assert payload["id"] == source_id
+    assert payload["source_kind"] == "audio"
+    assert payload["normalize_status"] == "processing"
+    assert payload["index_status"] == "normalization_pending"
+    assert payload["normalized_path"] is None
+    assert payload["index_input_mode"] is None
+    assert payload["normalize_summary"] == "音频正在转写，完成后会自动进入项目知识库。"
+    assert payload["index_error"] == "音频正在转写，完成后会自动进入项目知识库。"
+    assert queued == []
+
+    refreshed = app.state.services.catalog.get_source(source_id)
+    assert refreshed is not None
+    assert refreshed.normalize_status == "processing"
+    assert refreshed.index_status == "normalization_pending"
+    assert refreshed.normalize_summary == "音频正在转写，完成后会自动进入项目知识库。"
+    assert refreshed.index_error == "音频正在转写，完成后会自动进入项目知识库。"
+
+
 def test_source_route_persists_neutral_ingestion_fields_without_legacy_writes(
     tmp_path: Path,
     monkeypatch,

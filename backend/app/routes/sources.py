@@ -465,14 +465,7 @@ def reindex_source(
                         blocker=blocker,
                     )
                 )
-            return _serialize_source_record(
-                _restart_audio_source_processing(
-                    services,
-                    project_id=project_id,
-                    source_id=source_id,
-                    background_tasks=background_tasks,
-                )
-            )
+            return _serialize_source_record(source)
 
         if source.normalize_status in {"failed", "pending", "not_configured", "error"}:
             if blocker is not None:

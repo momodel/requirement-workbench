@@ -68,6 +68,16 @@ export type SourceRecord = {
   created_at: string;
 };
 
+export type SourceContentRecord = {
+  source_id: string;
+  project_id: string;
+  source_name: string;
+  content_status: string;
+  content_origin: string | null;
+  content: string | null;
+  detail: string;
+};
+
 export type MessageRecord = {
   id: string;
   role: string;
