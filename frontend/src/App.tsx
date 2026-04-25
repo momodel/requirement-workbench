@@ -24,6 +24,7 @@ import {
 } from './lib/api';
 import type {
   ArtifactRecord,
+  ChatImageAttachment,
   ChatImageResult,
   ChatStreamRequest,
   GlobalReadiness,
@@ -433,18 +434,30 @@ function WorkbenchRoute() {
     }
   }
 
-  async function handleSendMessage(message: string) {
+  function localChatImageResults(imageAttachments: ChatImageAttachment[]): ChatImageResult[] {
+    return imageAttachments.map((image, index) => ({
+      id: `local-chat-image-${Date.now()}-${index}`,
+      title: image.name,
+      summary: '用户上传的聊天图片',
+      url: image.data_url,
+      content_type: image.content_type,
+    }));
+  }
+
+  async function handleSendMessage(message: string, imageAttachments: ChatImageAttachment[] = []) {
     const knowledgeBaseReady = await ensureProjectKnowledgeBase();
     if (!knowledgeBaseReady) {
       return;
     }
 
+    const localImages = localChatImageResults(imageAttachments);
     setSending(true);
     const userMessage: MessageRecord = {
       id: `local-user-${Date.now()}`,
       role: 'user',
       content: message,
       source_refs: [],
+      image_results: localImages,
       created_at: new Date().toISOString(),
       stream_group_id: null,
     };
@@ -477,6 +490,7 @@ function WorkbenchRoute() {
           message,
           selected_source_ids: [],
           request_artifact_types: [],
+          image_attachments: imageAttachments,
           client_context: { route: 'workbench' },
         },
         (event, payload) => {

@@ -137,7 +137,14 @@ export type ChatStreamRequest = {
   message: string;
   selected_source_ids: string[];
   request_artifact_types: Array<'document' | 'page_solution' | 'interaction_flow'>;
+  image_attachments?: ChatImageAttachment[];
   client_context?: Record<string, unknown>;
+};
+
+export type ChatImageAttachment = {
+  name: string;
+  content_type: string;
+  data_url: string;
 };
 
 export type ChatCitation = {

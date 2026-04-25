@@ -252,7 +252,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '创建并进入工作台' }));
 
     expect(await screen.findByRole('heading', { name: '渠道对账需求分析' })).toBeInTheDocument();
-    expect(await screen.findByText('项目知识库: ready')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '运行状态' })).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/projects',
       expect.objectContaining({
@@ -388,7 +388,7 @@ describe('App', () => {
       );
     });
 
-    expect(await screen.findByText('项目知识库: ready')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '运行状态' })).toBeInTheDocument();
   });
 
   it('renders the workbench with project, sources, messages and state from the API payload', async () => {
@@ -499,13 +499,13 @@ describe('App', () => {
     render(<App />);
 
     expect(await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' })).toBeInTheDocument();
-    expect(await screen.findByText('项目知识库')).toBeInTheDocument();
+    expect(await screen.findByText('项目资料')).toBeInTheDocument();
     expect((await screen.findAllByText('财务口径说明')).length).toBeGreaterThan(0);
     expect(await screen.findByText('我先把逐笔对账的真实矛盾拆开。')).toBeInTheDocument();
     expect(await screen.findByText('本轮更新')).toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: '展开 当前需求定义' }));
     expect(await screen.findByText('核心矛盾')).toBeInTheDocument();
-    expect(await screen.findByText('当前重点')).toBeInTheDocument();
+    expect((await screen.findAllByText('需求接入')).length).toBeGreaterThan(0);
     expect((await screen.findAllByText('业务理解')).length).toBeGreaterThan(0);
     expect(scrollIntoView).toHaveBeenCalled();
     expect(screen.getByTestId('sources-panel-content')).toHaveClass('flex', 'flex-1', 'flex-col');
@@ -1106,6 +1106,129 @@ describe('App', () => {
     });
   });
 
+  it('attaches images to a chat turn from the composer', async () => {
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const encoder = new TextEncoder();
+    let chatRequest: Record<string, unknown> | null = null;
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        chatRequest = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode(
+                [
+                  'event: final_message',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:01+08:00","text":"已收到图片。","citations":[]}',
+                  '',
+                  '',
+                  'event: done',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:02+08:00","stream_group_id":"stream-1"}',
+                  '',
+                  '',
+                ].join('\n')
+              )
+            );
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'text/event-stream' },
+        });
+      }
+
+      const routes: Record<string, JsonResponse> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': [],
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'ready',
+            summary: '项目知识库已就绪。',
+            detail: 'Knowledge Base ID: nb-image-001',
+            action_label: null,
+          },
+          knowledge_base: {
+            project_id: 'seed-reconciliation',
+            id: 'nb-image-001',
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'bound',
+            updated_at: null,
+            status_error: 'https://qdrant.local/knowledge-base/nb-image-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/knowledge-base': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const payload = routes[path];
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' });
+    const imageInput = document.querySelector('input[accept="image/*"]') as HTMLInputElement | null;
+    expect(imageInput).not.toBeNull();
+
+    const image = new File(['fake-image'], '界面截图.png', { type: 'image/png' });
+    await user.upload(imageInput!, image);
+    expect(await screen.findByText('界面截图.png')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '继续分析' }));
+
+    await waitFor(() => {
+      const attachments = chatRequest?.image_attachments as Array<Record<string, string>> | undefined;
+      expect(attachments?.[0]).toMatchObject({
+        name: '界面截图.png',
+        content_type: 'image/png',
+      });
+      expect(attachments?.[0]?.data_url).toMatch(new RegExp('^data:image/png;base64,'));
+    });
+  });
+
   it('sends on Enter and keeps Shift+Enter for newline in the composer', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
@@ -1239,7 +1362,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
 
     await user.type(composer, '第一行');
     await user.keyboard('{Shift>}{Enter}{/Shift}第二行');
@@ -1421,7 +1544,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
@@ -1535,7 +1658,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
@@ -1656,7 +1779,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
     await user.type(composer, '请整理成交互稿');
     await user.keyboard('{Enter}');
 
@@ -1772,7 +1895,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
     await user.type(composer, '请给我结论');
     await user.keyboard('{Enter}');
 
@@ -1916,7 +2039,7 @@ describe('App', () => {
 
     await user.click(await screen.findByRole('button', { name: '运行状态' }));
     await waitFor(() => {
-      expect(screen.getByText('项目知识库: ready')).toBeInTheDocument();
+      expect(screen.getByText('项目知识库已就绪。')).toBeInTheDocument();
     });
 
     expect(await screen.findByText('项目知识库已就绪。')).toBeInTheDocument();
@@ -2058,7 +2181,7 @@ describe('App', () => {
     expect(screen.queryByText(/content:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/impact:/)).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '展开 交付物' }));
+    await user.click(screen.getByRole('button', { name: '查看全部交付物' }));
     expect(screen.getAllByText('页面方案 v2').length).toBeGreaterThan(0);
     expect(screen.getAllByText('交互稿 v2').length).toBeGreaterThan(0);
     expect(screen.getAllByText('文档稿 v2').length).toBeGreaterThan(0);
@@ -2197,7 +2320,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    const composer = await screen.findByPlaceholderText('继续补充业务背景、目标或限制条件...');
     await user.type(composer, '请继续分析');
     await user.keyboard('{Enter}');
 
@@ -2335,9 +2458,9 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(await screen.findByText('当前重点')).toBeInTheDocument();
+    expect(await screen.findByText('设计交付')).toBeInTheDocument();
     expect((await screen.findAllByText('方案定义')).length).toBeGreaterThan(0);
-    expect(screen.getByText('补充中')).toBeInTheDocument();
+    expect(screen.getByText('需求接入')).toBeInTheDocument();
     expect(screen.getByText('需求收敛')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '关键待确认' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '风险与冲突' })).toBeInTheDocument();
