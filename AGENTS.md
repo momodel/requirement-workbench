@@ -7,7 +7,7 @@
 - `docs/product/fullstack-phase1-spec.md`
 - `docs/planning/fullstack-phase1-todo.md`
 - `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
-- `backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+- `backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
 - `archive/legacy-demo/README.md`
 
 如果文档和现有代码冲突，以文档为准。
@@ -37,12 +37,12 @@
 一期当前确认的正式路线是：
 
 - 主智能体：`Claude Agent SDK`
-- 证据层：`notebooklm-py`
+- 知识库：`LLM Wiki`
 
 不要做这些事：
 
 - 用本地规则拼接结果，却命名成 `ClaudeAgentRuntime`
-- 用本地摘要服务，却命名成 `NotebookLMService`
+- 用本地摘要服务，却命名成真实 provider
 - 在文档、注释、UI 里把 stub 写成“已接入正式 provider”
 
 未配置就报未配置，失败就报失败，不做伪装 fallback。
@@ -77,7 +77,7 @@
 
 ## 提前检查，不要等用户撞错
 
-- 进入实现或验收前，先主动检查 `Claude Agent SDK`、`CLAUDE_MODEL`、`NotebookLM` runtime、认证态、项目 notebook 绑定状态
+- 进入实现或验收前，先主动检查 `Claude Agent SDK`、`CLAUDE_MODEL`、LLM Wiki 项目目录读写状态
 - 这些状态要优先在后端 readiness 和前端界面里展示
 - 不要等用户点到聊天、上传、生成交付物时报错了，才说“还没配”
 
@@ -92,15 +92,14 @@
   - `docs/planning/fullstack-phase1-todo.md`
   - `AGENTS.md`
   - `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
-  - `backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+  - `backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
 - 如果文档、skill、代码三者不一致，先对齐再继续实现
 - 先验证 provider readiness，不要先写功能再补检查
 - 以下任一项没过，都不能把主链路说成“已打通”：
   - `Claude Agent SDK` 可调用
   - `CLAUDE_MODEL` 已配置
-  - 项目内 `notebooklm-py` provider 可调用
-  - 项目内 NotebookLM 认证已完成
-  - 当前项目已绑定自己的 notebook
+  - 当前项目 LLM Wiki 可读写
+  - source 已能写入 LLM Wiki 上下文
 - 如果某一项必须人工完成，要明确指出“只差这一步需要用户操作”，不要把其他未完成项混在一起
 
 ### 实现中必须持续检查的项
@@ -118,13 +117,13 @@
   - 是否还残留旧路线、旧假设、误导性命名
 - provider 真伪检查
   - 是否真的调用 `Claude Agent SDK`
-  - 是否真的调用项目内 NotebookLM runtime
+  - 是否真的读取项目内 LLM Wiki 上下文
   - 是否还残留“看起来像真的”的本地替代实现
 - UI 对齐检查
   - 是否仍然是分析工作台，而不是后台配置页
   - 是否至少恢复到 `archive/legacy-demo/` 的产品感基线
 - 失败路径检查
-  - 未配置、未认证、未绑定、provider 失败时，是否提前且明确提示
+  - 未配置、知识库写入失败、provider 失败时，是否提前且明确提示
 - Chrome DevTools 联调检查
   - 真实启动后检查页面、控制台、关键请求和交互
 - 必要时专项 review
@@ -145,9 +144,9 @@
   - 用在需求 intake、结构化分析、澄清问题、状态沉淀、MVP 收敛、artifact 触发判断
   - Path: `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
 
-- `notebooklm-evidence-workflow`
-  - 用在 source 标准化、NotebookLM 导入、grounded summary、citation 获取、失败回写
-  - Path: `backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+- `llm-wiki-knowledge-workflow`
+  - 用在 source 标准化、LLM Wiki 更新、上下文读取、冲突回写
+  - Path: `backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
 
 ## 实现顺序
 

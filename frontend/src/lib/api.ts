@@ -1,14 +1,9 @@
 import type {
   ArtifactRecord,
-  BindNotebookRequest,
   ChatStreamRequest,
   CreateProjectRequest,
-  CreateNotebookBindingResponse,
-  CreateNotebookRequest,
   GlobalReadiness,
   MessageRecord,
-  NotebookLibraryItem,
-  NotebookBindingRecord,
   ProjectState,
   ProjectReadiness,
   ProjectSummary,
@@ -62,10 +57,6 @@ export function getProject(projectId: string) {
 
 export function getProjectReadiness(projectId: string) {
   return fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`);
-}
-
-export function listProjectNotebookLibrary(projectId: string) {
-  return fetchJson<NotebookLibraryItem[]>(`/api/projects/${projectId}/notebook-library`);
 }
 
 export function listSources(projectId: string) {
@@ -122,22 +113,6 @@ export function deleteProjectSource(projectId: string, sourceId: string) {
 export function retryProjectSourceSync(projectId: string, sourceId: string) {
   return fetchJson<SourceRecord>(`/api/projects/${projectId}/sources/${sourceId}/retry-sync`, {
     method: 'POST',
-  });
-}
-
-export function bindProjectNotebook(projectId: string, payload: BindNotebookRequest) {
-  return fetchJson<NotebookBindingRecord>(`/api/projects/${projectId}/notebook-binding`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-}
-
-export function createAndBindProjectNotebook(projectId: string, payload: CreateNotebookRequest = {}) {
-  return fetchJson<CreateNotebookBindingResponse>(`/api/projects/${projectId}/notebook-create-and-bind`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
   });
 }
 

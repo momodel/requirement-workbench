@@ -11,7 +11,7 @@
 ## 项目级 Skills
 
 - `../backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
-- `../backend/.claude/skills/notebooklm-evidence-workflow/SKILL.md`
+- `../backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
 
 ## 当前工作基线
 

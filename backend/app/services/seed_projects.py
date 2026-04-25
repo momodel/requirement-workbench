@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..config import AppSettings, DEFAULT_SETTINGS
 from ..db import connection_scope
-from ..models import NotebookBindingRecord, ProjectSummary, StateItem
+from ..models import ProjectSummary, StateItem
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
 
@@ -126,12 +126,9 @@ def _seed_source_specs() -> list[tuple[str, str, str, str]]:
 def _seed_sources(
     settings: AppSettings,
     catalog: ProjectCatalog,
-    binding: NotebookBindingRecord | None = None,
 ) -> None:
     source_dir = settings.projects_dir / SEED_PROJECT_ID / "sources"
     source_dir.mkdir(parents=True, exist_ok=True)
-    sync_status = "synced" if binding else "not_bound"
-    sync_error = None if binding else "资料已入库，但当前还没有绑定 NotebookLM notebook。"
 
     for name, source_kind, parse_summary, content in _seed_source_specs():
         source_path = source_dir / name
@@ -146,8 +143,8 @@ def _seed_sources(
             notebook_import_mode="direct_text",
             parse_status="parsed",
             parse_summary=parse_summary,
-            sync_status=sync_status,
-            sync_error=sync_error,
+            sync_status="indexed",
+            sync_error="资料已入库，并已纳入 LLM Wiki 知识库上下文。",
         )
 
 
@@ -694,30 +691,13 @@ def _seed_artifacts(settings: AppSettings, catalog: ProjectCatalog) -> None:
 
 def ensure_seed_project(settings: AppSettings = DEFAULT_SETTINGS) -> None:
     catalog = ProjectCatalog(settings)
-    existing_binding = catalog.get_notebook_binding(SEED_PROJECT_ID)
     _reset_seed_project(settings)
 
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
 
     catalog.upsert_project(_seed_project())
-    _seed_sources(settings, catalog, existing_binding)
+    _seed_sources(settings, catalog)
     _seed_state(project_state)
     _seed_messages(catalog)
     _seed_artifacts(settings, catalog)
-
-    if existing_binding:
-        catalog.upsert_notebook_binding(
-            project_id=SEED_PROJECT_ID,
-            notebook_id=existing_binding.notebook_id,
-            provider=existing_binding.provider,
-            sync_status=existing_binding.sync_status,
-            source_url=existing_binding.source_url,
-        )
-    elif settings.notebooklm_default_notebook_id:
-        catalog.upsert_notebook_binding(
-            project_id=SEED_PROJECT_ID,
-            notebook_id=settings.notebooklm_default_notebook_id,
-            provider="NOTEBOOKLM_PY",
-            sync_status="bound",
-        )

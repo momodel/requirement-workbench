@@ -81,9 +81,7 @@ def test_generate_from_model_reuses_latest_artifact_when_state_has_not_changed(t
         data_dir=tmp_path / "data",
         sqlite_dir=tmp_path / "data" / "sqlite",
         sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-        projects_dir=tmp_path / "data" / "projects",
-        notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-        claude_artifact_timeout_seconds=5.0,
+        projects_dir=tmp_path / "data" / "projects",        claude_artifact_timeout_seconds=5.0,
     )
     init_db(settings)
 

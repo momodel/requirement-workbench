@@ -102,13 +102,12 @@ class ProviderReadiness(BaseModel):
 class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
-    notebook_binding: NotebookBindingRecord | None = None
+    knowledge_wiki: ProviderReadiness
 
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
-    notebooklm: ProviderReadiness
+    knowledge_wiki: ProviderReadiness
 
 
 class SourceRecord(BaseModel):
@@ -279,6 +278,13 @@ class EvidenceResult:
 
 
 @dataclass(slots=True)
+class KnowledgeWikiContext:
+    summary: str
+    citations: list[ChatCitation] = field(default_factory=list)
+    detail: str | None = None
+
+
+@dataclass(slots=True)
 class AgentTurnInput:
     project: ProjectSummary
     state: ProjectState
@@ -289,6 +295,7 @@ class AgentTurnInput:
     evidence_citations: list[ChatCitation]
     request_artifact_types: list[ArtifactType]
     recent_messages: list[MessageRecord] = field(default_factory=list)
+    wiki_context: str = ""
 
 
 @dataclass(slots=True)

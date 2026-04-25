@@ -19,10 +19,10 @@ from .routes.versions import router as versions_router
 from .services.agent_runtime import ClaudeAgentRuntime
 from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
-from .services.notebooklm_service import NotebookLMService
+from .services.llm_wiki_service import LLMWikiService
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
-from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
+from .services.runtime_contracts import AgentRuntime
 from .services.seed_projects import ensure_seed_project
 from .services.source_ingestion import SourceIngestionService
 
@@ -33,7 +33,7 @@ class ServiceContainer:
     catalog: ProjectCatalog
     project_state: ProjectStateService
     source_ingestion: SourceIngestionService
-    notebooklm: EvidenceRuntime
+    knowledge_wiki: LLMWikiService
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
     chat_service: ChatService
@@ -43,22 +43,22 @@ def build_services(settings: AppSettings) -> ServiceContainer:
     catalog = ProjectCatalog(settings)
     project_state = ProjectStateService(catalog)
     source_ingestion = SourceIngestionService(settings)
-    notebooklm = NotebookLMService(settings)
+    knowledge_wiki = LLMWikiService(settings)
     agent_runtime = ClaudeAgentRuntime(settings)
     artifact_generation = ArtifactGenerationService(settings)
     chat_service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=notebooklm,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
+        knowledge_wiki=knowledge_wiki,
     )
     return ServiceContainer(
         settings=settings,
         catalog=catalog,
         project_state=project_state,
         source_ingestion=source_ingestion,
-        notebooklm=notebooklm,
+        knowledge_wiki=knowledge_wiki,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
         chat_service=chat_service,

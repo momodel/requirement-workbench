@@ -36,7 +36,6 @@ import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
   MessageRecord,
-  NotebookLibraryItem,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
@@ -52,21 +51,17 @@ type WorkbenchPageProps = {
   state: ProjectState;
   artifacts: ArtifactRecord[];
   recentInsightIds: string[];
-  notebookLibrary: NotebookLibraryItem[];
   notices: Array<{ id: string; kind: 'error' | 'info'; title: string; body: string }>;
   sending: boolean;
   uploading: boolean;
   deletingSourceId: string | null;
   retryingSourceId: string | null;
-  bindingNotebook: boolean;
   generatingArtifactType: string | null;
   onSendMessage: (message: string) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
   onRetrySourceSync: (sourceId: string) => Promise<void>;
-  onBindProjectNotebook: (payload: { sourceUrl?: string; notebookId?: string }) => Promise<void>;
-  onCreateAndBindProjectNotebook: () => Promise<void>;
   onGenerateArtifact: (artifactType: 'document' | 'page_solution' | 'interaction_flow') => Promise<void>;
 };
 
@@ -126,6 +121,7 @@ function parseStatusLabel(status: string) {
 }
 
 function syncStatusLabel(status: string) {
+  if (status === 'indexed') return '已索引';
   if (status === 'synced') return '已同步';
   if (status === 'pending_sync') return '待同步';
   if (status === 'sync_failed') return '同步失败';
@@ -307,31 +303,24 @@ export function WorkbenchPage({
   state,
   artifacts,
   recentInsightIds,
-  notebookLibrary,
   notices,
   sending,
   uploading,
   deletingSourceId,
   retryingSourceId,
-  bindingNotebook,
   generatingArtifactType,
   onSendMessage,
   onUploadTextSource,
   onUploadFileSource,
   onDeleteSource,
   onRetrySourceSync,
-  onBindProjectNotebook,
-  onCreateAndBindProjectNotebook,
   onGenerateArtifact,
 }: WorkbenchPageProps) {
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
-  const [isBindingDialogOpen, setIsBindingDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
-  const [notebookUrl, setNotebookUrl] = useState('');
-  const [selectedNotebookId, setSelectedNotebookId] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
   const [sourcePreviewPosition, setSourcePreviewPosition] = useState({ top: 120, left: 120 });
   const [activeArtifact, setActiveArtifact] = useState<ArtifactRecord | null>(null);
@@ -352,7 +341,10 @@ export function WorkbenchPage({
   const latestArtifacts = useMemo(() => getLatestArtifactsByType(artifacts), [artifacts]);
   const artifactHistoryCount = Math.max(artifacts.length - latestArtifacts.length, 0);
   const referencedSourceCount = sources.filter(
-    (source) => source.sync_status.includes('synced') || source.sync_status.includes('bound')
+    (source) =>
+      source.sync_status.includes('indexed') ||
+      source.sync_status.includes('synced') ||
+      source.sync_status.includes('bound')
   ).length;
   const pendingSourceCount = sources.filter(
     (source) =>
@@ -388,28 +380,6 @@ export function WorkbenchPage({
     setIsImportDialogOpen(false);
   }
 
-  async function handleBindNotebook() {
-    const url = notebookUrl.trim();
-    if (!url) return;
-    await onBindProjectNotebook({ sourceUrl: url });
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleBindExistingNotebook() {
-    if (!selectedNotebookId) return;
-    await onBindProjectNotebook({ notebookId: selectedNotebookId });
-    setSelectedNotebookId('');
-    setIsBindingDialogOpen(false);
-  }
-
-  async function handleCreateAndBindNotebook() {
-    await onCreateAndBindProjectNotebook();
-    setSelectedNotebookId('');
-    setNotebookUrl('');
-    setIsBindingDialogOpen(false);
-  }
-
   function handleComposerKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
@@ -437,7 +407,7 @@ export function WorkbenchPage({
               {readiness ? (
                 <>
                   <Badge variant={readinessVariant(readiness.claude.status)}>{`Claude: ${readiness.claude.status}`}</Badge>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{`NotebookLM: ${readiness.notebooklm.status}`}</Badge>
+                  <Badge variant={readinessVariant(readiness.knowledge_wiki.status)}>{`LLM Wiki: ${readiness.knowledge_wiki.status}`}</Badge>
                 </>
               ) : null}
               <Button variant="ghost" size="sm" asChild>
@@ -476,7 +446,7 @@ export function WorkbenchPage({
             <CardHeader className="shrink-0 p-3 pb-2.5">
               <div className="flex items-center justify-between gap-3">
                 <CardTitle className="text-base">项目知识库</CardTitle>
-                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已同步 · ${pendingSourceCount} 待处理`}</div>
+                <div className="text-xs text-muted">{`${sources.length} 份 · ${referencedSourceCount} 已入库 · ${pendingSourceCount} 待处理`}</div>
               </div>
             </CardHeader>
             <CardContent
@@ -861,7 +831,7 @@ export function WorkbenchPage({
         <DialogContent className="w-[min(640px,92vw)]">
           <DialogHeader>
             <DialogTitle>运行状态</DialogTitle>
-            <DialogDescription>这里放运行链路和项目绑定状态，不占用知识库主区域。</DialogDescription>
+            <DialogDescription>这里放运行链路和项目知识库状态，不占用知识库主区域。</DialogDescription>
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
@@ -881,28 +851,15 @@ export function WorkbenchPage({
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="font-medium text-ink">NotebookLM</div>
-                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.notebooklm.summary}</p>
-                    {readiness.notebooklm.detail ? (
+                    <div className="font-medium text-ink">LLM Wiki</div>
+                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.knowledge_wiki.summary}</p>
+                    {readiness.knowledge_wiki.detail ? (
                       <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">
-                        {readiness.notebooklm.detail}
+                        {readiness.knowledge_wiki.detail}
                       </p>
                     ) : null}
                   </div>
-                  <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      setIsRuntimeDialogOpen(false);
-                      setIsBindingDialogOpen(true);
-                    }}
-                    disabled={bindingNotebook}
-                  >
-                    {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                    绑定项目 Notebook
-                  </Button>
+                  <Badge variant={readinessVariant(readiness.knowledge_wiki.status)}>{readiness.knowledge_wiki.status}</Badge>
                 </div>
               </div>
             </div>
@@ -947,96 +904,6 @@ export function WorkbenchPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isBindingDialogOpen} onOpenChange={setIsBindingDialogOpen}>
-        <DialogContent className="w-[min(640px,92vw)]">
-          <DialogHeader>
-            <DialogTitle>绑定项目 Notebook</DialogTitle>
-            <DialogDescription>
-              为当前项目绑定专属的 NotebookLM notebook，后面所有 grounding 都走这个项目自己的 notebook。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-2">
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">已登记的 Notebook</div>
-              <div className="mt-3 grid gap-3">
-                {notebookLibrary.length === 0 ? (
-                  <div className="rounded-[16px] border border-dashed border-line bg-slate-50 p-3 text-sm leading-6 text-muted">
-                    当前项目内还没有可用的 Notebook 列表。你可以直接粘贴 NotebookLM 链接完成绑定，或者直接创建一个项目专属 Notebook。
-                  </div>
-                ) : (
-                  notebookLibrary.map((notebook) => (
-                    <button
-                      key={notebook.id}
-                      type="button"
-                      className={cn(
-                        'rounded-[18px] border p-4 text-left transition',
-                        selectedNotebookId === notebook.id
-                          ? 'border-accent bg-accentSoft'
-                          : 'border-line bg-slate-50 hover:border-accent/30 hover:bg-white'
-                      )}
-                      onClick={() => setSelectedNotebookId(notebook.id)}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-ink">{notebook.name}</div>
-                          <p className="mt-2 text-sm leading-6 text-muted">{notebook.description}</p>
-                        </div>
-                        <Badge variant={selectedNotebookId === notebook.id ? 'accent' : 'default'}>
-                          {selectedNotebookId === notebook.id ? '已选择' : `使用 ${notebook.use_count} 次`}
-                        </Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {notebook.topics.map((topic) => (
-                          <Badge key={`${notebook.id}-${topic}`}>
-                            {topic}
-                          </Badge>
-                        ))}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <Button onClick={handleBindExistingNotebook} disabled={bindingNotebook || !selectedNotebookId}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  绑定已登记 Notebook
-                </Button>
-              </div>
-            </div>
-            <div className="rounded-[20px] border border-line bg-white p-4">
-              <div className="text-sm font-semibold text-ink">为当前项目创建专属 Notebook</div>
-              <p className="mt-2 text-sm leading-6 text-muted">
-                直接用当前项目名创建新的 NotebookLM notebook，并自动完成项目绑定。后续新需求项目也走这条正式能力。
-              </p>
-              <div className="mt-4 flex justify-end">
-                <Button onClick={handleCreateAndBindNotebook} disabled={bindingNotebook}>
-                  {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  创建并绑定 Notebook
-                </Button>
-              </div>
-            </div>
-            <Input
-              id="notebook-url"
-              name="notebook-url"
-              value={notebookUrl}
-              onChange={(event) => setNotebookUrl(event.target.value)}
-              placeholder="https://notebooklm.google.com/notebook/..."
-            />
-            <div className="rounded-[20px] border border-line bg-slate-50 p-4 text-sm leading-6 text-muted">
-              这里绑定的是项目级 notebook，不再依赖全局默认 notebook。绑定完成后，后续上传到当前项目的资料会按后端标准化结果自动同步到这个 notebook。
-            </div>
-            <div className="flex justify-end gap-3">
-              <Button variant="secondary" onClick={() => setIsBindingDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleBindNotebook} disabled={bindingNotebook || !notebookUrl.trim()}>
-                {bindingNotebook ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                绑定项目 Notebook
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </main>
   );
 }

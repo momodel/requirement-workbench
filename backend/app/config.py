@@ -35,15 +35,12 @@ class AppSettings:
     sqlite_dir: Path
     sqlite_path: Path
     projects_dir: Path
-    notebooklm_home_dir: Path
     claude_cli_path: str | None = None
     claude_model: str | None = None
     claude_max_turns: int = 6
     claude_stream_timeout_seconds: float = 90.0
     claude_structured_timeout_seconds: float = 45.0
     claude_artifact_timeout_seconds: float = 180.0
-    notebooklm_query_timeout_seconds: float = 30.0
-    notebooklm_default_notebook_id: str | None = None
     default_timezone: str = "Asia/Shanghai"
 
     @classmethod
@@ -61,9 +58,6 @@ class AppSettings:
         projects_dir = Path(
             os.getenv("REQUIREMENT_WORKBENCH_PROJECTS_DIR", data_dir / "projects")
         )
-        notebooklm_home_dir = Path(
-            os.getenv("NOTEBOOKLM_HOME", data_dir / "notebooklm")
-        )
 
         return cls(
             root_dir=root_dir,
@@ -71,7 +65,6 @@ class AppSettings:
             sqlite_dir=sqlite_dir,
             sqlite_path=sqlite_path,
             projects_dir=projects_dir,
-            notebooklm_home_dir=notebooklm_home_dir,
             claude_cli_path=os.getenv("CLAUDE_CODE_CLI_PATH"),
             claude_model=os.getenv("CLAUDE_MODEL"),
             claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "6")),
@@ -84,10 +77,6 @@ class AppSettings:
             claude_artifact_timeout_seconds=float(
                 os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS", "180")
             ),
-            notebooklm_query_timeout_seconds=float(
-                os.getenv("NOTEBOOKLM_QUERY_TIMEOUT_SECONDS", "30")
-            ),
-            notebooklm_default_notebook_id=os.getenv("NOTEBOOKLM_DEFAULT_NOTEBOOK_ID"),
             default_timezone=os.getenv("REQUIREMENT_WORKBENCH_TIMEZONE", "Asia/Shanghai"),
         )
 

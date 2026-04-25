@@ -15,6 +15,7 @@ from app.models import (
     SourceUpsert,
 )
 from app.services.chat_service import ChatService
+from app.services.llm_wiki_service import LLMWikiService
 from app.services.project_catalog import ProjectCatalog
 from app.services.project_state import ProjectStateService
 from app.services.seed_projects import ensure_seed_project
@@ -27,13 +28,9 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
-        claude_cli_path=str(tmp_path / "missing-claude"),
+        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "missing-claude"),
         claude_stream_timeout_seconds=0.05,
-        claude_structured_timeout_seconds=0.05,
-        notebooklm_query_timeout_seconds=0.05,
-    )
+        claude_structured_timeout_seconds=0.05,    )
 
 
 class StubEvidenceRuntime:
@@ -142,10 +139,14 @@ class SlowStructuredAgentRuntime:
 
 
 class StreamOnlyAgentRuntime:
+    def __init__(self) -> None:
+        self.seen_turns: list[AgentTurnInput] = []
+
     def ensure_available(self) -> None:
         return None
 
     async def stream_assistant_text(self, turn: AgentTurnInput):
+        self.seen_turns.append(turn)
         yield "这是普通追问回复。"
 
     async def run_turn(self, turn: AgentTurnInput, assistant_message: str | None = None):
@@ -174,7 +175,6 @@ def test_empty_state_updates_do_not_wipe_existing_state(tmp_path: Path) -> None:
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
         agent_runtime=EmptyPatchAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -211,7 +211,6 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
         agent_runtime=ChunkThenPatchAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -254,7 +253,7 @@ def test_chat_chunks_stream_before_structured_patches_without_replace_event(tmp_
     assert any(message.content == "先确认范围，再补沉淀。" for message in assistant_messages)
 
 
-def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> None:
+def test_chat_turn_reads_llm_wiki_context_and_continues(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     ensure_seed_project(settings)
@@ -265,9 +264,9 @@ def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> Non
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=SlowEvidenceRuntime(),
         agent_runtime=ChunkThenPatchAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
+        knowledge_wiki=LLMWikiService(settings),
     )
 
     async def collect_events():
@@ -286,6 +285,10 @@ def test_chat_turn_times_out_notebook_query_but_continues(tmp_path: Path) -> Non
         event_type == "assistant_status" and payload["phase"] == "drafting"
         for event_type, payload in events
     )
+    assert any(
+        event_type == "assistant_status" and "LLM Wiki" in payload["label"]
+        for event_type, payload in events
+    )
     assert any(event_type == "message_chunk" for event_type, _ in events)
     assert events[-1][0] == "done"
 
@@ -301,7 +304,6 @@ def test_chat_turn_times_out_structured_patch_and_finishes(tmp_path: Path) -> No
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
         agent_runtime=SlowStructuredAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -341,7 +343,6 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
         agent_runtime=StreamOnlyAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )
@@ -368,6 +369,53 @@ def test_chat_skips_structured_patch_for_meta_follow_up(tmp_path: Path) -> None:
     assert any(message.content == "这是普通追问回复。" for message in assistant_messages)
 
 
+class StubKnowledgeWiki:
+    def build_context(self, project_id: str):
+        from app.models import KnowledgeWikiContext
+
+        return KnowledgeWikiContext(
+            summary="LLM Wiki 知识库：当前核心冲突是字段映射口径不一致。",
+            citations=[],
+            detail="/tmp/project/wiki",
+        )
+
+    def record_source_intake(self, project, sources):
+        return self.build_context(project.id)
+
+
+def test_chat_turn_injects_llm_wiki_context_without_external_citations(tmp_path: Path) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    project_state = ProjectStateService(catalog)
+    agent_runtime = StreamOnlyAgentRuntime()
+
+    service = ChatService(
+        catalog=catalog,
+        project_state=project_state,
+        agent_runtime=agent_runtime,
+        artifact_generation=StubArtifactGenerationService(),
+        knowledge_wiki=StubKnowledgeWiki(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="退款口径怎么处理", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+
+    assert any(event_type == "citations" and payload["items"] == [] for event_type, payload in events)
+    assert agent_runtime.seen_turns
+    assert "LLM Wiki 知识库" in agent_runtime.seen_turns[0].wiki_context
+
+
 def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
@@ -379,7 +427,6 @@ def test_chat_skips_structured_patch_for_ordinary_business_question(tmp_path: Pa
     service = ChatService(
         catalog=catalog,
         project_state=project_state,
-        notebooklm=StubEvidenceRuntime(),
         agent_runtime=StreamOnlyAgentRuntime(),
         artifact_generation=StubArtifactGenerationService(),
     )

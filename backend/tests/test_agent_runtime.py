@@ -193,9 +193,7 @@ def test_claude_readiness_uses_default_model_when_model_env_missing(monkeypatch)
             data_dir=Path("/tmp/project/data"),
             sqlite_dir=Path("/tmp/project/data/sqlite"),
             sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
-            projects_dir=Path("/tmp/project/data/projects"),
-            notebooklm_home_dir=Path("/tmp/project/data/notebooklm"),
-            claude_cli_path="/usr/local/bin/claude",
+            projects_dir=Path("/tmp/project/data/projects"),            claude_cli_path="/usr/local/bin/claude",
             claude_model=None,
         )
     )
@@ -226,9 +224,7 @@ def test_claude_readiness_reports_auth_required(monkeypatch) -> None:
             data_dir=Path("/tmp/project/data"),
             sqlite_dir=Path("/tmp/project/data/sqlite"),
             sqlite_path=Path("/tmp/project/data/sqlite/test.db"),
-            projects_dir=Path("/tmp/project/data/projects"),
-            notebooklm_home_dir=Path("/tmp/project/data/notebooklm"),
-            claude_cli_path="/usr/local/bin/claude",
+            projects_dir=Path("/tmp/project/data/projects"),            claude_cli_path="/usr/local/bin/claude",
             claude_model="sonnet",
         )
     )
@@ -253,11 +249,11 @@ def test_claude_readiness_reports_auth_required(monkeypatch) -> None:
 
 def test_runtime_loads_skills_from_backend_dot_claude(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -265,22 +261,20 @@ def test_runtime_loads_skills_from_backend_dot_claude(tmp_path: Path) -> None:
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-        )
+            projects_dir=tmp_path / "data" / "projects",        )
     )
 
     assert runtime.methodology_skill == "METHOD_SKILL"
-    assert runtime.evidence_skill == "EVIDENCE_SKILL"
+    assert runtime.knowledge_wiki_skill == "WIKI_SKILL"
 
 
 def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -288,9 +282,7 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_model="glm-5",
+            projects_dir=tmp_path / "data" / "projects",            claude_model="glm-5",
         )
     )
 
@@ -318,7 +310,7 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
             user_message="客户说需要自动核对订单和财务科目金额。",
             selected_source_ids=[],
             source_summaries=["订单字段说明", "财务科目口径说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="LLM Wiki 摘要",
             evidence_citations=[],
             request_artifact_types=[],
         )
@@ -331,11 +323,11 @@ def test_build_prompt_contains_executable_methodology_guidance(tmp_path: Path) -
 
 def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -343,9 +335,7 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_model="glm-5",
+            projects_dir=tmp_path / "data" / "projects",            claude_model="glm-5",
         )
     )
 
@@ -373,7 +363,7 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
             user_message="请继续分析逐笔对账场景。",
             selected_source_ids=[],
             source_summaries=["订单字段说明", "财务科目口径说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="LLM Wiki 摘要",
             evidence_citations=[],
             request_artifact_types=[],
         )
@@ -386,11 +376,11 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
 
 def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -398,9 +388,7 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_model="glm-5",
+            projects_dir=tmp_path / "data" / "projects",            claude_model="glm-5",
         )
     )
 
@@ -428,7 +416,7 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
             user_message="我前一个问题是啥？",
             selected_source_ids=[],
             source_summaries=["订单字段说明"],
-            evidence_summary="NotebookLM 摘要",
+            evidence_summary="LLM Wiki 摘要",
             evidence_citations=[],
             request_artifact_types=[],
             recent_messages=[
@@ -459,11 +447,11 @@ def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_p
 
 def test_artifact_prompt_uses_compact_state_summary(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL", encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -471,9 +459,7 @@ def test_artifact_prompt_uses_compact_state_summary(tmp_path: Path) -> None:
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_model="glm-5",
+            projects_dir=tmp_path / "data" / "projects",            claude_model="glm-5",
         )
     )
 
@@ -543,11 +529,11 @@ def test_artifact_prompt_uses_compact_state_summary(tmp_path: Path) -> None:
 
 def test_artifact_prompt_uses_shorter_artifact_specific_guidance(tmp_path: Path) -> None:
     methodology_dir = tmp_path / "backend" / ".claude" / "skills" / "requirement-analysis-methodology"
-    evidence_dir = tmp_path / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow"
+    wiki_dir = tmp_path / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow"
     methodology_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     (methodology_dir / "SKILL.md").write_text("METHOD_SKILL" * 200, encoding="utf-8")
-    (evidence_dir / "SKILL.md").write_text("EVIDENCE_SKILL", encoding="utf-8")
+    (wiki_dir / "SKILL.md").write_text("WIKI_SKILL", encoding="utf-8")
 
     runtime = ClaudeAgentRuntime(
         AppSettings(
@@ -555,9 +541,7 @@ def test_artifact_prompt_uses_shorter_artifact_specific_guidance(tmp_path: Path)
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_model="glm-5",
+            projects_dir=tmp_path / "data" / "projects",            claude_model="glm-5",
         )
     )
 
@@ -598,9 +582,7 @@ def test_stream_assistant_text_uses_stream_event_text_deltas(monkeypatch, tmp_pa
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_cli_path="/usr/local/bin/claude",
+            projects_dir=tmp_path / "data" / "projects",            claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
     )
@@ -692,9 +674,7 @@ def test_run_turn_wraps_invalid_structured_output_as_provider_issue(
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_cli_path="/usr/local/bin/claude",
+            projects_dir=tmp_path / "data" / "projects",            claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
     )
@@ -771,9 +751,7 @@ def test_generate_artifact_retries_html_parse_failure_once(
             data_dir=tmp_path / "data",
             sqlite_dir=tmp_path / "data" / "sqlite",
             sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
-            projects_dir=tmp_path / "data" / "projects",
-            notebooklm_home_dir=tmp_path / "data" / "notebooklm",
-            claude_cli_path="/usr/local/bin/claude",
+            projects_dir=tmp_path / "data" / "projects",            claude_cli_path="/usr/local/bin/claude",
             claude_model="glm-5",
         )
     )

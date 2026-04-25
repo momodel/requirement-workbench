@@ -4,28 +4,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 
-from ..models import ProviderIssue
-
 router = APIRouter(prefix="/api/projects/{project_id}/sources", tags=["sources"])
 
 
 def _resolve_sync_status(services, project_id: str) -> tuple[str, str]:
-    sync_status = "not_configured"
-    sync_error = "NOTEBOOKLM_PY 未配置或项目未绑定 notebook。"
-    try:
-        notebook_global = services.notebooklm.get_global_readiness()
-        binding = services.catalog.get_notebook_binding(project_id)
-        if notebook_global.status == "ready" and binding:
-            return "pending_sync", "资料已入库，正在同步到项目 NotebookLM notebook。"
-        if notebook_global.status == "error":
-            return "sync_failed", notebook_global.detail or notebook_global.summary
-        sync_status = notebook_global.status if notebook_global.status != "ready" else "binding_required"
-        sync_error = notebook_global.detail or notebook_global.summary
-        if notebook_global.status == "ready" and not binding:
-            sync_error = "当前项目还没有绑定专属 NotebookLM notebook。"
-    except ProviderIssue as exc:
-        return "sync_failed", str(exc)
-    return sync_status, sync_error
+    return "indexed", "资料已入库，并已纳入 LLM Wiki 知识库上下文。"
 
 
 def _create_source_record(services, project_id: str, upload_kind: str, name: str, storage_path, normalized):
@@ -43,8 +26,9 @@ def _create_source_record(services, project_id: str, upload_kind: str, name: str
         sync_status=sync_status,
         sync_error=sync_error,
     )
-    if sync_status == "pending_sync":
-        source_record = services.notebooklm.sync_source(source_record.id)
+    project = services.catalog.get_project(project_id)
+    if project and services.knowledge_wiki:
+        services.knowledge_wiki.record_source_intake(project, services.catalog.list_sources(project_id))
     return source_record
 
 
@@ -116,11 +100,11 @@ def delete_source(project_id: str, source_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Source not found")
 
     try:
-        deleted = services.notebooklm.delete_source(source_id)
-    except ProviderIssue as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+        deleted = services.catalog.delete_source(source_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    services.knowledge_wiki.record_source_intake(project, services.catalog.list_sources(project_id))
 
     return {
         "id": deleted.id,
@@ -141,7 +125,9 @@ def retry_source_sync(project_id: str, source_id: str, request: Request):
     if not source or source.project_id != project_id:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    try:
-        return services.notebooklm.sync_source(source_id)
-    except ProviderIssue as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+    services.knowledge_wiki.record_source_intake(project, services.catalog.list_sources(project_id))
+    return services.catalog.update_source_sync_status(
+        source_id=source_id,
+        sync_status="indexed",
+        sync_error="资料已重新纳入 LLM Wiki 知识库上下文。",
+    )

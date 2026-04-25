@@ -14,9 +14,7 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
-        claude_cli_path=str(tmp_path / "missing-claude"),
+        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "missing-claude"),
     )
 
 
@@ -68,6 +66,8 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
     source_files = catalog.list_sources(SEED_PROJECT_ID)
     assert all(source.storage_path for source in source_files)
     assert all(Path(source.storage_path).exists() for source in source_files if source.storage_path)
+    assert {source.sync_status for source in source_files} == {"indexed"}
+    assert all("LLM Wiki" in (source.sync_error or "") for source in source_files)
 
     message_contents = [message.content for message in catalog.list_recent_messages(SEED_PROJECT_ID)]
     assert any(
@@ -82,7 +82,7 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
     assert set(artifact_titles) == {"交互稿", "页面方案", "需求分析与 MVP 文档稿"}
 
 
-def test_ensure_seed_project_preserves_existing_notebook_binding(tmp_path: Path) -> None:
+def test_ensure_seed_project_clears_legacy_notebook_binding(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
     catalog = ProjectCatalog(settings)
@@ -110,6 +110,4 @@ def test_ensure_seed_project_preserves_existing_notebook_binding(tmp_path: Path)
     ensure_seed_project(settings)
 
     binding = catalog.get_notebook_binding(SEED_PROJECT_ID)
-    assert binding is not None
-    assert binding.notebook_id == "seed-notebook-1"
-    assert binding.provider == "NOTEBOOKLM_PY"
+    assert binding is None

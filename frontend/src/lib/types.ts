@@ -15,30 +15,6 @@ export type CreateProjectRequest = {
   summary: string;
 };
 
-export type NotebookBindingRecord = {
-  project_id: string;
-  notebook_id: string;
-  provider: string;
-  sync_status: string;
-  last_synced_at: string | null;
-  source_url: string | null;
-};
-
-export type CreateNotebookBindingResponse = {
-  notebook: NotebookLibraryItem;
-  binding: NotebookBindingRecord;
-};
-
-export type NotebookLibraryItem = {
-  id: string;
-  name: string;
-  url: string;
-  description: string;
-  topics: string[];
-  use_count: number;
-  last_used: string | null;
-};
-
 export type ProviderReadiness = {
   provider: string;
   status: string;
@@ -49,14 +25,13 @@ export type ProviderReadiness = {
 
 export type GlobalReadiness = {
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
+  knowledge_wiki: ProviderReadiness;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
-  notebooklm: ProviderReadiness;
-  notebook_binding: NotebookBindingRecord | null;
+  knowledge_wiki: ProviderReadiness;
 };
 
 export type SourceRecord = {
@@ -125,20 +100,6 @@ export type ChatStreamRequest = {
   selected_source_ids: string[];
   request_artifact_types: Array<'document' | 'page_solution' | 'interaction_flow'>;
   client_context?: Record<string, unknown>;
-};
-
-export type BindNotebookRequest = {
-  source_url?: string;
-  notebook_id?: string;
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
-};
-
-export type CreateNotebookRequest = {
-  notebook_name?: string;
-  description?: string;
-  topics?: string[];
 };
 
 export type ChatCitation = {

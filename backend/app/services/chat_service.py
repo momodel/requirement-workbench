@@ -5,11 +5,11 @@ import json
 import uuid
 
 from ..models import AgentTurnInput, ChatStreamRequest, ProviderIssue, StateItem
-from .agent_runtime import ClaudeAgentRuntime
 from .artifact_generation import ArtifactGenerationService
+from .llm_wiki_service import LLMWikiService
 from .project_catalog import ProjectCatalog
 from .project_state import ProjectStateService
-from .runtime_contracts import AgentRuntime, EvidenceRuntime
+from .runtime_contracts import AgentRuntime
 
 
 class ChatService:
@@ -53,28 +53,15 @@ class ChatService:
         self,
         catalog: ProjectCatalog,
         project_state: ProjectStateService,
-        notebooklm: EvidenceRuntime,
         agent_runtime: AgentRuntime,
         artifact_generation: ArtifactGenerationService,
+        knowledge_wiki: LLMWikiService | None = None,
     ):
         self.catalog = catalog
         self.project_state = project_state
-        self.notebooklm = notebooklm
         self.agent_runtime = agent_runtime
         self.artifact_generation = artifact_generation
-
-    async def _query_evidence_with_timeout(self, project_id: str, message: str):
-        timeout_seconds = self.catalog.settings.notebooklm_query_timeout_seconds
-        try:
-            return await asyncio.wait_for(
-                asyncio.to_thread(self.notebooklm.query, project_id, message),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError as exc:
-            raise ProviderIssue(
-                provider="NOTEBOOKLM_PY",
-                message="NotebookLM 查询超时，已跳过本轮证据检索。请稍后重试或检查当前 notebook 状态。",
-            ) from exc
+        self.knowledge_wiki = knowledge_wiki
 
     async def _iterate_with_timeout(
         self,
@@ -139,6 +126,10 @@ class ChatService:
         selected_sources = [
             source for source in sources if source.id in payload.selected_source_ids
         ] or sources
+        wiki_context = ""
+        if self.knowledge_wiki:
+            self.knowledge_wiki.record_source_intake(project, sources)
+            wiki_context = self.knowledge_wiki.build_context(project_id).summary
 
         yield (
             "assistant_status",
@@ -148,38 +139,16 @@ class ChatService:
             },
         )
 
-        evidence_summary = "当前未查询 NotebookLM。"
+        evidence_summary = wiki_context or "当前没有可用 LLM Wiki 知识库上下文。"
         evidence_citations = []
-        try:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "evidence_query",
-                    "label": "正在读取 NotebookLM 证据与引用",
-                },
-            )
-            evidence = await self._query_evidence_with_timeout(
-                project_id,
-                payload.message,
-            )
-            evidence_summary = evidence.summary
-            evidence_citations = evidence.citations
-            yield ("citations", {"items": [citation.model_dump() for citation in evidence_citations]})
-            yield (
-                "assistant_status",
-                {
-                    "phase": "drafting",
-                    "label": "已拿到资料证据，正在组织回答",
-                },
-            )
-        except ProviderIssue as exc:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "drafting",
-                    "label": "NotebookLM 暂未返回可用证据，正在基于当前项目状态继续分析",
-                },
-            )
+        yield ("citations", {"items": []})
+        yield (
+            "assistant_status",
+            {
+                "phase": "drafting",
+                "label": "已读取 LLM Wiki 知识库上下文，正在组织回答",
+            },
+        )
 
         state = self.project_state.get_project_state(project_id)
         turn_input = AgentTurnInput(
@@ -192,6 +161,7 @@ class ChatService:
             evidence_citations=evidence_citations,
             request_artifact_types=payload.request_artifact_types,
             recent_messages=self.catalog.list_recent_messages(project_id, limit=12),
+            wiki_context=wiki_context,
         )
 
         try:
@@ -299,6 +269,14 @@ class ChatService:
                     yield (
                         "version_patch",
                         {"op": "upsert", "items": [version.model_dump()]},
+                    )
+
+                if self.knowledge_wiki:
+                    self.knowledge_wiki.record_state_checkpoint(
+                        project,
+                        self.project_state.get_project_state(project_id),
+                        trigger_kind="analysis_checkpoint",
+                        summary=result.version_summary,
                     )
 
                 artifact_types = list(dict.fromkeys(payload.request_artifact_types + result.request_artifacts))

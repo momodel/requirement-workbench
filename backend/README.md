@@ -11,10 +11,14 @@
 - SSE 聊天基础链路
 - 真实 `Claude Agent SDK` artifact 生成
 - 真实失败路径与 HTML artifact 校验
-- 项目内 `NOTEBOOKLM_HOME` + `notebooklm-py` 证据链路
+- LLM Wiki 项目知识库，落盘到 `data/projects/<project_id>/wiki/`
 - 后端运行时 Claude skills 在 `backend/.claude/skills/`
-- 项目级 Notebook library / 绑定 / 创建并绑定接口
-- source 自动同步到项目 NotebookLM notebook 的文本与文件主路径
-- 已验证的真实 NotebookLM create / bind / sync / query 链路
+- source 入库后写入 LLM Wiki 上下文
 
-后续会按 `docs/planning/fullstack-phase1-todo.md` 逐步补齐真实存储、NotebookLM、Claude Agent SDK 和 artifact 落盘。
+当前主链路是：
+
+1. source 标准化、落盘、登记到本地 catalog
+2. LLM Wiki 维护项目级知识页和更新日志
+3. 聊天时读取 Wiki 上下文，交给 Claude Agent SDK 组织回答和沉淀
+
+这个项目不再以 NotebookLM 作为 provider 或运行时依赖。

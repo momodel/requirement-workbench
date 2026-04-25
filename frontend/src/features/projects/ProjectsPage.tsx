@@ -82,7 +82,7 @@ export function ProjectsPage({
               <div className="flex flex-wrap gap-3">
                 <Badge variant="accent">Project-first</Badge>
                 <Badge>FastAPI + SQLite + SSE</Badge>
-                <Badge>Claude Agent SDK / notebooklm-py</Badge>
+                <Badge>Claude Agent SDK / LLM Wiki</Badge>
               </div>
             </div>
 
@@ -124,10 +124,10 @@ export function ProjectsPage({
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <div className="font-medium text-ink">NotebookLM</div>
-                      <div className="mt-1 leading-6 text-muted">{readiness.notebooklm.summary}</div>
+                      <div className="font-medium text-ink">LLM Wiki</div>
+                      <div className="mt-1 leading-6 text-muted">{readiness.knowledge_wiki.summary}</div>
                     </div>
-                    <Badge variant={readinessVariant(readiness.notebooklm.status)}>{readiness.notebooklm.status}</Badge>
+                    <Badge variant={readinessVariant(readiness.knowledge_wiki.status)}>{readiness.knowledge_wiki.status}</Badge>
                   </div>
                 </div>
               ) : null}

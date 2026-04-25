@@ -408,8 +408,8 @@ class ClaudeAgentRuntime:
         self.methodology_skill = _read_skill(
             root / "backend" / ".claude" / "skills" / "requirement-analysis-methodology" / "SKILL.md"
         )
-        self.evidence_skill = _read_skill(
-            root / "backend" / ".claude" / "skills" / "notebooklm-evidence-workflow" / "SKILL.md"
+        self.knowledge_wiki_skill = _read_skill(
+            root / "backend" / ".claude" / "skills" / "llm-wiki-knowledge-workflow" / "SKILL.md"
         )
 
     def _methodology_execution_notes(self) -> str:
@@ -603,10 +603,13 @@ class ClaudeAgentRuntime:
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+LLM Wiki 工作理解：
+{turn.wiki_context or "当前没有可用 LLM Wiki 工作理解。"}
+
+LLM Wiki / Source context：
 {turn.evidence_summary}
 
-NotebookLM citations：
+当前 citation 输入：
 {citations_json}
 
 需求分析方法参考：
@@ -615,8 +618,8 @@ NotebookLM citations：
 方法论执行提醒：
 {self._methodology_execution_notes()}
 
-资料理解工作流参考：
-{self.evidence_skill}
+知识库工作流参考：
+{self.knowledge_wiki_skill}
 
 请直接输出面向用户的自然中文回复，不要输出 JSON，不要输出 markdown 标题。
 要求：
@@ -627,6 +630,7 @@ NotebookLM citations：
 5. 如果证据不足，要明确指出还需要确认什么。
 6. 尽量把回复控制在 2 到 4 段，便于前端流式展示。
 7. 不要生成交付物，不要描述内部状态桶名字。
+8. LLM Wiki 是当前知识库上下文；涉及出处时优先引用本地 source_id，不要编造外部 citation。
         """.strip()
 
     def _build_structured_prompt(
@@ -665,10 +669,13 @@ NotebookLM citations：
 本轮 source 摘要：
 {source_json}
 
-NotebookLM grounding：
+LLM Wiki 工作理解：
+{turn.wiki_context or "当前没有可用 LLM Wiki 工作理解。"}
+
+LLM Wiki / Source context：
 {turn.evidence_summary}
 
-NotebookLM citations：
+当前 citation 输入：
 {citations_json}
 
 刚刚已经流式发送给用户的助手回复：
@@ -680,8 +687,8 @@ NotebookLM citations：
 方法论执行提醒：
 {self._methodology_execution_notes()}
 
-资料理解工作流参考：
-{self.evidence_skill}
+知识库工作流参考：
+{self.knowledge_wiki_skill}
 
 请输出结构化 JSON，不要输出额外解释。
 要求：
@@ -691,8 +698,9 @@ NotebookLM citations：
 3. 每个状态桶只放当前轮最值得沉淀的内容。
 4. 如果证据不足，不要把内容塞进 confirmed_items。
 5. request_artifacts 仅在用户本轮明确要求交付物时再填。
-6. citations 只整理当前 grounding 已提供的内容，不要编造。
+6. citations 只整理当前输入中真实存在的引用，不要编造。
 7. 不要向用户炫耀方法论名词，要把分析结果翻译成自然业务语言。
+8. LLM Wiki 是当前项目知识库上下文；可以用 source_id 关联本地资料，但不得伪造外部 citation。
         """.strip()
 
     @staticmethod

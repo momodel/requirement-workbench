@@ -50,10 +50,10 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'auth_required',
-          summary: 'NotebookLM 还没有在项目内完成认证。',
+          summary: 'LLM Wiki 知识库还没有初始化。',
           detail: '需要先认证',
           action_label: '完成项目内登录',
         },
@@ -75,7 +75,6 @@ describe('App', () => {
       value: vi.fn(),
     });
 
-    let notebookBound = false;
     let createdProject:
       | {
           id: string;
@@ -93,35 +92,6 @@ describe('App', () => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const path = new URL(url, 'http://localhost').pathname;
       const method = init?.method ?? 'GET';
-
-      if (path === '/api/projects/project-created-001/notebook-create-and-bind' && method === 'POST') {
-        notebookBound = true;
-        return new Response(
-          JSON.stringify({
-            notebook: {
-              id: 'nb-created-001',
-              name: '渠道对账需求分析',
-              url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              description: '',
-              topics: [],
-              use_count: 0,
-              last_used: null,
-            },
-            binding: {
-              project_id: 'project-created-001',
-              notebook_id: 'nb-created-001',
-              provider: 'NOTEBOOKLM_PY',
-              sync_status: 'bound',
-              last_synced_at: null,
-              source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-            },
-          }),
-          {
-            status: 201,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
 
       if (path === '/api/projects' && method === 'POST') {
         const body = JSON.parse(String(init?.body ?? '{}')) as {
@@ -168,10 +138,10 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: 'NotebookLM 已就绪。',
+            summary: 'LLM Wiki 已就绪。',
             detail: null,
             action_label: null,
           },
@@ -206,25 +176,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
-            status: notebookBound ? 'ready' : 'binding_required',
-            summary: notebookBound ? '当前项目已绑定专属 NotebookLM notebook。' : '当前项目还没有绑定专属 NotebookLM notebook。',
-            detail: notebookBound ? 'Notebook ID: nb-created-001' : '需要先绑定',
-            action_label: notebookBound ? null : '绑定项目 notebook',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
+            status: 'ready',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/project-created-001/wiki',
+            action_label: null,
           },
-          notebook_binding: notebookBound
-            ? {
-                project_id: 'project-created-001',
-                notebook_id: 'nb-created-001',
-                provider: 'NOTEBOOKLM_PY',
-                sync_status: 'bound',
-                last_synced_at: null,
-                source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              }
-            : null,
         },
-        '/api/projects/project-created-001/notebook-library': [],
         '/api/projects/project-created-001/artifacts': [],
       };
 
@@ -252,7 +211,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '创建并进入工作台' }));
 
     expect(await screen.findByRole('heading', { name: '渠道对账需求分析' })).toBeInTheDocument();
-    expect(await screen.findByText('NotebookLM: ready')).toBeInTheDocument();
+    expect(await screen.findByText('LLM Wiki: ready')).toBeInTheDocument();
     expect(globalThis.fetch).toHaveBeenCalledWith(
       '/api/projects',
       expect.objectContaining({
@@ -260,16 +219,9 @@ describe('App', () => {
         headers: { 'Content-Type': 'application/json' },
       })
     );
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/projects/project-created-001/notebook-create-and-bind',
-      expect.objectContaining({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
   });
 
-  it('auto-binds notebook when entering an existing unbound project workbench', async () => {
+  it('does not auto-bind notebooks when entering an existing project workbench', async () => {
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
       configurable: true,
       value: vi.fn(),
@@ -277,41 +229,10 @@ describe('App', () => {
 
     window.history.replaceState({}, '', '/projects/project-legacy-001/workbench');
 
-    let notebookBound = false;
-
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const path = new URL(url, 'http://localhost').pathname;
       const method = init?.method ?? 'GET';
-
-      if (path === '/api/projects/project-legacy-001/notebook-create-and-bind' && method === 'POST') {
-        notebookBound = true;
-        return new Response(
-          JSON.stringify({
-            notebook: {
-              id: 'nb-legacy-001',
-              name: '历史项目 Notebook',
-              url: 'https://notebooklm.google.com/notebook/nb-legacy-001',
-              description: '',
-              topics: [],
-              use_count: 0,
-              last_used: null,
-            },
-            binding: {
-              project_id: 'project-legacy-001',
-              notebook_id: 'nb-legacy-001',
-              provider: 'NOTEBOOKLM_PY',
-              sync_status: 'bound',
-              last_synced_at: null,
-              source_url: 'https://notebooklm.google.com/notebook/nb-legacy-001',
-            },
-          }),
-          {
-            status: 201,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
 
       const routes: Record<string, JsonResponse> = {
         '/api/projects/project-legacy-001': {
@@ -344,25 +265,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
-            status: notebookBound ? 'ready' : 'binding_required',
-            summary: notebookBound ? '当前项目已绑定专属 NotebookLM notebook。' : '当前项目还没有绑定专属 NotebookLM notebook。',
-            detail: notebookBound ? 'Notebook ID: nb-legacy-001' : '需要先绑定',
-            action_label: notebookBound ? null : '绑定项目 notebook',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
+            status: 'ready',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/project-legacy-001/wiki',
+            action_label: null,
           },
-          notebook_binding: notebookBound
-            ? {
-                project_id: 'project-legacy-001',
-                notebook_id: 'nb-legacy-001',
-                provider: 'NOTEBOOKLM_PY',
-                sync_status: 'bound',
-                last_synced_at: null,
-                source_url: 'https://notebooklm.google.com/notebook/nb-legacy-001',
-              }
-            : null,
         },
-        '/api/projects/project-legacy-001/notebook-library': [],
         '/api/projects/project-legacy-001/artifacts': [],
       };
 
@@ -381,17 +291,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '历史需求分析项目' })).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledWith(
-        '/api/projects/project-legacy-001/notebook-create-and-bind',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-    });
-
-    expect(await screen.findByText('NotebookLM: ready')).toBeInTheDocument();
+    expect(await screen.findByText('LLM Wiki: ready')).toBeInTheDocument();
   });
 
   it('renders the workbench with project, sources, messages and state from the API payload', async () => {
@@ -469,33 +369,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-seed-001',
+          summary: '当前项目 LLM Wiki 知识库已就绪。',
+          detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-seed-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [
-        {
-          id: 'nb-1',
-          name: '集团业财逐笔对账 Notebook',
-          url: 'https://notebooklm.google.com/notebook/seed123',
-          description: '默认演示 notebook',
-          topics: ['业财对账', '需求分析'],
-          use_count: 2,
-          last_used: null,
-        },
-      ],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -519,7 +400,7 @@ describe('App', () => {
     expect(screen.queryByPlaceholderText('粘贴纪要、需求原话或规则说明。')).not.toBeInTheDocument();
 
     await waitFor(() => {
-      expect(globalThis.fetch).toHaveBeenCalledTimes(7);
+      expect(globalThis.fetch).toHaveBeenCalledTimes(6);
     });
   });
 
@@ -547,10 +428,10 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'ready',
-          summary: 'NotebookLM 已就绪。',
+          summary: 'LLM Wiki 已就绪。',
           detail: null,
           action_label: null,
         },
@@ -585,23 +466,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-seed-001',
+          summary: '当前项目 LLM Wiki 知识库已就绪。',
+          detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-seed-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -649,16 +521,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'binding_required',
-          summary: '当前项目还没有绑定专属 NotebookLM notebook。',
+          summary: '当前项目 LLM Wiki 知识库尚未初始化。',
           detail: '需要先绑定',
-          action_label: '绑定项目 notebook',
+          action_label: null,
         },
-        notebook_binding: null,
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -674,7 +544,7 @@ describe('App', () => {
     expect(screen.getByPlaceholderText('粘贴纪要、需求原话或规则说明。')).toBeInTheDocument();
   });
 
-  it('shows project notebook library options inside the bind dialog', async () => {
+  it('shows LLM Wiki status inside the runtime dialog without notebook binding controls', async () => {
     window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
 
     installFetchMock({
@@ -708,26 +578,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
-          status: 'binding_required',
-          summary: '当前项目还没有绑定专属 NotebookLM notebook。',
-          detail: '需要先绑定',
-          action_label: '绑定项目 notebook',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
+          status: 'ready',
+          summary: '当前项目 LLM Wiki 知识库已就绪。',
+          detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
+          action_label: null,
         },
-        notebook_binding: null,
       },
-      '/api/projects/seed-reconciliation/notebook-library': [
-        {
-          id: 'nb-1',
-          name: '集团业财逐笔对账 Notebook',
-          url: 'https://notebooklm.google.com/notebook/seed123',
-          description: '默认演示 notebook',
-          topics: ['业财对账', '需求分析'],
-          use_count: 2,
-          last_used: null,
-        },
-      ],
       '/api/projects/seed-reconciliation/artifacts': [],
     });
 
@@ -735,13 +593,11 @@ describe('App', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: '运行状态' }));
-    await user.click(screen.getByRole('button', { name: '绑定项目 Notebook' }));
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText('已登记的 Notebook')).toBeInTheDocument();
-    expect(screen.getByText('集团业财逐笔对账 Notebook')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '绑定已登记 Notebook' })).toBeDisabled();
-    expect(screen.getByPlaceholderText('https://notebooklm.google.com/notebook/...')).toBeInTheDocument();
+    expect(screen.getByText('LLM Wiki')).toBeInTheDocument();
+    expect(screen.getByText('当前项目 LLM Wiki 知识库已就绪。')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '创建并绑定' })).not.toBeInTheDocument();
   });
 
   it('can delete a source from the workbench', async () => {
@@ -816,16 +672,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'binding_required',
-            summary: '当前项目还没有绑定专属 NotebookLM notebook。',
+            summary: '当前项目 LLM Wiki 知识库尚未初始化。',
             detail: '需要先绑定',
-            action_label: '绑定项目 notebook',
+            action_label: null,
           },
-          notebook_binding: null,
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -906,7 +760,7 @@ describe('App', () => {
             parse_status: 'parsed',
             parse_summary: '解释业务字段到财务科目的映射口径。',
             sync_status: retried ? 'synced' : 'sync_failed',
-            sync_error: retried ? null : 'NotebookLM 调用失败：ConnectError',
+            sync_error: retried ? null : 'LLM Wiki 索引失败：ConnectError',
             created_at: '2026-04-16T00:00:00+08:00',
           },
         ],
@@ -929,23 +783,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-seed-001',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-seed-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-seed-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1058,23 +903,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-batch-001',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-batch-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-batch-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1120,43 +956,10 @@ describe('App', () => {
     });
 
     const chatRequests: string[] = [];
-    const bindingRequests: string[] = [];
-    let notebookBound = false;
-
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const path = new URL(url, 'http://localhost').pathname;
       const method = init?.method ?? 'GET';
-
-      if (path === '/api/projects/seed-reconciliation/notebook-create-and-bind' && method === 'POST') {
-        notebookBound = true;
-        bindingRequests.push(path);
-        return new Response(
-          JSON.stringify({
-            notebook: {
-              id: 'nb-created-001',
-              name: '集团业财逐笔对账需求分析',
-              url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              description: '',
-              topics: [],
-              use_count: 0,
-              last_used: null,
-            },
-            binding: {
-              project_id: 'seed-reconciliation',
-              notebook_id: 'nb-created-001',
-              provider: 'NOTEBOOKLM_PY',
-              sync_status: 'bound',
-              last_synced_at: null,
-              source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-            },
-          }),
-          {
-            status: 201,
-            headers: { 'Content-Type': 'application/json' },
-          }
-        );
-      }
 
       if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
         const body = JSON.parse(String(init?.body ?? '{}')) as { message?: string };
@@ -1208,25 +1011,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
-            status: notebookBound ? 'ready' : 'binding_required',
-            summary: notebookBound ? '当前项目已绑定专属 NotebookLM notebook。' : '当前项目还没有绑定专属 NotebookLM notebook。',
-            detail: notebookBound ? 'Notebook ID: nb-created-001' : '需要先绑定',
-            action_label: notebookBound ? null : '绑定项目 notebook',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
+            status: 'ready',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
+            action_label: null,
           },
-          notebook_binding: notebookBound
-            ? {
-                project_id: 'seed-reconciliation',
-                notebook_id: 'nb-created-001',
-                provider: 'NOTEBOOKLM_PY',
-                sync_status: 'bound',
-                last_synced_at: null,
-                source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              }
-            : null,
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1255,7 +1047,6 @@ describe('App', () => {
     await user.keyboard('{Enter}');
 
     await waitFor(() => {
-      expect(bindingRequests).toEqual(['/api/projects/seed-reconciliation/notebook-create-and-bind']);
       expect(chatRequests).toEqual(['第一行\n第二行']);
     });
   });
@@ -1278,7 +1069,7 @@ describe('App', () => {
               encoder.encode(
                 [
                   'event: assistant_status',
-                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:00+08:00","phase":"evidence_query","label":"正在读取 NotebookLM 证据与引用"}',
+                  'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T00:00:00+08:00","phase":"evidence_query","label":"已读取 LLM Wiki 知识库上下文，正在组织回答"}',
                   '',
                   '',
                   'event: message_chunk',
@@ -1379,23 +1170,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-stream-001',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-stream-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-stream-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1417,7 +1199,7 @@ describe('App', () => {
     await user.type(composer, '请开始分析');
     await user.keyboard('{Enter}');
 
-    expect(await screen.findByText('正在读取 NotebookLM 证据与引用')).toBeInTheDocument();
+    expect(await screen.findByText('已读取 LLM Wiki 知识库上下文，正在组织回答')).toBeInTheDocument();
     expect(await screen.findByText('第一段')).toBeInTheDocument();
     expect(screen.queryByText('第一段第二段')).not.toBeInTheDocument();
 
@@ -1496,23 +1278,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-md-001',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-md-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-md-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 
@@ -1538,150 +1311,6 @@ describe('App', () => {
 
     const strong = document.querySelector('.markdown-body strong');
     expect(strong?.textContent).toBe('重点结论');
-  });
-
-  it('can create and bind a project notebook from the binding dialog', async () => {
-    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
-
-    let notebookReady = false;
-
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-      const path = new URL(url, 'http://localhost').pathname;
-      const method = init?.method ?? 'GET';
-
-      if (path === '/api/projects/seed-reconciliation/notebook-create-and-bind' && method === 'POST') {
-        notebookReady = true;
-        return new Response(
-          JSON.stringify({
-            notebook: {
-              id: 'nb-created-001',
-              name: '集团业财逐笔对账需求分析',
-              url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              description: '项目专属 notebook',
-              topics: ['reconciliation', '需求分析', 'project-bound'],
-              use_count: 0,
-              last_used: null,
-            },
-            binding: {
-              project_id: 'seed-reconciliation',
-              notebook_id: 'nb-created-001',
-              provider: 'NOTEBOOKLM_PY',
-              sync_status: 'bound',
-              last_synced_at: null,
-              source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-            },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        );
-      }
-
-      const routes: Record<string, JsonResponse> = {
-        '/api/projects/seed-reconciliation': {
-          id: 'seed-reconciliation',
-          name: '集团业财逐笔对账需求分析',
-          scenario_type: 'reconciliation',
-          summary: '默认 seed 项目。',
-          status: 'active',
-          created_at: '2026-04-16T00:00:00+08:00',
-          updated_at: '2026-04-16T00:00:00+08:00',
-          seed_key: 'seed-reconciliation',
-        },
-        '/api/projects/seed-reconciliation/sources': [],
-        '/api/projects/seed-reconciliation/messages': [],
-        '/api/projects/seed-reconciliation/state': {
-          current_understanding: [],
-          pending_items: [],
-          confirmed_items: [],
-          conflict_items: [],
-          mvp_items: [],
-          versions: [],
-          artifacts: [],
-        },
-        '/api/projects/seed-reconciliation/notebook-library': notebookReady
-          ? [
-              {
-                id: 'nb-created-001',
-                name: '集团业财逐笔对账需求分析',
-                url: 'https://notebooklm.google.com/notebook/nb-created-001',
-                description: '项目专属 notebook',
-                topics: ['reconciliation', '需求分析', 'project-bound'],
-                use_count: 0,
-                last_used: null,
-              },
-            ]
-          : [],
-        '/api/projects/seed-reconciliation/artifacts': [],
-        '/api/projects/seed-reconciliation/readiness': notebookReady
-          ? {
-              project_id: 'seed-reconciliation',
-              claude: {
-                provider: 'CLAUDE_AGENT_SDK',
-                status: 'ready',
-                summary: 'Claude Agent SDK 已就绪。',
-                detail: null,
-                action_label: null,
-              },
-              notebooklm: {
-                provider: 'NOTEBOOKLM_PY',
-                status: 'ready',
-                summary: '当前项目已绑定专属 NotebookLM notebook。',
-                detail: 'Notebook ID: nb-created-001',
-                action_label: null,
-              },
-              notebook_binding: {
-                project_id: 'seed-reconciliation',
-                notebook_id: 'nb-created-001',
-                provider: 'NOTEBOOKLM_PY',
-                sync_status: 'bound',
-                last_synced_at: null,
-                source_url: 'https://notebooklm.google.com/notebook/nb-created-001',
-              },
-            }
-          : {
-              project_id: 'seed-reconciliation',
-              claude: {
-                provider: 'CLAUDE_AGENT_SDK',
-                status: 'ready',
-                summary: 'Claude Agent SDK 已就绪。',
-                detail: null,
-                action_label: null,
-              },
-              notebooklm: {
-                provider: 'NOTEBOOKLM_PY',
-                status: 'binding_required',
-                summary: '当前项目还没有绑定专属 NotebookLM notebook。',
-                detail: '需要先绑定',
-                action_label: '绑定项目 notebook',
-              },
-              notebook_binding: null,
-            },
-      };
-
-      const payload = routes[path];
-      if (!payload) {
-        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
-      }
-
-      return new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    });
-
-    const user = userEvent.setup();
-    render(<App />);
-
-    await user.click(await screen.findByRole('button', { name: '运行状态' }));
-    await user.click(screen.getByRole('button', { name: '绑定项目 Notebook' }));
-    await user.click(screen.getByRole('button', { name: '创建并绑定 Notebook' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('NotebookLM: ready')).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: '运行状态' }));
-    expect(await screen.findByText('当前项目已绑定专属 NotebookLM notebook。')).toBeInTheDocument();
   });
 
   it('sanitizes dirty state text and only shows the latest artifact per type in the sidebar', async () => {
@@ -1738,23 +1367,14 @@ describe('App', () => {
           detail: null,
           action_label: null,
         },
-        notebooklm: {
-          provider: 'NOTEBOOKLM_PY',
+        knowledge_wiki: {
+          provider: 'LLM_WIKI',
           status: 'ready',
-          summary: '当前项目已绑定专属 NotebookLM notebook。',
-          detail: 'Notebook ID: nb-ready-001',
+          summary: '当前项目 LLM Wiki 知识库已就绪。',
+          detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
           action_label: null,
         },
-        notebook_binding: {
-          project_id: 'seed-reconciliation',
-          notebook_id: 'nb-ready-001',
-          provider: 'NOTEBOOKLM_PY',
-          sync_status: 'bound',
-          last_synced_at: null,
-          source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
-        },
       },
-      '/api/projects/seed-reconciliation/notebook-library': [],
       '/api/projects/seed-reconciliation/artifacts': [
         {
           id: 'artifact-page-new',
@@ -1916,23 +1536,14 @@ describe('App', () => {
             detail: null,
             action_label: null,
           },
-          notebooklm: {
-            provider: 'NOTEBOOKLM_PY',
+          knowledge_wiki: {
+            provider: 'LLM_WIKI',
             status: 'ready',
-            summary: '当前项目已绑定专属 NotebookLM notebook。',
-            detail: 'Notebook ID: nb-ready-001',
+            summary: '当前项目 LLM Wiki 知识库已就绪。',
+            detail: 'Wiki path: data/projects/seed-reconciliation/wiki',
             action_label: null,
           },
-          notebook_binding: {
-            project_id: 'seed-reconciliation',
-            notebook_id: 'nb-ready-001',
-            provider: 'NOTEBOOKLM_PY',
-            sync_status: 'bound',
-            last_synced_at: null,
-            source_url: 'https://notebooklm.google.com/notebook/nb-ready-001',
-          },
         },
-        '/api/projects/seed-reconciliation/notebook-library': [],
         '/api/projects/seed-reconciliation/artifacts': [],
       };
 

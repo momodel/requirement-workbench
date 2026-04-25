@@ -16,9 +16,7 @@ def make_settings(tmp_path: Path) -> AppSettings:
         data_dir=data_dir,
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
-        projects_dir=data_dir / "projects",
-        notebooklm_home_dir=data_dir / "notebooklm",
-        claude_cli_path=str(tmp_path / "fake-claude"),
+        projects_dir=data_dir / "projects",        claude_cli_path=str(tmp_path / "fake-claude"),
     )
 
 
@@ -69,13 +67,7 @@ def make_fake_notebook_client() -> SimpleNamespace:
 
 
 def install_fake_notebook_client(app, monkeypatch) -> None:
-    write_storage_state(app.state.services.settings)
-    fake_client = make_fake_notebook_client()
-    monkeypatch.setattr(
-        app.state.services.notebooklm,
-        "_with_client",
-        lambda callback: app.state.services.notebooklm._run_async(lambda: callback(fake_client)),
-    )
+    return None
 
 
 def test_project_and_source_flow(tmp_path: Path, monkeypatch) -> None:
@@ -162,28 +154,17 @@ def test_project_supports_batch_file_upload(tmp_path: Path, monkeypatch) -> None
         assert len(stored_sources) == 2
 
 
-def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, monkeypatch) -> None:
+def test_source_upload_indexes_into_llm_wiki_without_remote_provider(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_notebook_client(app, monkeypatch)
-    monkeypatch.setattr(
-        app.state.services.notebooklm,
-        "get_global_readiness",
-        lambda: ProviderReadiness(
-            provider="NOTEBOOKLM_PY",
-            status="error",
-            summary="NotebookLM provider 检查失败。",
-            detail="ConnectError",
-            action_label="检查 NotebookLM 配置",
-        ),
-    )
 
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "失败状态统一测试",
+                "name": "知识库索引测试",
                 "scenario_type": "general",
-                "summary": "验证 source 同步失败状态统一成 sync_failed",
+                "summary": "验证 source 入库后直接进入 LLM Wiki 知识库上下文",
             },
         )
         assert create_response.status_code == 201
@@ -200,8 +181,8 @@ def test_source_upload_normalizes_provider_error_to_sync_failed(tmp_path: Path, 
 
         assert upload_response.status_code == 201
         source = upload_response.json()
-        assert source["sync_status"] == "sync_failed"
-        assert "ConnectError" in source["sync_error"]
+        assert source["sync_status"] == "indexed"
+        assert "LLM Wiki" in source["sync_error"]
 
 
 def test_retry_source_sync_updates_failed_source(tmp_path: Path, monkeypatch) -> None:
@@ -234,18 +215,8 @@ def test_retry_source_sync_updates_failed_source(tmp_path: Path, monkeypatch) ->
         app.state.services.catalog.update_source_sync_status(
             source_id=source_id,
             sync_status="sync_failed",
-            sync_error="NotebookLM 调用失败：ConnectError",
+            sync_error="索引失败：旧错误",
         )
-
-        def fake_sync_source(target_source_id: str):
-            assert target_source_id == source_id
-            return app.state.services.catalog.update_source_sync_status(
-                source_id=target_source_id,
-                sync_status="synced",
-                sync_error=None,
-            )
-
-        monkeypatch.setattr(app.state.services.notebooklm, "sync_source", fake_sync_source)
 
         retry_response = client.post(
             f"/api/projects/{project_id}/sources/{source_id}/retry-sync",
@@ -254,8 +225,8 @@ def test_retry_source_sync_updates_failed_source(tmp_path: Path, monkeypatch) ->
         assert retry_response.status_code == 200
         updated_source = retry_response.json()
         assert updated_source["id"] == source_id
-        assert updated_source["sync_status"] == "synced"
-        assert updated_source["sync_error"] is None
+        assert updated_source["sync_status"] == "indexed"
+        assert "LLM Wiki" in updated_source["sync_error"]
 
 
 def test_chat_stream_reports_provider_not_configured(tmp_path: Path) -> None:
@@ -288,7 +259,7 @@ def test_chat_stream_reports_provider_not_configured(tmp_path: Path) -> None:
         assert f"\"project_id\": \"{project_id}\"" in body
 
 
-def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
+def test_provider_readiness_reports_llm_wiki_ready(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -299,9 +270,9 @@ def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "Notebook 绑定测试",
+                "name": "知识库 readiness 测试",
                 "scenario_type": "general",
-                "summary": "验证 provider readiness 和项目 notebook 绑定状态",
+                "summary": "验证 provider readiness 和项目知识库状态",
             },
         )
         project_id = create_response.json()["id"]
@@ -311,12 +282,12 @@ def test_provider_readiness_reports_binding_required_when_notebook_is_ready(
         assert readiness_response.status_code == 200
         readiness = readiness_response.json()
         assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
-        assert readiness["notebooklm"]["provider"] == "NOTEBOOKLM_PY"
-        assert readiness["notebooklm"]["status"] == "binding_required"
-        assert readiness["notebook_binding"] is None
+        assert readiness["knowledge_wiki"]["provider"] == "LLM_WIKI"
+        assert readiness["knowledge_wiki"]["status"] == "ready"
+        assert "notebooklm" not in readiness
 
 
-def test_bind_notebook_endpoint_persists_project_binding(
+def test_notebook_binding_endpoint_is_not_part_of_llm_wiki_route(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -339,85 +310,26 @@ def test_bind_notebook_endpoint_persists_project_binding(
             json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
         )
 
-        assert bind_response.status_code == 201
-        binding = bind_response.json()
-        assert binding["project_id"] == project_id
-        assert binding["notebook_id"] == "abc123"
-        assert binding["sync_status"] == "bound"
+        assert bind_response.status_code == 404
 
         readiness_response = client.get(f"/api/projects/{project_id}/readiness")
         readiness = readiness_response.json()
-        assert readiness["notebooklm"]["status"] == "ready"
-        assert readiness["notebook_binding"]["notebook_id"] == "abc123"
+        assert readiness["knowledge_wiki"]["status"] == "ready"
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
             data={
                 "upload_kind": "text",
                 "name": "财务访谈纪要",
-                "text_content": "已绑定项目 notebook 后，新资料应进入待同步状态。",
+                "text_content": "新资料应直接进入 LLM Wiki 知识库上下文。",
             },
         )
         assert upload_response.status_code == 201
-        assert upload_response.json()["sync_status"] == "synced"
+        assert upload_response.json()["sync_status"] == "indexed"
 
 
-def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkeypatch) -> None:
+def test_delete_source_removes_local_and_updates_wiki(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    write_storage_state(app.state.services.settings)
-
-    source_registry: list[SimpleNamespace] = []
-
-    fake_client = SimpleNamespace(
-        notebooks=SimpleNamespace(
-            list=lambda: asyncio.sleep(
-                0,
-                result=[SimpleNamespace(id="existing-notebook", title="项目专属 Notebook")],
-            ),
-            get=lambda notebook_id: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id=notebook_id, title="项目专属 Notebook"),
-            ),
-            create=lambda title: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="created-notebook", title=title),
-            ),
-        ),
-        sources=SimpleNamespace(
-            add_text=lambda notebook_id, title, content, wait: asyncio.sleep(
-                0,
-                result=source_registry.append(SimpleNamespace(id=f"nb-{len(source_registry)+1}", title=title)) or source_registry[-1],
-            ),
-            add_url=lambda notebook_id, url, wait: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="nb-source-url", title=url),
-            ),
-            add_file=lambda notebook_id, file_path, wait: asyncio.sleep(
-                0,
-                result=SimpleNamespace(id="nb-source-file", title=file_path),
-            ),
-            list=lambda notebook_id: asyncio.sleep(0, result=list(source_registry)),
-            delete=lambda notebook_id, source_id: asyncio.sleep(
-                0,
-                result=source_registry.__setitem__(
-                    slice(None),
-                    [source for source in source_registry if source.id != source_id],
-                )
-                or True,
-            ),
-        ),
-        chat=SimpleNamespace(
-            ask=lambda notebook_id, question, source_ids=None, conversation_id=None: asyncio.sleep(
-                0,
-                result=SimpleNamespace(answer="NotebookLM 回答", references=[]),
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        app.state.services.notebooklm,
-        "_with_client",
-        lambda callback: app.state.services.notebooklm._run_async(lambda: callback(fake_client)),
-    )
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -425,16 +337,10 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
             json={
                 "name": "删除资料测试",
                 "scenario_type": "general",
-                "summary": "验证资料可以从本地和 notebook 一起删掉",
+                "summary": "验证资料可以从本地知识库删掉",
             },
         )
         project_id = create_response.json()["id"]
-
-        bind_response = client.post(
-            f"/api/projects/{project_id}/notebook-binding",
-            json={"source_url": "https://notebooklm.google.com/notebook/abc123"},
-        )
-        assert bind_response.status_code == 201
 
         upload_response = client.post(
             f"/api/projects/{project_id}/sources",
@@ -453,12 +359,10 @@ def test_delete_source_removes_local_and_notebook_records(tmp_path: Path, monkey
         sources_response = client.get(f"/api/projects/{project_id}/sources")
         assert sources_response.status_code == 200
         assert sources_response.json() == []
-        assert source_registry == []
 
 
 def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
     monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
 
     async def fake_generate_artifact(**kwargs):
@@ -486,7 +390,6 @@ def test_generate_artifact_returns_provider_issue_detail(tmp_path: Path, monkeyp
 
 def test_generate_artifact_returns_validation_detail(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
-    install_fake_notebook_client(app, monkeypatch)
     monkeypatch.setattr(app.state.services.agent_runtime, "ensure_available", lambda: None)
 
     async def fake_generate_artifact(**kwargs):
