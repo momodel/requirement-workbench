@@ -128,6 +128,7 @@ function parseStatusLabel(status: string) {
   if (status === 'queued') return '排队中';
   if (status === 'failed') return '标准化失败';
   if (status === 'error') return '标准化异常';
+  if (status === 'not_configured') return '标准化未配置';
   return status;
 }
 
@@ -984,10 +985,19 @@ export function WorkbenchPage({
     (source) => sourceIndexStatus(source).includes('indexed') || sourceIndexStatus(source).includes('ready')
   ).length;
   const pendingSourceCount = sources.filter(
-    (source) =>
-      sourceNormalizeStatus(source).includes('pending') ||
-      sourceIndexStatus(source).includes('pending') ||
-      sourceIndexStatus(source).includes('queued')
+    (source) => {
+      const normalizeStatus = sourceNormalizeStatus(source);
+      const indexStatus = sourceIndexStatus(source);
+
+      return (
+        normalizeStatus === 'processing' ||
+        normalizeStatus.includes('pending') ||
+        normalizeStatus.includes('queued') ||
+        indexStatus === 'indexing' ||
+        indexStatus.includes('pending') ||
+        indexStatus.includes('queued')
+      );
+    }
   ).length;
   const totalInsightCount =
     state.current_understanding.length +

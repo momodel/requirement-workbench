@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import App from './App';
@@ -779,7 +779,7 @@ describe('App', () => {
               index_input_mode: 'audio_transcript',
               normalize_status: 'processing',
               normalize_summary: '正在提取录音里的业务字段和财务口径。',
-              index_status: 'normalization_pending',
+              index_status: 'pending',
               index_error: null,
               created_at: '2026-04-16T00:00:00+08:00',
             },
@@ -847,7 +847,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' })).toBeInTheDocument();
     expect(await screen.findByText('标准化：标准化中')).toBeInTheDocument();
-    expect(screen.getByText('入库：待标准化')).toBeInTheDocument();
+    expect(screen.getByText('入库：待入库')).toBeInTheDocument();
+    expect(screen.getByText('1 份 · 0 已索引 · 1 待处理')).toBeInTheDocument();
     expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 3000);
 
     await waitFor(() => {
@@ -855,7 +856,194 @@ describe('App', () => {
     }, { timeout: 4000 });
     expect(screen.getByText('入库：入库中')).toBeInTheDocument();
     expect(screen.getByText('录音已转写：先统一订单口径，再对齐财务科目映射。')).toBeInTheDocument();
+    expect(screen.getByText('1 份 · 0 已索引 · 1 待处理')).toBeInTheDocument();
     expect(sourceRequestCount).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps the local assistant message while source polling refreshes active audio work', async () => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: vi.fn(),
+    });
+
+    window.history.replaceState({}, '', '/projects/seed-reconciliation/workbench');
+
+    const encoder = new TextEncoder();
+    const intervalCallbacks: Array<() => void> = [];
+    let sourceRequestCount = 0;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
+
+    vi.spyOn(window, 'setInterval').mockImplementation((handler: TimerHandler) => {
+      if (typeof handler === 'function') {
+        intervalCallbacks.push(handler as () => void);
+      }
+      return intervalCallbacks.length as unknown as number;
+    });
+    vi.spyOn(window, 'clearInterval').mockImplementation(() => {});
+
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+      const path = new URL(url, 'http://localhost').pathname;
+      const method = init?.method ?? 'GET';
+
+      if (path === '/api/projects/seed-reconciliation/chat/stream' && method === 'POST') {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              streamController = controller;
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'event: assistant_status',
+                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T10:00:00+08:00","phase":"evidence_query","label":"正在读取音频转写证据"}',
+                    '',
+                    'event: message_chunk',
+                    'data: {"project_id":"seed-reconciliation","created_at":"2026-04-16T10:00:01+08:00","text":"我先整理音频里的对账口径。"}',
+                    '',
+                  ].join('\n')
+                )
+              );
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'text/event-stream' },
+          }
+        );
+      }
+
+      const routes: Record<string, RoutePayload> = {
+        '/api/projects/seed-reconciliation': {
+          id: 'seed-reconciliation',
+          name: '集团业财逐笔对账需求分析',
+          scenario_type: 'reconciliation',
+          summary: '默认 seed 项目。',
+          status: 'active',
+          created_at: '2026-04-16T00:00:00+08:00',
+          updated_at: '2026-04-16T00:00:00+08:00',
+          seed_key: 'seed-reconciliation',
+        },
+        '/api/projects/seed-reconciliation/sources': () => {
+          sourceRequestCount += 1;
+
+          if (sourceRequestCount === 1) {
+            return [
+              {
+                id: 'src-audio-stream-1',
+                project_id: 'seed-reconciliation',
+                name: '需求访谈录音.m4a',
+                source_kind: 'audio',
+                upload_kind: 'file',
+                storage_path: '/tmp/interview.m4a',
+                normalized_path: null,
+                index_input_mode: 'audio_transcript',
+                normalize_status: 'processing',
+                normalize_summary: '正在转写访谈录音。',
+                index_status: 'normalization_pending',
+                index_error: null,
+                created_at: '2026-04-16T00:00:00+08:00',
+              },
+            ];
+          }
+
+          return [
+            {
+              id: 'src-audio-stream-1',
+              project_id: 'seed-reconciliation',
+              name: '需求访谈录音.m4a',
+              source_kind: 'audio',
+              upload_kind: 'file',
+              storage_path: '/tmp/interview.m4a',
+              normalized_path: '/tmp/interview.md',
+              index_input_mode: 'audio_transcript',
+              normalize_status: 'parsed',
+              normalize_summary: '转写完成：先确认逐笔对账范围，再对齐退款口径。',
+              index_status: 'indexing',
+              index_error: null,
+              created_at: '2026-04-16T00:00:00+08:00',
+            },
+          ];
+        },
+        '/api/projects/seed-reconciliation/messages': [],
+        '/api/projects/seed-reconciliation/state': {
+          current_understanding: [],
+          pending_items: [],
+          confirmed_items: [],
+          conflict_items: [],
+          mvp_items: [],
+          versions: [],
+          artifacts: [],
+        },
+        '/api/projects/seed-reconciliation/readiness': {
+          project_id: 'seed-reconciliation',
+          claude: {
+            provider: 'CLAUDE_AGENT_SDK',
+            status: 'ready',
+            summary: 'Claude Agent SDK 已就绪。',
+            detail: null,
+            action_label: null,
+          },
+          evidence: {
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'ready',
+            summary: '项目知识库已就绪。',
+            detail: 'Knowledge Base ID: nb-stream-001',
+            action_label: null,
+          },
+          knowledge_base: {
+            project_id: 'seed-reconciliation',
+            id: 'nb-stream-001',
+            provider: 'QDRANT_LLAMA_INDEX',
+            status: 'bound',
+            updated_at: null,
+            status_error: 'https://qdrant.local/knowledge-base/nb-stream-001',
+          },
+        },
+        '/api/projects/seed-reconciliation/knowledge-base': [],
+        '/api/projects/seed-reconciliation/artifacts': [],
+      };
+
+      const route = routes[path];
+      const payload = typeof route === 'function' ? route() : route;
+
+      if (!payload) {
+        return new Response(`Unhandled request for ${method} ${path}`, { status: 404 });
+      }
+
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText('继续补充背景、确认范围，或让系统基于当前资料生成理解。');
+    await user.type(composer, '请继续分析音频录音');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByText('请继续分析音频录音')).toBeInTheDocument();
+    expect((await screen.findAllByText('正在读取音频转写证据')).length).toBeGreaterThan(0);
+    expect(intervalCallbacks.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      for (const callback of intervalCallbacks) {
+        await callback();
+      }
+    });
+
+    await waitFor(() => {
+      expect(sourceRequestCount).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(screen.getByText('请继续分析音频录音')).toBeInTheDocument();
+    expect(screen.getAllByText('正在读取音频转写证据').length).toBeGreaterThan(0);
+    expect(screen.getByText('转写完成：先确认逐笔对账范围，再对齐退款口径。')).toBeInTheDocument();
+
+    await act(async () => {
+      streamController?.close();
+    });
   });
 
   it('shows audio transcript previews and runtime cards for Qiniu and Aliyun providers', async () => {

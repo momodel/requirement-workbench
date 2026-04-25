@@ -67,6 +67,7 @@ function hasActiveSourceWork(sources: SourceRecord[]) {
   return sources.some(
     (source) =>
       source.normalize_status === 'processing' ||
+      source.index_status === 'pending' ||
       source.index_status === 'normalization_pending' ||
       source.index_status === 'indexing'
   );
@@ -340,6 +341,24 @@ function WorkbenchRoute() {
     }
   }
 
+  async function refreshSourceStatuses() {
+    try {
+      const sources = await listSources(projectId);
+      setData((current) => ({ ...current, sources }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '资料状态刷新失败。';
+      setNotices((current) => [
+        {
+          id: `source-refresh-${Date.now()}`,
+          kind: 'error',
+          title: '资料状态刷新失败',
+          body: message,
+        },
+        ...current,
+      ]);
+    }
+  }
+
   useEffect(() => {
     autoInitAttemptedProjectId.current = null;
     setRecentInsightIds([]);
@@ -407,7 +426,7 @@ function WorkbenchRoute() {
     }
 
     const timer = window.setInterval(() => {
-      void loadWorkbench({ silent: true });
+      void refreshSourceStatuses();
     }, 3000);
 
     return () => window.clearInterval(timer);
