@@ -16,6 +16,7 @@ from ..models import (
     KnowledgeBaseRecord,
     MessageRecord,
     ProjectSummary,
+    SourceProcessingJobRecord,
     SourceRecord,
     SourceChunkRecord,
     StateCategory,
@@ -80,6 +81,14 @@ class ProjectCatalog:
     @staticmethod
     def _source_chunk_from_row(row: dict) -> SourceChunkRecord:
         return SourceChunkRecord.model_validate(dict(row))
+
+    @staticmethod
+    def _source_processing_job_from_row(
+        row: dict | None,
+    ) -> SourceProcessingJobRecord | None:
+        if not row:
+            return None
+        return SourceProcessingJobRecord.model_validate(dict(row))
 
     @staticmethod
     def _validate_source_chunk_ownership(
@@ -538,6 +547,145 @@ class ProjectCatalog:
                 (project_id, provider),
             ).fetchone()
         return self._knowledge_base_from_row(row)
+
+    def create_source_processing_job(
+        self,
+        *,
+        project_id: str,
+        source_id: str,
+        job_type: str,
+        provider: str,
+        status: str,
+        provider_job_id: str | None,
+        attempt_count: int,
+        last_error: str | None,
+    ) -> SourceProcessingJobRecord:
+        timestamp = now_iso(self.settings)
+        record = SourceProcessingJobRecord(
+            id=f"job-{uuid.uuid4().hex[:10]}",
+            project_id=project_id,
+            source_id=source_id,
+            job_type=job_type,
+            status=status,
+            provider=provider,
+            provider_job_id=provider_job_id,
+            attempt_count=attempt_count,
+            last_error=last_error,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        with connection_scope(self.settings) as connection:
+            connection.execute(
+                """
+                INSERT INTO source_processing_jobs (
+                  id, project_id, source_id, job_type, status, provider,
+                  provider_job_id, attempt_count, last_error, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.project_id,
+                    record.source_id,
+                    record.job_type,
+                    record.status,
+                    record.provider,
+                    record.provider_job_id,
+                    record.attempt_count,
+                    record.last_error,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+        return record
+
+    def get_source_processing_job(
+        self,
+        job_id: str,
+    ) -> SourceProcessingJobRecord | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_id, job_type, status, provider,
+                       provider_job_id, attempt_count, last_error, created_at, updated_at
+                FROM source_processing_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        return self._source_processing_job_from_row(row)
+
+    def list_source_processing_jobs(
+        self,
+        *,
+        source_id: str,
+    ) -> list[SourceProcessingJobRecord]:
+        with connection_scope(self.settings) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, source_id, job_type, status, provider,
+                       provider_job_id, attempt_count, last_error, created_at, updated_at
+                FROM source_processing_jobs
+                WHERE source_id = ?
+                ORDER BY datetime(updated_at) DESC, datetime(created_at) DESC
+                """,
+                (source_id,),
+            ).fetchall()
+        return [
+            SourceProcessingJobRecord.model_validate(dict(row))
+            for row in rows
+        ]
+
+    def update_source_processing_job(
+        self,
+        *,
+        job_id: str,
+        status: str,
+        provider_job_id: str | None,
+        attempt_count: int,
+        last_error: str | None,
+    ) -> SourceProcessingJobRecord:
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT project_id
+                FROM source_processing_jobs
+                WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+            if not row:
+                raise LookupError("Source processing job not found")
+
+            connection.execute(
+                """
+                UPDATE source_processing_jobs
+                SET status = ?, provider_job_id = ?, attempt_count = ?, last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    status,
+                    provider_job_id,
+                    attempt_count,
+                    last_error,
+                    timestamp,
+                    job_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, row["project_id"]),
+            )
+
+        updated = self.get_source_processing_job(job_id)
+        if updated is None:
+            raise LookupError("Source processing job not found")
+        return updated
 
     def replace_source_chunks(
         self,

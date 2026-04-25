@@ -56,6 +56,18 @@ class AppSettings:
     image_generation_timeout_seconds: float = 240.0
     image_generation_request_timeout_seconds: float = 60.0
     image_generation_poll_interval_seconds: float = 2.0
+    qiniu_access_key: str | None = None
+    qiniu_secret_key: str | None = None
+    qiniu_bucket: str | None = None
+    qiniu_domain: str | None = None
+    qiniu_key_prefix: str = "audio"
+    audio_transcription_backend: str = "aliyun_filetrans"
+    audio_transcription_timeout_seconds: float = 300.0
+    audio_transcription_poll_interval_seconds: float = 2.0
+    aliyun_ak_id: str | None = None
+    aliyun_ak_secret: str | None = None
+    aliyun_app_key: str | None = None
+    aliyun_filetrans_region: str = "cn-shanghai"
 
     def __post_init__(self) -> None:
         if self.qdrant_path is None:
@@ -126,6 +138,34 @@ class AppSettings:
             image_generation_timeout_seconds=float(os.getenv("IMAGE_GENERATION_TIMEOUT_SECONDS", "240")),
             image_generation_request_timeout_seconds=float(os.getenv("IMAGE_GENERATION_REQUEST_TIMEOUT_SECONDS", "60")),
             image_generation_poll_interval_seconds=float(os.getenv("IMAGE_GENERATION_POLL_INTERVAL_SECONDS", "2")),
+            qiniu_access_key=os.getenv("REQUIREMENT_WORKBENCH_QINIU_ACCESS_KEY"),
+            qiniu_secret_key=os.getenv("REQUIREMENT_WORKBENCH_QINIU_SECRET_KEY"),
+            qiniu_bucket=os.getenv("REQUIREMENT_WORKBENCH_QINIU_BUCKET"),
+            qiniu_domain=os.getenv("REQUIREMENT_WORKBENCH_QINIU_DOMAIN"),
+            qiniu_key_prefix=os.getenv("REQUIREMENT_WORKBENCH_QINIU_KEY_PREFIX", "audio"),
+            audio_transcription_backend=os.getenv(
+                "REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_BACKEND",
+                "aliyun_filetrans",
+            ),
+            audio_transcription_timeout_seconds=float(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_TIMEOUT_SECONDS",
+                    "300",
+                )
+            ),
+            audio_transcription_poll_interval_seconds=float(
+                os.getenv(
+                    "REQUIREMENT_WORKBENCH_AUDIO_TRANSCRIPTION_POLL_INTERVAL_SECONDS",
+                    "2",
+                )
+            ),
+            aliyun_ak_id=os.getenv("REQUIREMENT_WORKBENCH_ALIYUN_AK_ID"),
+            aliyun_ak_secret=os.getenv("REQUIREMENT_WORKBENCH_ALIYUN_AK_SECRET"),
+            aliyun_app_key=os.getenv("REQUIREMENT_WORKBENCH_ALIYUN_APP_KEY"),
+            aliyun_filetrans_region=os.getenv(
+                "REQUIREMENT_WORKBENCH_ALIYUN_FILETRANS_REGION",
+                "cn-shanghai",
+            ),
         )
 
 

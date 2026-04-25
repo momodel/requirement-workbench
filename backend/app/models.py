@@ -77,6 +77,20 @@ class SourceChunkRecord(BaseModel):
     updated_at: str
 
 
+class SourceProcessingJobRecord(BaseModel):
+    id: str
+    project_id: str
+    source_id: str
+    job_type: str
+    status: str
+    provider: str
+    provider_job_id: str | None = None
+    attempt_count: int
+    last_error: str | None = None
+    created_at: str
+    updated_at: str
+
+
 class EvidenceHit(BaseModel):
     source_id: str | None = None
     source_chunk_id: str | None = None
@@ -98,10 +112,15 @@ class ProjectReadiness(BaseModel):
     claude: ProviderReadiness
     evidence: ProviderReadiness
     knowledge_base: KnowledgeBaseRecord | None = None
+    object_storage: ProviderReadiness | None = None
+    audio_transcription: ProviderReadiness | None = None
+
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
     evidence: ProviderReadiness
+    object_storage: ProviderReadiness | None = None
+    audio_transcription: ProviderReadiness | None = None
 
 class SourceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")

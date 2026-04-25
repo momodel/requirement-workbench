@@ -87,6 +87,20 @@ CREATE TABLE IF NOT EXISTS source_chunks (
   updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS source_processing_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  source_id TEXT NOT NULL REFERENCES sources(id) ON DELETE CASCADE,
+  job_type TEXT NOT NULL,
+  status TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  provider_job_id TEXT,
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS demo_artifacts (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -117,3 +131,6 @@ CREATE INDEX IF NOT EXISTS idx_source_chunks_knowledge_base_id ON source_chunks(
 CREATE INDEX IF NOT EXISTS idx_source_chunks_embedding_status ON source_chunks(embedding_status);
 CREATE INDEX IF NOT EXISTS idx_source_chunks_content_hash ON source_chunks(content_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_source_chunks_source_chunk_order ON source_chunks(source_id, chunk_order);
+CREATE INDEX IF NOT EXISTS idx_source_processing_jobs_project_id ON source_processing_jobs(project_id);
+CREATE INDEX IF NOT EXISTS idx_source_processing_jobs_source_id ON source_processing_jobs(source_id);
+CREATE INDEX IF NOT EXISTS idx_source_processing_jobs_status ON source_processing_jobs(status);
