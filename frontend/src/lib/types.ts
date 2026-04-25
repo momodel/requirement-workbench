@@ -39,12 +39,14 @@ export type ProviderReadiness = {
 export type GlobalReadiness = {
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
+  wiki?: ProviderReadiness | null;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
+  wiki?: ProviderReadiness | null;
   knowledge_base: KnowledgeBaseRecord | null;
 };
 
@@ -61,7 +63,40 @@ export type SourceRecord = {
   normalize_summary: string | null;
   index_status: string;
   index_error: string | null;
+  wiki_sync_status?: string | null;
+  wiki_error?: string | null;
+  wiki_maintained_at?: string | null;
   created_at: string;
+};
+
+export type WikiPageMeta = {
+  slug: string;
+  title: string;
+  kind: string;
+  source_ids: string[];
+  last_maintained_at: string | null;
+  last_maintained_by: string | null;
+};
+
+export type WikiPage = WikiPageMeta & {
+  body: string;
+};
+
+export type WikiRecord = {
+  project_id: string;
+  page_count: number;
+  last_maintained_at: string | null;
+  pending_source_ids: string[];
+  detail: string | null;
+};
+
+export type WikiMaintenanceResult = {
+  project_id: string;
+  status: 'maintained' | 'skipped' | 'failed';
+  pages_changed: string[];
+  log_entry: string | null;
+  error: string | null;
+  trigger_kind: string | null;
 };
 
 export type MessageRecord = {

@@ -18,6 +18,7 @@ from .routes.readiness import router as readiness_router
 from .routes.sources import router as sources_router
 from .routes.state import router as state_router
 from .routes.versions import router as versions_router
+from .routes.wiki import router as wiki_router
 from .services.agent_runtime import ClaudeAgentRuntime
 from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
@@ -25,9 +26,12 @@ from .services.docling_normalizer import DoclingNormalizer
 from .services.evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
-from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
+from .services.runtime_contracts import AgentRuntime, EvidenceRuntime, WikiRuntime
 from .services.seed_projects import ensure_seed_project
 from .services.source_ingestion import SourceIngestionService
+from .services.wiki_maintenance import WikiMaintainer
+from .services.wiki_runtime import ClaudeWikiRuntime
+from .services.wiki_store import WikiStore
 
 
 @dataclass(slots=True)
@@ -38,6 +42,7 @@ class ServiceContainer:
     docling_normalizer: DoclingNormalizer
     source_ingestion: SourceIngestionService
     evidence_runtime: EvidenceRuntime
+    wiki_runtime: WikiRuntime
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
     chat_service: ChatService
@@ -53,6 +58,21 @@ def build_services(settings: AppSettings) -> ServiceContainer:
     )
     evidence_runtime = QdrantLlamaIndexEvidenceRuntime(settings, catalog=catalog)
     agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
+    wiki_store = WikiStore(settings)
+    wiki_maintainer = WikiMaintainer(
+        settings,
+        store=wiki_store,
+        catalog=catalog,
+        evidence_runtime=evidence_runtime,
+    )
+    wiki_runtime = ClaudeWikiRuntime(
+        settings,
+        catalog=catalog,
+        store=wiki_store,
+        sdk_readiness_probe=agent_runtime.get_readiness,
+        maintainer=wiki_maintainer,
+    )
+    agent_runtime.attach_wiki_runtime(wiki_runtime)
     artifact_generation = ArtifactGenerationService(settings)
     chat_service = ChatService(
         catalog=catalog,
@@ -60,6 +80,7 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
+        wiki_runtime=wiki_runtime,
     )
     return ServiceContainer(
         settings=settings,
@@ -68,6 +89,7 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         docling_normalizer=docling_normalizer,
         source_ingestion=source_ingestion,
         evidence_runtime=evidence_runtime,
+        wiki_runtime=wiki_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
         chat_service=chat_service,
@@ -76,9 +98,13 @@ def build_services(settings: AppSettings) -> ServiceContainer:
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    settings = app.state.services.settings
+    import asyncio
+
+    services = app.state.services
+    settings = services.settings
     init_db(settings)
     ensure_seed_project(settings)
+    services.wiki_runtime.attach_event_loop(asyncio.get_running_loop())
     yield
 
 
@@ -114,6 +140,7 @@ def create_app(settings: AppSettings = DEFAULT_SETTINGS) -> FastAPI:
     app.include_router(chat_images_router)
     app.include_router(versions_router)
     app.include_router(artifacts_router)
+    app.include_router(wiki_router)
 
     return app
 

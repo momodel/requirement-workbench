@@ -97,11 +97,13 @@ class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
     evidence: ProviderReadiness
+    wiki: ProviderReadiness | None = None
     knowledge_base: KnowledgeBaseRecord | None = None
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
     evidence: ProviderReadiness
+    wiki: ProviderReadiness | None = None
 
 class SourceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -118,6 +120,9 @@ class SourceRecord(BaseModel):
     normalize_summary: str | None = None
     index_status: str = "pending"
     index_error: str | None = None
+    wiki_sync_status: str | None = None
+    wiki_error: str | None = None
+    wiki_maintained_at: str | None = None
     created_at: str
 
     def model_dump_neutral(self) -> dict[str, Any]:
@@ -313,6 +318,36 @@ class EvidenceResult:
     summary: str
     citations: list[ChatCitation] = field(default_factory=list)
     sync_status: str = "synced"
+
+
+class WikiPageMeta(BaseModel):
+    slug: str
+    title: str
+    kind: str
+    source_ids: list[str] = Field(default_factory=list)
+    last_maintained_at: str | None = None
+    last_maintained_by: str | None = None
+
+
+class WikiPage(WikiPageMeta):
+    body: str
+
+
+class WikiRecord(BaseModel):
+    project_id: str
+    page_count: int
+    last_maintained_at: str | None = None
+    pending_source_ids: list[str] = Field(default_factory=list)
+    detail: str | None = None
+
+
+class WikiMaintenanceResult(BaseModel):
+    project_id: str
+    status: Literal["maintained", "skipped", "failed"]
+    pages_changed: list[str] = Field(default_factory=list)
+    log_entry: str | None = None
+    error: str | None = None
+    trigger_kind: str | None = None
 
 
 @dataclass(slots=True)
