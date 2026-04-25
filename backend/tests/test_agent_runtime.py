@@ -521,7 +521,8 @@ def test_streaming_prompt_requires_analysis_style_explanations(tmp_path: Path) -
     assert "先说清楚为什么现在要问这个或判断这个" in prompt
     assert "让用户看得见你是在推进分析，不是在直接吐结论" in prompt
     assert "如果本轮已经足够形成沉淀，要顺手说明你准备写入什么" in prompt
-    assert "只有当你判断本轮确实应该触发交付物时" in prompt
+    assert "页面方案、交互稿、视觉方案默认表达为图片视觉稿" in prompt
+    assert "只有用户明确要 HTML、可点击、可运行、导出或保存为正式交付物" in prompt
 
 
 def test_loop_prompt_distinguishes_discussion_from_real_actions(tmp_path: Path) -> None:
@@ -571,9 +572,11 @@ def test_loop_prompt_distinguishes_discussion_from_real_actions(tmp_path: Path) 
     assert "`update_project_state`" in prompt
     assert "`create_version_snapshot`" in prompt
     assert "`generate_artifact`" in prompt
+    assert "页面方案 / 交互稿 / 视觉方案默认优先调用 `generate_visual_mockup`" in prompt
+    assert "只有用户明确要求 HTML、可点击原型、可运行原型、导出 HTML 或保存成交付物" in prompt
 
 
-def test_structured_prompt_requires_artifact_request_to_match_assistant_commitment(tmp_path: Path) -> None:
+def test_structured_prompt_prefers_visual_mockup_for_page_and_interaction_requests(tmp_path: Path) -> None:
     runtime = ClaudeAgentRuntime(
         AppSettings(
             root_dir=tmp_path,
@@ -616,9 +619,9 @@ def test_structured_prompt_requires_artifact_request_to_match_assistant_commitme
         assistant_message="好，我现在把它整理成一版页面方案。",
     )
 
-    assert "本轮必须直接调用 `generate_artifact`" in prompt
-    assert "不能遗漏" in prompt
-    assert "调用 `generate_artifact`" in prompt
+    assert "页面方案 / 交互稿 / 视觉方案默认优先调用 `generate_visual_mockup`" in prompt
+    assert "不要因为正文提到页面方案或交互稿就自动调用 `generate_artifact`" in prompt
+    assert "只有用户明确要求 HTML、可点击原型、可运行原型、导出 HTML 或保存成交付物" in prompt
 
 
 def test_build_prompt_includes_recent_messages_for_conversation_continuity(tmp_path: Path) -> None:
