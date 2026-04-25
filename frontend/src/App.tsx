@@ -412,6 +412,29 @@ function WorkbenchRoute() {
     return () => window.clearInterval(timer);
   }, [data.artifacts, projectId]);
 
+  // Poll sources while any wiki maintenance is in flight. The wiki maintainer
+  // is async/fire-and-forget on the backend, so without this poll the badge
+  // would stay on "wiki 写入中" until the user triggers another reload.
+  useEffect(() => {
+    if (!projectId) return;
+    const hasMaintaining = data.sources.some((s) => s.wiki_sync_status === 'maintaining');
+    if (!hasMaintaining) return;
+
+    const timer = window.setInterval(() => {
+      void listSources(projectId)
+        .then((sources) => {
+          setData((current) => ({ ...current, sources }));
+        })
+        .catch(() => {
+          // Silent — the next tick (or another action) will retry. We don't want
+          // a long-running maintenance to spam toast notifications on transient
+          // network blips.
+        });
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [data.sources, projectId]);
+
   useEffect(() => {
     const evidenceReadiness = readiness?.evidence;
     if (!data.project || initializingKnowledgeBase || evidenceReadiness?.status !== 'ready' || readiness?.knowledge_base) {
