@@ -260,6 +260,7 @@ class ChatService:
             evidence_citations=[],
             request_artifact_types=payload.request_artifact_types,
             recent_messages=self.catalog.list_recent_messages(project_id, limit=12),
+            user_image_refs=user_image_refs,
         )
 
         assistant_saved = False
