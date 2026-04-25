@@ -13,6 +13,11 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 
+type OptionalAudioReadiness = {
+  object_storage?: GlobalReadiness['object_storage'];
+  audio_transcription?: GlobalReadiness['audio_transcription'];
+};
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, init);
   if (!response.ok) {
@@ -35,6 +40,19 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function normalizeAudioReadiness<T extends OptionalAudioReadiness>(
+  payload: T
+): T & {
+  object_storage: NonNullable<GlobalReadiness['object_storage']> | null;
+  audio_transcription: NonNullable<GlobalReadiness['audio_transcription']> | null;
+} {
+  return {
+    ...payload,
+    object_storage: payload.object_storage ?? null,
+    audio_transcription: payload.audio_transcription ?? null,
+  };
+}
+
 export function listProjects() {
   return fetchJson<ProjectSummary[]>('/api/projects');
 }
@@ -47,16 +65,18 @@ export function createProject(payload: CreateProjectRequest) {
   });
 }
 
-export function getGlobalReadiness() {
-  return fetchJson<GlobalReadiness>('/api/providers/readiness');
+export async function getGlobalReadiness() {
+  const readiness = await fetchJson<GlobalReadiness>('/api/providers/readiness');
+  return normalizeAudioReadiness(readiness);
 }
 
 export function getProject(projectId: string) {
   return fetchJson<ProjectSummary>(`/api/projects/${projectId}`);
 }
 
-export function getProjectReadiness(projectId: string) {
-  return fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`);
+export async function getProjectReadiness(projectId: string) {
+  const readiness = await fetchJson<ProjectReadiness>(`/api/projects/${projectId}/readiness`);
+  return normalizeAudioReadiness(readiness);
 }
 
 export function listSources(projectId: string) {

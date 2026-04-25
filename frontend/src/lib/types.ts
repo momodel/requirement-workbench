@@ -39,12 +39,16 @@ export type ProviderReadiness = {
 export type GlobalReadiness = {
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
+  object_storage: ProviderReadiness | null;
+  audio_transcription: ProviderReadiness | null;
 };
 
 export type ProjectReadiness = {
   project_id: string;
   claude: ProviderReadiness;
   evidence: ProviderReadiness;
+  object_storage: ProviderReadiness | null;
+  audio_transcription: ProviderReadiness | null;
   knowledge_base: KnowledgeBaseRecord | null;
 };
 

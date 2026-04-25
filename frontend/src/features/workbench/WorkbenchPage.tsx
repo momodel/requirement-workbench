@@ -91,10 +91,20 @@ function statusVariant(status: string) {
   if (status.includes('failed') || status.includes('error') || status.includes('not_configured')) {
     return 'danger' as const;
   }
-  if (status.includes('parsed') || status.includes('generated') || status.includes('seed_ready')) {
+  if (
+    status.includes('parsed') ||
+    status.includes('indexed') ||
+    status.includes('generated') ||
+    status.includes('seed_ready')
+  ) {
     return 'success' as const;
   }
-  if (status.includes('pending') || status.includes('queued')) {
+  if (
+    status.includes('pending') ||
+    status.includes('queued') ||
+    status.includes('processing') ||
+    status.includes('indexing')
+  ) {
     return 'warning' as const;
   }
   return 'default' as const;
@@ -112,17 +122,22 @@ function readinessVariant(status: string) {
 }
 
 function parseStatusLabel(status: string) {
-  if (status === 'parsed') return '已解析';
-  if (status === 'pending') return '解析中';
+  if (status === 'parsed') return '已标准化';
+  if (status === 'processing') return '标准化中';
+  if (status === 'pending') return '标准化中';
   if (status === 'queued') return '排队中';
+  if (status === 'failed') return '标准化失败';
+  if (status === 'error') return '标准化异常';
   return status;
 }
 
 function indexStatusLabel(status: string) {
-  if (status === 'indexed') return '已索引';
-  if (status === 'indexing') return '索引中';
-  if (status === 'pending') return '待索引';
-  if (status === 'index_failed') return '索引失败';
+  if (status === 'indexed') return '已入库';
+  if (status === 'indexing') return '入库中';
+  if (status === 'pending') return '待入库';
+  if (status === 'normalization_pending') return '待标准化';
+  if (status === 'normalization_failed') return '标准化失败';
+  if (status === 'index_failed') return '入库失败';
   if (status === 'knowledge_base_missing') return '待初始化知识库';
   if (status === 'not_indexable') return '不可索引';
   if (status === 'error') return '异常';
@@ -293,6 +308,31 @@ function getArtifactMeta(item: StateOverviewItem) {
   };
 }
 
+function RuntimeProviderCard({
+  title,
+  summary,
+  detail,
+  status,
+}: {
+  title: string;
+  summary: string;
+  detail: string | null;
+  status: string;
+}) {
+  return (
+    <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium text-ink">{title}</div>
+          <p className="mt-1 text-sm leading-6 text-muted">{summary}</p>
+          {detail ? <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">{detail}</p> : null}
+        </div>
+        <Badge variant={readinessVariant(status)}>{status}</Badge>
+      </div>
+    </div>
+  );
+}
+
 function SourcePreview({
   source,
   position,
@@ -319,11 +359,15 @@ function SourcePreview({
       <div className="mt-4 space-y-3 text-sm text-muted">
         <div className="flex flex-wrap gap-2">
           <Badge>{source.source_kind}</Badge>
-          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>{`解析：${sourceNormalizeStatus(source)}`}</Badge>
-          <Badge variant={statusVariant(sourceIndexStatus(source))}>{`索引：${sourceIndexStatus(source)}`}</Badge>
+          <Badge variant={statusVariant(sourceNormalizeStatus(source))}>
+            {`标准化：${parseStatusLabel(sourceNormalizeStatus(source))}`}
+          </Badge>
+          <Badge variant={statusVariant(sourceIndexStatus(source))}>
+            {`入库：${indexStatusLabel(sourceIndexStatus(source))}`}
+          </Badge>
         </div>
         <p className="text-xs text-muted">{`导入时间：${relativeTime(source.created_at)}`}</p>
-        <p>{sourceNormalizeSummary(source) ?? '当前还没有解析摘要。'}</p>
+        <p>{sourceNormalizeSummary(source) ?? '当前还没有标准化摘要。'}</p>
         {sourceIndexError(source) ? (
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-amber-800">
             {sourceIndexError(source)}
@@ -1148,12 +1192,17 @@ export function WorkbenchPage({
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           <Badge>{source.source_kind}</Badge>
                           <Badge variant={statusVariant(sourceNormalizeStatus(source))}>
-                            {parseStatusLabel(sourceNormalizeStatus(source))}
+                            {`标准化：${parseStatusLabel(sourceNormalizeStatus(source))}`}
                           </Badge>
                           <Badge variant={statusVariant(sourceIndexStatus(source))}>
-                            {indexStatusLabel(sourceIndexStatus(source))}
+                            {`入库：${indexStatusLabel(sourceIndexStatus(source))}`}
                           </Badge>
                         </div>
+                        {sourceNormalizeSummary(source) ? (
+                          <p className="mt-2 line-clamp-2 text-xs leading-5 text-muted">
+                            {sourceNormalizeSummary(source)}
+                          </p>
+                        ) : null}
                       </div>
                     );
                   })}
@@ -1429,18 +1478,12 @@ export function WorkbenchPage({
           </DialogHeader>
           {readiness ? (
             <div className="grid gap-4 py-2">
-              <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="font-medium text-ink">Claude Agent SDK</div>
-                    <p className="mt-1 text-sm leading-6 text-muted">{readiness.claude.summary}</p>
-                    {readiness.claude.detail ? (
-                      <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-muted">{readiness.claude.detail}</p>
-                    ) : null}
-                  </div>
-                  <Badge variant={readinessVariant(readiness.claude.status)}>{readiness.claude.status}</Badge>
-                </div>
-              </div>
+              <RuntimeProviderCard
+                title="Claude Agent SDK"
+                summary={readiness.claude.summary}
+                detail={readiness.claude.detail}
+                status={readiness.claude.status}
+              />
 
               <div className="rounded-[20px] border border-line bg-slate-50/80 p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -1469,6 +1512,24 @@ export function WorkbenchPage({
                   </Button>
                 </div>
               </div>
+
+              {readiness.object_storage ? (
+                <RuntimeProviderCard
+                  title="七牛对象存储"
+                  summary={readiness.object_storage.summary}
+                  detail={readiness.object_storage.detail}
+                  status={readiness.object_storage.status}
+                />
+              ) : null}
+
+              {readiness.audio_transcription ? (
+                <RuntimeProviderCard
+                  title="阿里云音频转写"
+                  summary={readiness.audio_transcription.summary}
+                  detail={readiness.audio_transcription.detail}
+                  status={readiness.audio_transcription.status}
+                />
+              ) : null}
             </div>
           ) : (
             <div className="py-2 text-sm leading-6 text-muted">当前还没有拿到 provider 状态，请先刷新。</div>

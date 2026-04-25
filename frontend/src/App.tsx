@@ -63,6 +63,15 @@ function emptyState(): ProjectState {
   };
 }
 
+function hasActiveSourceWork(sources: SourceRecord[]) {
+  return sources.some(
+    (source) =>
+      source.normalize_status === 'processing' ||
+      source.index_status === 'normalization_pending' ||
+      source.index_status === 'indexing'
+  );
+}
+
 function upsertItems(existing: StateItem[], incoming: StateItem[]) {
   const map = new Map(existing.map((item) => [item.id, item]));
   for (const item of incoming) {
@@ -391,6 +400,18 @@ function WorkbenchRoute() {
 
     return () => window.clearInterval(timer);
   }, [data.artifacts, projectId]);
+
+  useEffect(() => {
+    if (!hasActiveSourceWork(data.sources)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadWorkbench({ silent: true });
+    }, 3000);
+
+    return () => window.clearInterval(timer);
+  }, [data.sources, projectId]);
 
   useEffect(() => {
     const evidenceReadiness = readiness?.evidence;
