@@ -1,0 +1,940 @@
+[
+  {
+    "name": "baseline (bge-small-en, 800/0, no rerank)",
+    "settings_summary": {
+      "embed_model": "<fastembed default: BAAI/bge-small-en-v1.5>",
+      "chunk_size": 800,
+      "chunk_overlap": 0,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "这个项目内部叫什么名字，是谁起的",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-bg",
+          "e247-wechat",
+          "e247-materials",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "项目主要解决什么问题",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-bg",
+          "e247-wechat",
+          "e247-meeting",
+          "c46b-interview",
+          "e247-materials"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "这个工具的目标使用人群是谁",
+        "expected": [
+          "e247-supp",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "c46b-interview",
+          "e247-bg",
+          "e247-materials",
+          "e247-wechat",
+          "e247-meeting"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "客户方的人会不会直接使用",
+        "expected": [
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "c46b-interview",
+          "e247-supp",
+          "e247-meeting",
+          "e247-wechat",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "第一版要不要支持音频输入",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-meeting",
+          "e247-wechat",
+          "c46b-flow",
+          "c46b-interview",
+          "e247-bg"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "输入资料的类型大概有哪些",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "c46b-interview",
+          "e247-wechat",
+          "e247-bg",
+          "e247-materials",
+          "e247-meeting"
+        ],
+        "first_hit_rank": 6
+      },
+      {
+        "query": "为什么不应该把它做成普通聊天框",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-wechat",
+          "c46b-interview",
+          "e247-meeting",
+          "e247-bg",
+          "e247-materials"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "第一阶段输出物有哪些可能选项",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "c46b-interview",
+          "e247-meeting",
+          "e247-wechat",
+          "e247-materials",
+          "e247-bg"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "页面草图必须要在第一版做出来吗",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "c46b-flow",
+          "e247-bg",
+          "c46b-interview"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "目前还有哪些没定下来的事",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-materials",
+          "e247-meeting",
+          "c46b-flow",
+          "e247-wechat",
+          "e247-bg",
+          "c46b-interview"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "为什么不能让 AI 自动做项目判断",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-bg",
+          "e247-materials",
+          "e247-wechat",
+          "c46b-flow",
+          "c46b-interview",
+          "e247-meeting"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "为什么客户前期需求经常聊不清楚",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "c46b-interview",
+          "e247-wechat",
+          "e247-meeting",
+          "e247-bg",
+          "e247-supp"
+        ],
+        "first_hit_rank": 4
+      },
+      {
+        "query": "区分已确认和未确认的状态有什么用",
+        "expected": [
+          "e247-wechat",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-wechat",
+          "e247-bg",
+          "e247-meeting",
+          "e247-materials",
+          "c46b-interview"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "演示用的对账案例和产品本身是什么关系",
+        "expected": [
+          "e247-materials"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "c46b-interview",
+          "e247-wechat",
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "first_hit_rank": null
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.071,
+      "hit@3": 0.786,
+      "hit@6": 0.929,
+      "MRR": 0.411,
+      "n_queries": 14,
+      "n_chunks": 7
+    },
+    "timing": {
+      "index_seconds": 0.43,
+      "query_seconds_total": 0.08,
+      "query_seconds_avg": 0.005
+    }
+  },
+  {
+    "name": "zh embed (bge-small-zh, 800/0, no rerank)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 800,
+      "chunk_overlap": 0,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "这个项目内部叫什么名字，是谁起的",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-materials",
+          "e247-meeting",
+          "e247-bg",
+          "c46b-flow",
+          "e247-supp"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "项目主要解决什么问题",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-materials",
+          "c46b-flow",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "这个工具的目标使用人群是谁",
+        "expected": [
+          "e247-supp",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-supp",
+          "e247-materials",
+          "e247-meeting",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "客户方的人会不会直接使用",
+        "expected": [
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-wechat",
+          "e247-bg",
+          "e247-materials",
+          "e247-meeting",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "第一版要不要支持音频输入",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-meeting",
+          "e247-bg",
+          "e247-supp",
+          "c46b-flow",
+          "e247-materials"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "输入资料的类型大概有哪些",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-materials",
+          "e247-supp",
+          "e247-bg",
+          "e247-wechat",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不应该把它做成普通聊天框",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-meeting",
+          "e247-bg",
+          "e247-wechat",
+          "e247-materials",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "第一阶段输出物有哪些可能选项",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-materials",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "页面草图必须要在第一版做出来吗",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-materials",
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "目前还有哪些没定下来的事",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-materials",
+          "e247-wechat",
+          "e247-supp",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不能让 AI 自动做项目判断",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-supp",
+          "e247-meeting",
+          "e247-materials",
+          "c46b-flow",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么客户前期需求经常聊不清楚",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp",
+          "e247-materials",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "区分已确认和未确认的状态有什么用",
+        "expected": [
+          "e247-wechat",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "c46b-interview",
+          "e247-wechat",
+          "e247-meeting",
+          "e247-bg",
+          "e247-materials"
+        ],
+        "first_hit_rank": 3
+      },
+      {
+        "query": "演示用的对账案例和产品本身是什么关系",
+        "expected": [
+          "e247-materials"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-materials",
+          "e247-supp",
+          "c46b-interview",
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "first_hit_rank": 2
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.571,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 0.774,
+      "n_queries": 14,
+      "n_chunks": 7
+    },
+    "timing": {
+      "index_seconds": 0.21,
+      "query_seconds_total": 0.04,
+      "query_seconds_avg": 0.003
+    }
+  },
+  {
+    "name": "zh embed + overlap (bge-small-zh, 500/120, no rerank)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 500,
+      "chunk_overlap": 120,
+      "reranker_model": null,
+      "recall_top_k": 6,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "这个项目内部叫什么名字，是谁起的",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-bg",
+          "e247-supp",
+          "e247-materials",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "项目主要解决什么问题",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "这个工具的目标使用人群是谁",
+        "expected": [
+          "e247-supp",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-supp",
+          "e247-materials",
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "first_hit_rank": 2
+      },
+      {
+        "query": "客户方的人会不会直接使用",
+        "expected": [
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-wechat",
+          "e247-bg",
+          "e247-meeting",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "第一版要不要支持音频输入",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "输入资料的类型大概有哪些",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-materials",
+          "e247-supp",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不应该把它做成普通聊天框",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-bg",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "第一阶段输出物有哪些可能选项",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "页面草图必须要在第一版做出来吗",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp",
+          "e247-materials",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "目前还有哪些没定下来的事",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-materials",
+          "e247-supp",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不能让 AI 自动做项目判断",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-bg",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 4
+      },
+      {
+        "query": "为什么客户前期需求经常聊不清楚",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp",
+          "e247-materials",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "区分已确认和未确认的状态有什么用",
+        "expected": [
+          "e247-wechat",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "c46b-interview",
+          "e247-bg",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "演示用的对账案例和产品本身是什么关系",
+        "expected": [
+          "e247-materials"
+        ],
+        "ranked_sources": [
+          "c46b-flow",
+          "e247-materials",
+          "e247-supp",
+          "e247-bg",
+          "e247-meeting",
+          "c46b-interview"
+        ],
+        "first_hit_rank": 2
+      }
+    ],
+    "aggregate": {
+      "hit@1": 0.786,
+      "hit@3": 0.929,
+      "hit@6": 1.0,
+      "MRR": 0.875,
+      "n_queries": 14,
+      "n_chunks": 11
+    },
+    "timing": {
+      "index_seconds": 0.28,
+      "query_seconds_total": 0.06,
+      "query_seconds_avg": 0.004
+    }
+  },
+  {
+    "name": "zh embed + overlap + rerank (recall 20 → top 6)",
+    "settings_summary": {
+      "embed_model": "BAAI/bge-small-zh-v1.5",
+      "chunk_size": 500,
+      "chunk_overlap": 120,
+      "reranker_model": "BAAI/bge-reranker-base",
+      "recall_top_k": 20,
+      "top_k": 6
+    },
+    "per_query": [
+      {
+        "query": "这个项目内部叫什么名字，是谁起的",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-bg",
+          "e247-supp",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "项目主要解决什么问题",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-bg",
+          "e247-wechat"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "这个工具的目标使用人群是谁",
+        "expected": [
+          "e247-supp",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-bg",
+          "e247-wechat",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "客户方的人会不会直接使用",
+        "expected": [
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-wechat",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "第一版要不要支持音频输入",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-bg"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "输入资料的类型大概有哪些",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-meeting",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不应该把它做成普通聊天框",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp",
+          "e247-wechat",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "第一阶段输出物有哪些可能选项",
+        "expected": [
+          "e247-supp",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-bg",
+          "e247-supp",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "页面草图必须要在第一版做出来吗",
+        "expected": [
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "目前还有哪些没定下来的事",
+        "expected": [
+          "e247-bg",
+          "e247-meeting",
+          "e247-supp"
+        ],
+        "ranked_sources": [
+          "e247-supp",
+          "e247-meeting",
+          "e247-bg",
+          "c46b-flow"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么不能让 AI 自动做项目判断",
+        "expected": [
+          "e247-wechat"
+        ],
+        "ranked_sources": [
+          "e247-wechat",
+          "e247-bg",
+          "e247-materials",
+          "e247-meeting"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "为什么客户前期需求经常聊不清楚",
+        "expected": [
+          "e247-meeting",
+          "e247-bg"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-bg",
+          "c46b-flow",
+          "e247-materials"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "区分已确认和未确认的状态有什么用",
+        "expected": [
+          "e247-wechat",
+          "e247-meeting"
+        ],
+        "ranked_sources": [
+          "e247-meeting",
+          "e247-wechat",
+          "e247-supp",
+          "c46b-interview"
+        ],
+        "first_hit_rank": 1
+      },
+      {
+        "query": "演示用的对账案例和产品本身是什么关系",
+        "expected": [
+          "e247-materials"
+        ],
+        "ranked_sources": [
+          "e247-materials",
+          "c46b-flow",
+          "e247-meeting",
+          "e247-wechat",
+          "e247-bg",
+          "e247-supp"
+        ],
+        "first_hit_rank": 1
+      }
+    ],
+    "aggregate": {
+      "hit@1": 1.0,
+      "hit@3": 1.0,
+      "hit@6": 1.0,
+      "MRR": 1.0,
+      "n_queries": 14,
+      "n_chunks": 11
+    },
+    "timing": {
+      "index_seconds": 0.27,
+      "query_seconds_total": 28.21,
+      "query_seconds_avg": 2.015
+    }
+  }
+]
