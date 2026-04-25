@@ -431,6 +431,52 @@ class ProjectCatalog:
             raise LookupError("Source not found after sync update")
         return updated
 
+    def update_source_normalization(
+        self,
+        *,
+        source_id: str,
+        normalized_path: str | None,
+        index_input_mode: str | None,
+        normalize_status: str,
+        normalize_summary: str | None,
+        index_status: str,
+        index_error: str | None,
+    ) -> SourceRecord:
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                "SELECT project_id FROM sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+            if not row:
+                raise LookupError("Source not found")
+
+            connection.execute(
+                """
+                UPDATE sources
+                SET normalized_path = ?, index_input_mode = ?, normalize_status = ?,
+                    normalize_summary = ?, index_status = ?, index_error = ?
+                WHERE id = ?
+                """,
+                (
+                    normalized_path,
+                    index_input_mode,
+                    normalize_status,
+                    normalize_summary,
+                    index_status,
+                    index_error,
+                    source_id,
+                ),
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, row["project_id"]),
+            )
+        updated = self.get_source(source_id)
+        if updated is None:
+            raise LookupError("Source not found after normalization update")
+        return updated
+
     def bulk_update_source_index_status(
         self,
         *,

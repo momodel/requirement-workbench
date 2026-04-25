@@ -97,6 +97,15 @@ class SourceIngestionService:
 
         suffix = raw_path.suffix.lower()
         source_kind = self._infer_source_kind(suffix)
+        if suffix in DoclingNormalizer.AUDIO_SUFFIXES:
+            return str(raw_path), NormalizedSource(
+                source_kind="audio",
+                normalize_status="processing",
+                normalize_summary=f"{filename} 已入库，正在转写；完成后会自动进入项目知识库。",
+                normalized_path=None,
+                index_input_mode=None,
+            )
+
         normalized_path = None
         summary = f"{filename} 已入库，等待文本标准化。"
         import_mode = None

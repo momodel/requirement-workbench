@@ -19,10 +19,13 @@ from .routes.sources import router as sources_router
 from .routes.state import router as state_router
 from .routes.versions import router as versions_router
 from .services.agent_runtime import ClaudeAgentRuntime
+from .services.audio_ingestion_orchestrator import AudioIngestionOrchestrator
+from .services.audio_transcription_service import AudioTranscriptionService
 from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
 from .services.docling_normalizer import DoclingNormalizer
 from .services.evidence_runtime import QdrantLlamaIndexEvidenceRuntime
+from .services.object_storage_service import ObjectStorageService
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
 from .services.runtime_contracts import AgentRuntime, EvidenceRuntime
@@ -37,6 +40,9 @@ class ServiceContainer:
     project_state: ProjectStateService
     docling_normalizer: DoclingNormalizer
     source_ingestion: SourceIngestionService
+    object_storage: ObjectStorageService
+    audio_transcription: AudioTranscriptionService
+    audio_ingestion: AudioIngestionOrchestrator
     evidence_runtime: EvidenceRuntime
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
@@ -51,7 +57,16 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         settings,
         docling_normalizer=docling_normalizer,
     )
+    object_storage = ObjectStorageService(settings)
+    audio_transcription = AudioTranscriptionService(settings)
     evidence_runtime = QdrantLlamaIndexEvidenceRuntime(settings, catalog=catalog)
+    audio_ingestion = AudioIngestionOrchestrator(
+        settings=settings,
+        catalog=catalog,
+        object_storage=object_storage,
+        audio_transcription=audio_transcription,
+        evidence_runtime=evidence_runtime,
+    )
     agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
     artifact_generation = ArtifactGenerationService(settings)
     chat_service = ChatService(
@@ -67,6 +82,9 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         project_state=project_state,
         docling_normalizer=docling_normalizer,
         source_ingestion=source_ingestion,
+        object_storage=object_storage,
+        audio_transcription=audio_transcription,
+        audio_ingestion=audio_ingestion,
         evidence_runtime=evidence_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,

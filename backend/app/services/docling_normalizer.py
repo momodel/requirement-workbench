@@ -34,13 +34,18 @@ class DoclingNormalizer:
         ".flac",
         ".ogg",
     }
-    SUPPORTED_SUFFIXES = DOCUMENT_SUFFIXES | IMAGE_SUFFIXES | AUDIO_SUFFIXES
+    SUPPORTED_SUFFIXES = DOCUMENT_SUFFIXES | IMAGE_SUFFIXES
 
     def supports(self, source_path: Path) -> bool:
         return source_path.suffix.lower() in self.SUPPORTED_SUFFIXES
 
     def normalize_to_markdown(self, source_path: Path) -> str:
         suffix = source_path.suffix.lower()
+        if suffix in self.AUDIO_SUFFIXES:
+            raise ProviderIssue(
+                provider=DOCLING_PROVIDER,
+                message="音频标准化不再走 Docling；请使用 AudioTranscriptionService。",
+            )
         converter_class = self._load_document_converter(suffix=suffix)
         converter = converter_class()
 
