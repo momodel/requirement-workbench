@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib
 from pathlib import Path
 import uuid
 
@@ -33,6 +34,8 @@ class FakeVectorStore:
         self.available = False
         self.documents_by_project: dict[str, list[VectorDocument]] = {}
         self.ensure_calls: list[str] = []
+        self.deleted_projects: list[str] = []
+        self.reset_calls = 0
         self.deleted_sources: list[tuple[str, str]] = []
         self.last_query_source_ids: list[str] | None = None
         self.override_hits: list[VectorQueryHit] | None = None
@@ -63,6 +66,13 @@ class FakeVectorStore:
         self.documents_by_project[project_id] = [
             doc for doc in self.documents_by_project.get(project_id, []) if doc.source_id != source_id
         ]
+
+    def delete_project(self, project_id: str) -> None:
+        self.deleted_projects.append(project_id)
+        self.documents_by_project.pop(project_id, None)
+
+    def reset_client(self) -> None:
+        self.reset_calls += 1
 
     def query(
         self,
@@ -103,6 +113,29 @@ class MissingDependencyVectorStore(FakeVectorStore):
             provider=EVIDENCE_PROVIDER,
             message="当前后端环境没有安装 LlamaIndex Qdrant/FastEmbed 依赖。请先在 backend 虚拟环境里安装 Task 3 所需依赖。",
         )
+
+
+class DimensionMismatchVectorStore(FakeVectorStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.fail_next_upsert = False
+        self.failure_message = (
+            "Qdrant/LlamaIndex 在写入向量时失败："
+            "could not broadcast input array from shape (512,) into shape (384,)"
+        )
+
+    def upsert(
+        self,
+        project_id: str,
+        documents: list[VectorDocument],
+    ) -> None:
+        if self.fail_next_upsert:
+            self.fail_next_upsert = False
+            raise ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message=self.failure_message,
+            )
+        super().upsert(project_id, documents)
 
 
 def _create_source_file(base_dir: Path, name: str, content: str) -> Path:
@@ -540,6 +573,158 @@ def test_preparation_failure_marks_knowledge_base_error_and_project_readiness(tm
     assert "尚未完成可索引文本标准化" in (readiness.detail or "")
 
 
+def test_index_source_rebuilds_project_collection_after_embedding_dimension_mismatch(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="维度迁移项目",
+            scenario_type="general",
+            summary="测试旧 collection 维度和当前 embedding 维度不一致时自动重建。",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    existing_path = _create_source_file(
+        source_dir,
+        "existing.md",
+        "旧资料已经索引过，重建 collection 后仍应被重新写入。",
+    )
+    new_path = _create_source_file(
+        source_dir,
+        "new.md",
+        "新资料索引时触发向量维度不匹配恢复路径。",
+    )
+    existing_source = catalog.create_source(
+        project_id=project.id,
+        name="旧资料.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=str(existing_path),
+        normalized_path=str(existing_path),
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="旧资料",
+        index_status="indexed",
+        index_error=None,
+    )
+    new_source = catalog.create_source(
+        project_id=project.id,
+        name="新资料.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=str(new_path),
+        normalized_path=str(new_path),
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="新资料",
+        index_status="pending",
+        index_error=None,
+    )
+    vector_store = DimensionMismatchVectorStore()
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=vector_store,
+    )
+
+    existing_chunks = runtime.index_source(project.id, existing_source.id)
+    assert existing_chunks
+    vector_store.fail_next_upsert = True
+
+    new_chunks = runtime.index_source(project.id, new_source.id)
+
+    assert new_chunks
+    assert vector_store.deleted_projects == [project.id]
+    assert vector_store.reset_calls == 1
+    assert vector_store.ensure_calls.count(project.id) >= 2
+    documents = vector_store.documents_by_project[project.id]
+    assert {document.source_id for document in documents} == {
+        existing_source.id,
+        new_source.id,
+    }
+    assert catalog.get_source(existing_source.id).index_status == "indexed"
+    assert catalog.get_source(new_source.id).index_status == "indexed"
+    assert all(
+        chunk.embedding_status == "indexed"
+        for chunk in catalog.list_source_chunks(project_id=project.id)
+    )
+    knowledge_base = catalog.get_knowledge_base(project_id=project.id, provider=EVIDENCE_PROVIDER)
+    assert knowledge_base is not None
+    assert knowledge_base.status == "ready"
+    assert knowledge_base.status_error is None
+
+
+def test_index_source_rebuilds_project_collection_after_local_qdrant_index_drift(
+    tmp_path: Path,
+) -> None:
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    catalog = ProjectCatalog(settings)
+    project = catalog.create_project(
+        CreateProjectRequest(
+            name="本地索引漂移项目",
+            scenario_type="general",
+            summary="测试本地 Qdrant 内部索引越界时自动重建。",
+        )
+    )
+    source_dir = settings.projects_dir / project.id / "sources"
+    existing_path = _create_source_file(source_dir, "existing.md", "旧资料。")
+    new_path = _create_source_file(source_dir, "new.md", "新资料触发本地索引越界。")
+    existing_source = catalog.create_source(
+        project_id=project.id,
+        name="旧资料.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=str(existing_path),
+        normalized_path=str(existing_path),
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="旧资料",
+        index_status="indexed",
+        index_error=None,
+    )
+    new_source = catalog.create_source(
+        project_id=project.id,
+        name="新资料.md",
+        source_kind="text",
+        upload_kind="text",
+        storage_path=str(new_path),
+        normalized_path=str(new_path),
+        index_input_mode="direct_text",
+        normalize_status="parsed",
+        normalize_summary="新资料",
+        index_status="pending",
+        index_error=None,
+    )
+    vector_store = DimensionMismatchVectorStore()
+    vector_store.failure_message = (
+        "Qdrant/LlamaIndex 在写入向量时失败："
+        "index 14 is out of bounds for axis 0 with size 12"
+    )
+    runtime = QdrantLlamaIndexEvidenceRuntime(
+        settings=settings,
+        catalog=catalog,
+        vector_store=vector_store,
+    )
+
+    runtime.index_source(project.id, existing_source.id)
+    vector_store.fail_next_upsert = True
+
+    new_chunks = runtime.index_source(project.id, new_source.id)
+
+    assert new_chunks
+    assert vector_store.deleted_projects == [project.id]
+    assert vector_store.reset_calls == 1
+    assert {document.source_id for document in vector_store.documents_by_project[project.id]} == {
+        existing_source.id,
+        new_source.id,
+    }
+    assert catalog.get_source(new_source.id).index_status == "indexed"
+
+
 def test_global_readiness_reports_missing_provider_dependency(tmp_path: Path) -> None:
     settings = make_settings(tmp_path)
     init_db(settings)
@@ -675,3 +860,108 @@ def test_local_qdrant_client_disables_thread_check_for_fastapi_threadpool(tmp_pa
     assert isinstance(client, FakeClient)
     assert captured["path"] == str(settings.qdrant_path)
     assert captured["force_disable_check_same_thread"] is True
+
+
+def test_vector_store_delete_source_treats_filter_delete_failure_without_matches_as_noop(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    store = QdrantLlamaIndexVectorStore(settings)
+    qdrant_models = importlib.import_module("qdrant_client.models")
+    delete_selectors: list[object] = []
+
+    class FakePoint:
+        def __init__(self, point_id: str, payload: dict[str, object]) -> None:
+            self.id = point_id
+            self.payload = payload
+
+    class FakeClient:
+        def delete(self, *, collection_name, points_selector, wait):
+            delete_selectors.append(points_selector)
+            if isinstance(points_selector, qdrant_models.FilterSelector):
+                raise RuntimeError("index 12 is out of bounds for axis 0 with size 12")
+
+        def scroll(
+            self,
+            *,
+            collection_name,
+            scroll_filter=None,
+            limit=256,
+            offset=None,
+            with_payload=True,
+            with_vectors=False,
+        ):
+            assert scroll_filter is None
+            assert limit == 256
+            assert with_payload is True
+            assert with_vectors is False
+            return [
+                FakePoint("point-1", {"source_id": "src-other"}),
+                FakePoint("point-2", {"source_id": "src-also-other"}),
+            ], None
+
+    client = FakeClient()
+    monkeypatch.setattr(store, "_collection_exists", lambda collection_name: True)
+    monkeypatch.setattr(store, "_load_qdrant_models", lambda: qdrant_models)
+    monkeypatch.setattr(store, "_get_client", lambda: client)
+
+    store.delete_source("project-1", "src-target")
+
+    assert len(delete_selectors) == 1
+    assert isinstance(delete_selectors[0], qdrant_models.FilterSelector)
+
+
+def test_vector_store_delete_source_falls_back_to_point_ids_when_filter_delete_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = make_settings(tmp_path)
+    store = QdrantLlamaIndexVectorStore(settings)
+    qdrant_models = importlib.import_module("qdrant_client.models")
+    delete_selectors: list[object] = []
+
+    class FakePoint:
+        def __init__(self, point_id: str, payload: dict[str, object]) -> None:
+            self.id = point_id
+            self.payload = payload
+
+    class FakeClient:
+        def delete(self, *, collection_name, points_selector, wait):
+            delete_selectors.append(points_selector)
+            if isinstance(points_selector, qdrant_models.FilterSelector):
+                raise RuntimeError("index 12 is out of bounds for axis 0 with size 12")
+
+        def scroll(
+            self,
+            *,
+            collection_name,
+            scroll_filter=None,
+            limit=256,
+            offset=None,
+            with_payload=True,
+            with_vectors=False,
+        ):
+            assert scroll_filter is None
+            if offset is None:
+                return [
+                    FakePoint("point-1", {"source_id": "src-other"}),
+                    FakePoint("point-2", {"source_id": "src-target"}),
+                ], "page-2"
+            assert offset == "page-2"
+            return [
+                FakePoint("point-3", {"source_id": "src-target"}),
+                FakePoint("point-4", {"source_id": "src-other"}),
+            ], None
+
+    client = FakeClient()
+    monkeypatch.setattr(store, "_collection_exists", lambda collection_name: True)
+    monkeypatch.setattr(store, "_load_qdrant_models", lambda: qdrant_models)
+    monkeypatch.setattr(store, "_get_client", lambda: client)
+
+    store.delete_source("project-1", "src-target")
+
+    assert len(delete_selectors) == 2
+    assert isinstance(delete_selectors[0], qdrant_models.FilterSelector)
+    assert isinstance(delete_selectors[1], qdrant_models.PointIdsList)
+    assert delete_selectors[1].points == ["point-2", "point-3"]

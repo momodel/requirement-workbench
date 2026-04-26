@@ -247,6 +247,151 @@ class QdrantLlamaIndexEvidenceRuntime:
             status_error=message,
         )
 
+    @staticmethod
+    def _is_embedding_dimension_mismatch(exc: ProviderIssue) -> bool:
+        message = exc.message.lower()
+        return (
+            "could not broadcast input array from shape" in message
+            or "dimension" in message and "vector" in message
+            or "expected dim" in message
+            or "vector size" in message
+            or (
+                "index " in message
+                and " out of bounds for axis " in message
+                and "qdrant/llamaindex" in message
+            )
+        )
+
+    def _mark_project_reindex_failure(
+        self,
+        *,
+        project_id: str,
+        knowledge_base: KnowledgeBaseRecord,
+        message: str,
+    ) -> None:
+        self.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider=EVIDENCE_PROVIDER,
+            external_knowledge_base_id=knowledge_base.external_knowledge_base_id,
+            display_name=knowledge_base.display_name,
+            description=knowledge_base.description,
+            status="error",
+            status_error=message,
+        )
+        for source in self.catalog.list_sources(project_id):
+            if source.normalize_status != "parsed":
+                continue
+            self.catalog.replace_source_chunks(
+                project_id=project_id,
+                source_id=source.id,
+                chunks=[],
+            )
+            self.catalog.update_source_index_status(
+                source_id=source.id,
+                index_status="index_failed",
+                index_error=message,
+            )
+
+    def _rebuild_project_collection(
+        self,
+        *,
+        project_id: str,
+        knowledge_base: KnowledgeBaseRecord,
+    ) -> None:
+        try:
+            self.vector_store.delete_project(project_id)
+            reset_client = getattr(self.vector_store, "reset_client", None)
+            if callable(reset_client):
+                reset_client()
+        except ProviderIssue:
+            raise
+        except Exception as exc:
+            raise ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message=f"重建项目 collection 前删除旧 collection 失败：{exc}",
+            ) from exc
+
+        collection_name = self.vector_store.ensure_collection(project_id)
+        knowledge_base = self.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider=EVIDENCE_PROVIDER,
+            external_knowledge_base_id=collection_name,
+            display_name=knowledge_base.display_name,
+            description=knowledge_base.description,
+            status="indexing",
+            status_error=None,
+        )
+        indexed_at = now_iso(self.settings)
+
+        try:
+            for source in self.catalog.list_sources(project_id):
+                if source.normalize_status != "parsed":
+                    continue
+                prepared_chunks = prepare_source_chunks(
+                    source=source,
+                    knowledge_base_id=knowledge_base.id,
+                    settings=self.settings,
+                )
+                self._persist_chunks(
+                    project_id=project_id,
+                    source_id=source.id,
+                    knowledge_base_id=knowledge_base.id,
+                    prepared_chunks=prepared_chunks,
+                    embedding_status="pending",
+                    index_error=None,
+                    indexed_at=None,
+                )
+                if prepared_chunks:
+                    self.vector_store.upsert(
+                        project_id,
+                        [
+                            chunk.to_vector_document(source_id=source.id)
+                            for chunk in prepared_chunks
+                        ],
+                    )
+                self._persist_chunks(
+                    project_id=project_id,
+                    source_id=source.id,
+                    knowledge_base_id=knowledge_base.id,
+                    prepared_chunks=prepared_chunks,
+                    embedding_status="indexed",
+                    index_error=None,
+                    indexed_at=indexed_at,
+                )
+                self.catalog.update_source_index_status(
+                    source_id=source.id,
+                    index_status="indexed",
+                    index_error=None,
+                )
+        except ProviderIssue as exc:
+            self._mark_project_reindex_failure(
+                project_id=project_id,
+                knowledge_base=knowledge_base,
+                message=exc.message,
+            )
+            raise
+        except Exception as exc:
+            issue = ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message=f"重建项目 collection 时失败：{exc}",
+            )
+            self._mark_project_reindex_failure(
+                project_id=project_id,
+                knowledge_base=knowledge_base,
+                message=issue.message,
+            )
+            raise issue from exc
+
+        self.catalog.upsert_knowledge_base(
+            project_id=project_id,
+            provider=EVIDENCE_PROVIDER,
+            external_knowledge_base_id=knowledge_base.external_knowledge_base_id,
+            display_name=knowledge_base.display_name,
+            description=knowledge_base.description,
+            status="ready",
+            status_error=None,
+        )
+
     def index_source(
         self,
         project_id: str,
@@ -299,6 +444,15 @@ class QdrantLlamaIndexEvidenceRuntime:
                 [chunk.to_vector_document(source_id=source_id) for chunk in prepared_chunks],
             )
         except ProviderIssue as exc:
+            if self._is_embedding_dimension_mismatch(exc):
+                self._rebuild_project_collection(
+                    project_id=project_id,
+                    knowledge_base=knowledge_base,
+                )
+                return self.catalog.list_source_chunks(
+                    project_id=project_id,
+                    source_id=source_id,
+                )
             self._persist_chunks(
                 project_id=project_id,
                 source_id=source_id,

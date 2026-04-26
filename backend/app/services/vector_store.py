@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import re
+import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -107,6 +108,14 @@ class QdrantLlamaIndexVectorStore:
         except Exception as exc:  # pragma: no cover - depends on optional runtime deps
             raise self._wrap_error(exc, "连接 Qdrant") from exc
         return self._client
+
+    def reset_client(self) -> None:
+        if self._client is None:
+            return
+        close = getattr(self._client, "close", None)
+        if callable(close):
+            close()
+        self._client = None
 
     def _get_embed_model(self):
         if self._embed_model is None:
@@ -259,17 +268,105 @@ class QdrantLlamaIndexVectorStore:
                 wait=True,
             )
         except Exception as exc:  # pragma: no cover - depends on optional runtime deps
-            raise self._wrap_error(exc, "删除 source 向量") from exc
+            self._delete_source_by_point_ids(
+                collection_name=collection_name,
+                source_id=source_id,
+                models=models,
+                original_exc=exc,
+            )
+
+    def _delete_source_by_point_ids(
+        self,
+        *,
+        collection_name: str,
+        source_id: str,
+        models: Any,
+        original_exc: Exception,
+    ) -> None:
+        client = self._get_client()
+        matched_point_ids: list[Any] = []
+        offset: Any | None = None
+
+        try:
+            while True:
+                points, offset = client.scroll(
+                    collection_name=collection_name,
+                    scroll_filter=None,
+                    limit=256,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+                for point in points:
+                    payload = dict(getattr(point, "payload", {}) or {})
+                    if payload.get("source_id") == source_id:
+                        matched_point_ids.append(getattr(point, "id"))
+                if offset is None:
+                    break
+        except Exception as fallback_exc:  # pragma: no cover - depends on optional runtime deps
+            original_message = str(original_exc).strip() or original_exc.__class__.__name__
+            fallback_message = str(fallback_exc).strip() or fallback_exc.__class__.__name__
+            raise ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message=(
+                    "Qdrant/LlamaIndex 在删除 source 向量时失败："
+                    f"{fallback_message}；原始 filter 删除失败：{original_message}"
+                ),
+            ) from fallback_exc
+
+        # 本地 Qdrant 偶发会在 filter delete 上抛越界错误；若实际没有命中任何 point，
+        # 这里按幂等删除处理，不阻断后续 reindex。
+        if not matched_point_ids:
+            return
+
+        try:
+            client.delete(
+                collection_name=collection_name,
+                points_selector=models.PointIdsList(points=matched_point_ids),
+                wait=True,
+            )
+        except Exception as fallback_exc:  # pragma: no cover - depends on optional runtime deps
+            original_message = str(original_exc).strip() or original_exc.__class__.__name__
+            fallback_message = str(fallback_exc).strip() or fallback_exc.__class__.__name__
+            raise ProviderIssue(
+                provider=EVIDENCE_PROVIDER,
+                message=(
+                    "Qdrant/LlamaIndex 在删除 source 向量时失败："
+                    f"{fallback_message}；原始 filter 删除失败：{original_message}"
+                ),
+            ) from fallback_exc
 
     def delete_project(self, project_id: str) -> None:
         collection_name = self.collection_name(project_id)
         if not self._collection_exists(collection_name):
             return
 
+        client = self._get_client()
         try:
-            self._get_client().delete_collection(collection_name)
+            self._close_local_collection(client, collection_name)
+            client.delete_collection(collection_name)
+            self._remove_local_collection_dir(collection_name)
         except Exception as exc:  # pragma: no cover - depends on optional runtime deps
             raise self._wrap_error(exc, "删除项目 collection") from exc
+
+    def _close_local_collection(self, client: Any, collection_name: str) -> None:
+        local_client = getattr(client, "_client", None)
+        collections = getattr(local_client, "collections", None)
+        if not isinstance(collections, dict):
+            return
+
+        collection = collections.get(collection_name)
+        close = getattr(collection, "close", None)
+        if callable(close):
+            close()
+
+    def _remove_local_collection_dir(self, collection_name: str) -> None:
+        if self.settings.qdrant_url:
+            return
+
+        collection_dir = self.qdrant_path / "collection" / collection_name
+        if collection_dir.exists():
+            shutil.rmtree(collection_dir)
 
     def _build_source_filter(self, source_ids: list[str] | None):
         if not source_ids:
