@@ -59,7 +59,9 @@ def _reset_seed_project(settings: AppSettings) -> None:
 
     project_dir = settings.projects_dir / SEED_PROJECT_ID
     if project_dir.exists():
-        shutil.rmtree(project_dir)
+        # uvicorn --reload 时新旧 worker 进程可能并发清理同一目录，
+        # 任何 FileNotFoundError 都可能由对方先删除导致，安全忽略。
+        shutil.rmtree(project_dir, ignore_errors=True)
 
 
 def _seed_source_specs() -> list[tuple[str, str, str, str]]:

@@ -96,6 +96,46 @@ class StreamingAgentRuntime:
         yield ("done", {})
 
 
+class AskingAgentRuntime:
+    def ensure_available(self) -> None:
+        return None
+
+    async def run_streaming_turn(self, turn):
+        yield (
+            "assistant_status",
+            {"phase": "agent_started", "label": "已接收问题，正在启动分析"},
+        )
+        yield (
+            "ask_user_question",
+            {
+                "project_id": turn.project.id,
+                "question_id": "q-test",
+                "question": "你想先走哪一步？",
+                "header": "切入点",
+                "options": [
+                    {"label": "对齐理解", "description": None},
+                    {"label": "梳理待确认问题", "description": None},
+                ],
+                "multi_select": False,
+            },
+        )
+        yield (
+            "ask_user_question_answered",
+            {
+                "project_id": turn.project.id,
+                "question_id": "q-test",
+                "selected_labels": ["对齐理解"],
+                "free_text": None,
+                "timed_out": False,
+            },
+        )
+        yield (
+            "final_message",
+            {"text": "好的，那我们先对齐理解。", "citations": []},
+        )
+        yield ("done", {})
+
+
 class FailingAgentRuntime:
     def ensure_available(self) -> None:
         return None
@@ -233,6 +273,45 @@ def test_chat_service_thin_shell_forwards_runtime_events_and_persists_final_mess
     ]
     assert matching_messages
     assert matching_messages[-1].source_refs[0]["title"] == "订单字段说明"
+
+
+def test_chat_service_does_not_create_user_message_for_question_answer(tmp_path: Path) -> None:
+    """用户对 ask_user_question 的回答不再单独建一条 user 消息，
+    而是通过前端 QuestionCard 的 '已回答' 态展示——避免出现奇怪的"用户回答气泡插在问题前面"。"""
+    settings = make_settings(tmp_path)
+    init_db(settings)
+    ensure_seed_project(settings)
+
+    catalog = ProjectCatalog(settings)
+    service = ChatService(
+        catalog=catalog,
+        project_state=ProjectStateService(catalog),
+        evidence_runtime=StubEvidenceRuntime(),
+        agent_runtime=AskingAgentRuntime(),
+        artifact_generation=StubArtifactGenerationService(),
+    )
+
+    async def collect_events():
+        events = []
+        async for event_type, payload in service.stream_turn(
+            "seed-reconciliation",
+            ChatStreamRequest(message="开始分析吧", selected_source_ids=[], request_artifact_types=[]),
+        ):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect_events())
+    types = [event_type for event_type, _ in events]
+    assert "ask_user_question" in types
+    assert "ask_user_question_answered" in types
+
+    messages = catalog.list_recent_messages("seed-reconciliation", limit=10)
+    answer_user_messages = [
+        message for message in messages if message.role == "user" and message.content == "对齐理解"
+    ]
+    assert not answer_user_messages, (
+        f"answer should not be persisted as user message, got: {[m.content for m in messages]}"
+    )
 
 
 def test_chat_service_persists_user_chat_image_attachment(tmp_path: Path) -> None:

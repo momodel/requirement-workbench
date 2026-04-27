@@ -124,6 +124,32 @@ export type MessageRecord = {
   status_label?: string | null;
   status_phase?: string | null;
   action_events?: MessageActionEvent[];
+  pending_questions?: PendingQuestion[];
+};
+
+export type AskUserQuestionOption = {
+  label: string;
+  description?: string | null;
+};
+
+export type AskUserQuestionEvent = {
+  project_id: string;
+  question_id: string;
+  question: string;
+  header?: string | null;
+  options: AskUserQuestionOption[];
+  multi_select: boolean;
+};
+
+export type PendingQuestion = AskUserQuestionEvent & {
+  status: 'pending' | 'submitting' | 'answered' | 'timed_out';
+  selected_labels?: string[];
+  free_text?: string | null;
+  /**
+   * 问题被触发时，所在 assistant 消息 content 的字符长度。
+   * 渲染时用它把 QuestionCard 插到 message.content 中正确的位置。
+   */
+  content_offset?: number;
 };
 
 export type ChatImageResult = {

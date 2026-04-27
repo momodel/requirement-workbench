@@ -10,6 +10,7 @@ from app.services import agent_runtime as agent_runtime_module
 from app.models import AgentStructuredOutput, AgentTurnInput, MessageRecord, ProjectState, ProjectSummary, ProviderIssue
 from app.services.agent_runtime import (
     ClaudeAgentRuntime,
+    RuntimeQuestionRegistry,
     _coerce_json_payload,
     _coerce_html_artifact_payload,
     _normalize_generated_artifact_output_payload,
@@ -18,6 +19,144 @@ from app.services.agent_runtime import (
 from app.services.project_catalog import ProjectCatalog
 from app.services.project_state import ProjectStateService
 from app.services.seed_projects import ensure_seed_project
+
+
+def test_run_streaming_turn_preserves_text_across_multiple_assistant_messages(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    """When the model responds in multiple invocations within one turn (e.g., text →
+    ask_user_question → text-after-answer), the saved final assistant message must
+    contain ALL of the text, not just the last AssistantMessage's content.
+    """
+
+    runtime = ClaudeAgentRuntime(
+        AppSettings(
+            root_dir=tmp_path,
+            data_dir=tmp_path / "data",
+            sqlite_dir=tmp_path / "data" / "sqlite",
+            sqlite_path=tmp_path / "data" / "sqlite" / "test.db",
+            projects_dir=tmp_path / "data" / "projects",
+            claude_cli_path="/usr/local/bin/claude",
+            claude_model="glm-5",
+        )
+    )
+    monkeypatch.setattr(runtime, "ensure_available", lambda: None)
+
+    from claude_agent_sdk import TextBlock
+
+    async def fake_query(*, prompt, options):
+        yield agent_runtime_module.AssistantMessage(
+            content=[TextBlock(text="好的，按原材料类型分。")],
+            model="glm-5",
+        )
+        yield agent_runtime_module.AssistantMessage(
+            content=[TextBlock(text="（已记录。等你的反馈，咱们继续往下对齐。）")],
+            model="glm-5",
+        )
+        yield agent_runtime_module.ResultMessage(
+            subtype="success",
+            duration_ms=1,
+            duration_api_ms=1,
+            is_error=False,
+            num_turns=2,
+            session_id="s1",
+            stop_reason="end_turn",
+            total_cost_usd=0.0,
+            usage=None,
+            result="",
+            structured_output=None,
+            model_usage=None,
+            permission_denials=None,
+            errors=None,
+            uuid="r1",
+        )
+
+    monkeypatch.setattr(agent_runtime_module, "query", fake_query)
+
+    turn = AgentTurnInput(
+        project=ProjectSummary(
+            id="project-multi",
+            name="多轮回归测试",
+            scenario_type="reconciliation",
+            summary="回归 multi AssistantMessage。",
+            status="active",
+            created_at="2026-04-27T10:00:00+08:00",
+            updated_at="2026-04-27T10:00:00+08:00",
+            seed_key=None,
+        ),
+        state=ProjectState(
+            current_understanding=[],
+            pending_items=[],
+            confirmed_items=[],
+            conflict_items=[],
+            mvp_items=[],
+            versions=[],
+            artifacts=[],
+        ),
+        user_message="总结出文档",
+        selected_source_ids=[],
+        source_summaries=[],
+        evidence_summary="",
+        evidence_citations=[],
+        request_artifact_types=[],
+    )
+
+    async def collect() -> list[tuple[str, dict]]:
+        events: list[tuple[str, dict]] = []
+        async for event_type, payload in runtime.run_streaming_turn(turn):
+            events.append((event_type, payload))
+        return events
+
+    events = asyncio.run(collect())
+    final_messages = [payload for event_type, payload in events if event_type == "final_message"]
+    assert final_messages, "expected a final_message event"
+    final_text = final_messages[-1]["text"]
+    assert "按原材料类型分" in final_text
+    assert "已记录" in final_text
+
+
+def test_runtime_question_registry_resolves_pending_future() -> None:
+    async def scenario() -> dict:
+        registry = RuntimeQuestionRegistry()
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        registry.register("project-x", "q-1", future)
+
+        accepted = registry.resolve("project-x", "q-1", {"selected_labels": ["A"], "free_text": None})
+        assert accepted is True
+
+        result = await asyncio.wait_for(future, timeout=1.0)
+        registry.unregister("project-x", "q-1")
+        # Re-resolving the same key returns False after unregister.
+        assert registry.resolve("project-x", "q-1", {"selected_labels": [], "free_text": None}) is False
+        return result
+
+    payload = asyncio.run(scenario())
+    assert payload["selected_labels"] == ["A"]
+
+
+def test_runtime_question_registry_cancel_pending_raises_in_awaiter() -> None:
+    async def scenario() -> str:
+        registry = RuntimeQuestionRegistry()
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        registry.register("project-x", "q-2", future)
+
+        async def waiter() -> str:
+            try:
+                await future
+                return "resolved"
+            except asyncio.CancelledError:
+                return "cancelled"
+
+        task = asyncio.create_task(waiter())
+        await asyncio.sleep(0)
+        registry.cancel_pending("project-x", "q-2")
+        return await task
+
+    outcome = asyncio.run(scenario())
+    assert outcome == "cancelled"
 
 
 def test_visual_mockup_reference_urls_are_absolutized(tmp_path: Path) -> None:

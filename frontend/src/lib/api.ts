@@ -188,6 +188,21 @@ export async function generateArtifact(
   });
 }
 
+export async function submitQuestionAnswer(
+  projectId: string,
+  questionId: string,
+  payload: { selected_labels: string[]; free_text: string | null }
+) {
+  return fetchJson<{ status: string }>(
+    `/api/projects/${projectId}/chat/questions/${questionId}/answer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
 function parseEventBlock(block: string) {
   const lines = block.split('\n');
   const event = lines.find((line) => line.startsWith('event: '))?.slice(7).trim();

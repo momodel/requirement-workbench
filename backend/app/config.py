@@ -49,10 +49,11 @@ class AppSettings:
     evidence_top_k: int = 6
     claude_cli_path: str | None = None
     claude_model: str | None = None
-    claude_max_turns: int = 6
+    claude_max_turns: int = 30
     claude_stream_timeout_seconds: float = 90.0
     claude_structured_timeout_seconds: float = 45.0
     claude_artifact_timeout_seconds: float = 180.0
+    ask_user_question_timeout_seconds: float = 600.0
     default_timezone: str = "Asia/Shanghai"
     apimart_api_key: str | None = None
     apimart_base_url: str | None = None
@@ -130,7 +131,7 @@ class AppSettings:
             ),
             claude_cli_path=os.getenv("CLAUDE_CODE_CLI_PATH"),
             claude_model=os.getenv("CLAUDE_MODEL"),
-            claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "6")),
+            claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "30")),
             claude_stream_timeout_seconds=float(
                 os.getenv("CLAUDE_STREAM_TIMEOUT_SECONDS", "90")
             ),
@@ -139,6 +140,9 @@ class AppSettings:
             ),
             claude_artifact_timeout_seconds=float(
                 os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS", "180")
+            ),
+            ask_user_question_timeout_seconds=float(
+                os.getenv("ASK_USER_QUESTION_TIMEOUT_SECONDS", "600")
             ),
             default_timezone=os.getenv("REQUIREMENT_WORKBENCH_TIMEZONE", "Asia/Shanghai"),
             apimart_api_key=os.getenv("APIMART_API_KEY"),

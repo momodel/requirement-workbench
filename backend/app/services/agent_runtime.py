@@ -458,6 +458,35 @@ def _coerce_html_artifact_payload(raw: str) -> dict:
     return parsed
 
 
+class RuntimeQuestionRegistry:
+    """Cross-request registry that holds futures for pending ask_user_question calls.
+
+    The agent tool registers a future when it asks a question; the answer-submission
+    HTTP endpoint resolves it via `resolve(...)`. Both run on the same event loop.
+    """
+
+    def __init__(self) -> None:
+        self._pending: dict[tuple[str, str], asyncio.Future] = {}
+
+    def register(self, project_id: str, question_id: str, future: asyncio.Future) -> None:
+        self._pending[(project_id, question_id)] = future
+
+    def unregister(self, project_id: str, question_id: str) -> None:
+        self._pending.pop((project_id, question_id), None)
+
+    def resolve(self, project_id: str, question_id: str, payload: dict) -> bool:
+        future = self._pending.get((project_id, question_id))
+        if future is None or future.done():
+            return False
+        future.set_result(payload)
+        return True
+
+    def cancel_pending(self, project_id: str, question_id: str) -> None:
+        future = self._pending.pop((project_id, question_id), None)
+        if future is not None and not future.done():
+            future.cancel()
+
+
 class ClaudeAgentRuntime:
     def __init__(
         self,
@@ -474,6 +503,7 @@ class ClaudeAgentRuntime:
         self._background_artifact_tasks: set[asyncio.Task] = set()
         self.evidence_runtime = evidence_runtime or QdrantLlamaIndexEvidenceRuntime(settings, catalog=self.catalog)
         self.wiki_runtime = None  # set via attach_wiki_runtime to avoid construction-order coupling
+        self.question_registry = RuntimeQuestionRegistry()
 
     def attach_wiki_runtime(self, wiki_runtime) -> None:
         self.wiki_runtime = wiki_runtime
@@ -923,6 +953,38 @@ class ClaudeAgentRuntime:
         return text if isinstance(text, str) and text else None
 
     @staticmethod
+    def _stream_event_keepalive_status(message: StreamEvent) -> dict[str, str] | None:
+        """非 text、非 tool_use_start 的流式事件（thinking / 工具参数 JSON）。
+
+        如果不把它们翻译成事件吐出去，chat_service 那边会以为流死了
+        然后在 claude_stream_timeout_seconds 后报"回复超时"。这里只是为了
+        让事件循环看见心跳，同时顺手给前端一个"思考中"的友好状态。
+        """
+        event = message.event if isinstance(message.event, dict) else None
+        if not event:
+            return None
+
+        event_type = event.get("type")
+
+        if event_type == "content_block_start":
+            block = event.get("content_block")
+            if isinstance(block, dict) and block.get("type") == "thinking":
+                return {"phase": "model_thinking", "label": "AI 正在思考"}
+            return None
+
+        if event_type == "content_block_delta":
+            delta = event.get("delta")
+            if not isinstance(delta, dict):
+                return None
+            delta_type = delta.get("type")
+            if delta_type == "thinking_delta":
+                return {"phase": "model_thinking", "label": "AI 正在思考"}
+            if delta_type == "input_json_delta":
+                return {"phase": "tool_arg_streaming", "label": "正在准备工具调用"}
+
+        return None
+
+    @staticmethod
     def _stream_event_tool_status(message: StreamEvent) -> dict[str, str] | None:
         event = message.event if isinstance(message.event, dict) else None
         if not event or event.get("type") != "content_block_start":
@@ -962,6 +1024,11 @@ class ClaudeAgentRuntime:
             return {
                 "phase": "tool_running:wiki_read_page",
                 "label": "正在读取 wiki 页面",
+            }
+        if tool_name.endswith("ask_user_question"):
+            return {
+                "phase": "tool_running:ask_user_question",
+                "label": "正在向你提一个选择题",
             }
 
         return None
@@ -1401,6 +1468,156 @@ class ClaudeAgentRuntime:
 
         return wiki_read_page_tool
 
+    def _make_ask_user_question_tool(
+        self,
+        *,
+        project_id: str,
+        event_queue: asyncio.Queue,
+    ):
+        @tool(
+            "ask_user_question",
+            "向用户提一个结构化选择题；agent 会暂停直到用户回答。用于让用户在 2-4 个明确选项里做选择，不要把多选项塞进自然语言文本。",
+            {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string"},
+                    "header": {"type": "string"},
+                    "options": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "label": {"type": "string"},
+                                "description": {"type": "string"},
+                            },
+                            "required": ["label"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "multi_select": {"type": "boolean"},
+                },
+                "required": ["question", "options"],
+                "additionalProperties": False,
+            },
+        )
+        async def ask_user_question_tool(args: dict) -> dict:
+            question_text = str(args.get("question") or "").strip()
+            if not question_text:
+                return {
+                    "content": [{"type": "text", "text": "question 不能为空。"}],
+                    "is_error": True,
+                }
+
+            raw_options = args.get("options") or []
+            normalized_options: list[dict] = []
+            for opt in raw_options:
+                if not isinstance(opt, dict):
+                    continue
+                label = str(opt.get("label") or "").strip()
+                if not label:
+                    continue
+                description = opt.get("description")
+                normalized_options.append(
+                    {
+                        "label": label,
+                        "description": str(description).strip() if description else None,
+                    }
+                )
+            if len(normalized_options) < 2:
+                return {
+                    "content": [{"type": "text", "text": "至少需要 2 个有效 options。"}],
+                    "is_error": True,
+                }
+
+            multi_select = bool(args.get("multi_select", False))
+            header = str(args.get("header") or "").strip() or None
+            question_id = f"q-{uuid.uuid4().hex[:10]}"
+
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future = loop.create_future()
+            self.question_registry.register(project_id, question_id, future)
+
+            payload = {
+                "project_id": project_id,
+                "question_id": question_id,
+                "question": question_text,
+                "header": header,
+                "options": normalized_options,
+                "multi_select": multi_select,
+            }
+
+            try:
+                await event_queue.put(("ask_user_question", payload))
+                try:
+                    answer = await asyncio.wait_for(
+                        future,
+                        timeout=self.settings.ask_user_question_timeout_seconds,
+                    )
+                except asyncio.TimeoutError:
+                    await event_queue.put(
+                        (
+                            "ask_user_question_answered",
+                            {
+                                "project_id": project_id,
+                                "question_id": question_id,
+                                "selected_labels": [],
+                                "free_text": None,
+                                "timed_out": True,
+                            },
+                        )
+                    )
+                    return {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "用户在限定时间内未作出选择；本轮请基于已有信息给出建议或继续推进。",
+                            }
+                        ],
+                        "is_error": False,
+                    }
+                except asyncio.CancelledError:
+                    raise
+
+                selected_labels = answer.get("selected_labels") or []
+                free_text = answer.get("free_text")
+                if isinstance(free_text, str):
+                    free_text = free_text.strip() or None
+
+                await event_queue.put(
+                    (
+                        "ask_user_question_answered",
+                        {
+                            "project_id": project_id,
+                            "question_id": question_id,
+                            "selected_labels": list(selected_labels),
+                            "free_text": free_text,
+                            "timed_out": False,
+                        },
+                    )
+                )
+
+                pieces: list[str] = []
+                if selected_labels:
+                    pieces.append("用户选了：" + "、".join(str(label) for label in selected_labels))
+                if free_text:
+                    pieces.append(f"用户补充：{free_text}")
+                if not pieces:
+                    pieces.append("用户未选任何选项。")
+                pieces.append(
+                    "请在同一轮内基于这个答复继续推进：根据需要再调用工具（写沉淀、生成 artifact 等）"
+                    "或直接给出下一步具体说明。不要只回一句确认就结束。"
+                )
+                return {
+                    "content": [{"type": "text", "text": "\n".join(pieces)}],
+                    "is_error": False,
+                }
+            finally:
+                self.question_registry.unregister(project_id, question_id)
+
+        return ask_user_question_tool
+
     def _make_create_version_snapshot_tool(
         self,
         *,
@@ -1814,6 +2031,7 @@ class ClaudeAgentRuntime:
         generated_versions: list[StateItem],
         generated_image_tasks: list[asyncio.Task],
         wiki_reads: list[dict],
+        event_queue: asyncio.Queue | None = None,
     ) -> dict[str, McpSdkServerConfig]:
         evidence_tool = self._make_query_project_evidence_tool(
             project_id=project.id,
@@ -1846,18 +2064,26 @@ class ClaudeAgentRuntime:
             project_id=project.id,
             wiki_reads=wiki_reads,
         )
+        tools = [
+            evidence_tool,
+            state_tool,
+            version_tool,
+            artifact_tool,
+            visual_tool,
+            wiki_list_tool,
+            wiki_read_tool,
+        ]
+        if event_queue is not None:
+            tools.append(
+                self._make_ask_user_question_tool(
+                    project_id=project.id,
+                    event_queue=event_queue,
+                )
+            )
         return {
             "project-actions": create_sdk_mcp_server(
                 name="project-actions",
-                tools=[
-                    evidence_tool,
-                    state_tool,
-                    version_tool,
-                    artifact_tool,
-                    visual_tool,
-                    wiki_list_tool,
-                    wiki_read_tool,
-                ],
+                tools=tools,
             )
         }
 
@@ -1902,243 +2128,324 @@ class ClaudeAgentRuntime:
     ) -> AsyncIterator[tuple[str, dict]]:
         self.ensure_available()
 
-        applied_state_updates: dict[StateCategory, list[StateItem]] = {}
-        evidence_results: list[dict] = []
-        generated_artifacts: list[ArtifactRecord] = []
-        generated_versions: list[StateItem] = []
-        generated_image_tasks: list[asyncio.Task] = []
-        wiki_reads: list[dict] = []
-
-        emitted_text = ""
-        latest_assistant_text = ""
-        final_result_text = ""
-        emitted_wiki_read_count = 0
-
-        options = self._build_options(
-            system_prompt=self._system_prompt(),
-            include_partial_messages=True,
-            output_format=None,
-            mcp_servers=self._turn_mcp_servers(
-                project=turn.project,
-                state=turn.state,
-                default_selected_source_ids=turn.selected_source_ids,
-                evidence_results=evidence_results,
-                applied_state_updates=applied_state_updates,
-                generated_artifacts=generated_artifacts,
-                generated_versions=generated_versions,
-                generated_image_tasks=generated_image_tasks,
-                wiki_reads=wiki_reads,
-            ),
-            allowed_tools=[
-                "query_project_evidence",
-                "update_project_state",
-                "create_version_snapshot",
-                "generate_artifact",
-                "generate_visual_mockup",
-                "wiki_list_pages",
-                "wiki_read_page",
-            ],
-        )
-
-        yield (
-            "assistant_status",
-            {
-                "phase": "agent_started",
-                "label": "已接收问题，正在启动分析",
-            },
-        )
-
-        prompt_text = self._build_loop_prompt(turn)
-        image_blocks = self._user_image_blocks(turn.user_image_refs)
-        if image_blocks:
-            async def _user_message_stream():
-                yield {
-                    "type": "user",
-                    "session_id": "",
-                    "message": {
-                        "role": "user",
-                        "content": image_blocks + [{"type": "text", "text": prompt_text}],
-                    },
-                    "parent_tool_use_id": None,
-                }
-
-            prompt_arg: Any = _user_message_stream()
-        else:
-            prompt_arg = prompt_text
+        event_queue: asyncio.Queue = asyncio.Queue()
+        sdk_task = asyncio.create_task(self._drive_streaming_turn(turn, event_queue))
+        pending_question_keys: set[tuple[str, str]] = set()
 
         try:
-            async for message in query(
-                prompt=prompt_arg,
-                options=options,
-            ):
-                if isinstance(message, StreamEvent):
-                    delta_text = self._stream_event_text_delta(message)
-                    if delta_text:
-                        emitted_text = f"{emitted_text}{delta_text}"
-                        yield ("message_chunk", {"text": delta_text})
-                        continue
+            while True:
+                item = await event_queue.get()
+                if item is None:
+                    break
+                event_type, payload = item
+                if event_type == "__error__":
+                    raise payload  # propagate the original exception
+                if event_type == "ask_user_question" and isinstance(payload, dict):
+                    key = (payload.get("project_id"), payload.get("question_id"))
+                    if all(key):
+                        pending_question_keys.add(key)  # type: ignore[arg-type]
+                elif event_type == "ask_user_question_answered" and isinstance(payload, dict):
+                    key = (payload.get("project_id"), payload.get("question_id"))
+                    pending_question_keys.discard(key)  # type: ignore[arg-type]
+                yield (event_type, payload)
+        finally:
+            if not sdk_task.done():
+                sdk_task.cancel()
+                try:
+                    await sdk_task
+                except BaseException:
+                    pass
+            for project_id, question_id in pending_question_keys:
+                if project_id and question_id:
+                    self.question_registry.cancel_pending(project_id, question_id)
 
-                    tool_status = self._stream_event_tool_status(message)
-                    if tool_status:
-                        yield ("assistant_status", tool_status)
-                    continue
+    async def _drive_streaming_turn(
+        self,
+        turn: AgentTurnInput,
+        event_queue: asyncio.Queue,
+    ) -> None:
+        try:
+            applied_state_updates: dict[StateCategory, list[StateItem]] = {}
+            evidence_results: list[dict] = []
+            generated_artifacts: list[ArtifactRecord] = []
+            generated_versions: list[StateItem] = []
+            generated_image_tasks: list[asyncio.Task] = []
+            wiki_reads: list[dict] = []
 
-                if isinstance(message, AssistantMessage):
-                    full_text = self._assistant_text_from_message(message)
-                    if not full_text:
-                        continue
+            emitted_text = ""
+            assistant_message_texts: list[str] = []
+            final_result_text = ""
 
-                    delta = self._full_text_delta(full_text, emitted_text)
-                    if delta:
-                        emitted_text = full_text
-                        yield ("message_chunk", {"text": delta})
-                    latest_assistant_text = full_text.strip()
-                    continue
-
-                if isinstance(message, ResultMessage):
-                    if message.is_error:
-                        errors = ", ".join(message.errors or [])
-                        raise ProviderIssue(
-                            provider="CLAUDE_AGENT_SDK",
-                            message=errors or message.result or "Claude Agent SDK 返回错误。",
-                        )
-
-                    final_result_text = (message.result or "").strip()
-                    continue
-        except CLINotFoundError as exc:
-            raise ProviderIssue(
-                provider="CLAUDE_AGENT_SDK",
-                message=f"未找到 Claude Code CLI：{exc}",
-            ) from exc
-        except FileNotFoundError as exc:
-            raise ProviderIssue(
-                provider="CLAUDE_AGENT_SDK",
-                message=f"Claude Agent SDK 运行失败：{exc}",
-            ) from exc
-
-        final_assistant_message = (
-            latest_assistant_text
-            or final_result_text
-            or emitted_text.strip()
-        )
-
-        latest_evidence = evidence_results[-1] if evidence_results else None
-        citations = latest_evidence.get("citations", []) if latest_evidence else []
-        if latest_evidence:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_completed:query_project_evidence",
-                    "label": "已拿到资料证据",
-                },
+            options = self._build_options(
+                system_prompt=self._system_prompt(),
+                include_partial_messages=True,
+                output_format=None,
+                mcp_servers=self._turn_mcp_servers(
+                    project=turn.project,
+                    state=turn.state,
+                    default_selected_source_ids=turn.selected_source_ids,
+                    evidence_results=evidence_results,
+                    applied_state_updates=applied_state_updates,
+                    generated_artifacts=generated_artifacts,
+                    generated_versions=generated_versions,
+                    generated_image_tasks=generated_image_tasks,
+                    wiki_reads=wiki_reads,
+                    event_queue=event_queue,
+                ),
+                allowed_tools=[
+                    "query_project_evidence",
+                    "update_project_state",
+                    "create_version_snapshot",
+                    "generate_artifact",
+                    "generate_visual_mockup",
+                    "wiki_list_pages",
+                    "wiki_read_page",
+                    "ask_user_question",
+                ],
             )
-        if citations:
-            yield ("citations", {"items": citations})
 
-        if applied_state_updates:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_completed:update_project_state",
-                    "label": "已写入本轮沉淀",
-                },
-            )
-            for category, items in applied_state_updates.items():
-                if not items:
-                    continue
-                yield (
-                    f"{category}_patch",
+            await event_queue.put(
+                (
+                    "assistant_status",
                     {
-                        "op": "upsert",
-                        "items": [item.model_dump() for item in items],
+                        "phase": "agent_started",
+                        "label": "已接收问题，正在启动分析",
                     },
                 )
-
-        explicit_versions = [
-            version for version in generated_versions if version.title != "artifact_generated"
-        ]
-        if explicit_versions:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_completed:create_version_snapshot",
-                    "label": "已生成版本快照",
-                },
             )
 
-        if generated_versions:
-            yield (
-                "version_patch",
-                {
-                    "op": "upsert",
-                    "items": [version.model_dump() for version in generated_versions],
-                },
-            )
+            prompt_text = self._build_loop_prompt(turn)
+            image_blocks = self._user_image_blocks(turn.user_image_refs)
+            if image_blocks:
+                async def _user_message_stream():
+                    yield {
+                        "type": "user",
+                        "session_id": "",
+                        "message": {
+                            "role": "user",
+                            "content": image_blocks + [{"type": "text", "text": prompt_text}],
+                        },
+                        "parent_tool_use_id": None,
+                    }
 
-        if wiki_reads:
-            yield (
-                "wiki_reads",
-                {"items": list(wiki_reads)},
-            )
+                prompt_arg: Any = _user_message_stream()
+            else:
+                prompt_arg = prompt_text
 
-        if generated_artifacts:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_completed:generate_artifact",
-                    "label": "已生成交付物预览",
-                },
-            )
-            yield (
-                "artifact_patch",
-                {
-                    "op": "upsert",
-                    "items": [artifact.model_dump() for artifact in generated_artifacts],
-                },
-            )
+            last_keepalive_at = 0.0
+            keepalive_interval = 2.0
 
-        if generated_image_tasks:
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_running:generate_visual_mockup",
-                    "label": "正在生成视觉稿",
-                },
-            )
             try:
-                generated_images = await asyncio.wait_for(
-                    asyncio.gather(*generated_image_tasks),
-                    timeout=self.settings.image_generation_timeout_seconds + 15,
-                )
-            except Exception as exc:
-                raise ProviderIssue(
-                    provider="APIMART_IMAGE",
-                    message=str(exc) or "视觉稿生成失败。",
-                ) from exc
-            yield (
-                "assistant_status",
-                {
-                    "phase": "tool_completed:generate_visual_mockup",
-                    "label": "视觉稿已生成",
-                },
-            )
-            for image in generated_images:
-                yield ("image_result", image)
+                async for message in query(
+                    prompt=prompt_arg,
+                    options=options,
+                ):
+                    if isinstance(message, StreamEvent):
+                        delta_text = self._stream_event_text_delta(message)
+                        if delta_text:
+                            emitted_text = f"{emitted_text}{delta_text}"
+                            await event_queue.put(("message_chunk", {"text": delta_text}))
+                            continue
 
-        yield (
-            "final_message",
-            {
-                "text": final_assistant_message,
-                "citations": citations,
-            },
-        )
-        yield (
-            "assistant_status",
-            {
-                "phase": "agent_completed",
-                "label": "本轮分析已完成",
-            },
-        )
+                        tool_status = self._stream_event_tool_status(message)
+                        if tool_status:
+                            await event_queue.put(("assistant_status", tool_status))
+                            continue
+
+                        keepalive = self._stream_event_keepalive_status(message)
+                        if keepalive:
+                            now = asyncio.get_event_loop().time()
+                            if now - last_keepalive_at >= keepalive_interval:
+                                last_keepalive_at = now
+                                await event_queue.put(("assistant_status", keepalive))
+                        continue
+
+                    if isinstance(message, AssistantMessage):
+                        full_text = self._assistant_text_from_message(message)
+                        if not full_text:
+                            continue
+
+                        delta = self._full_text_delta(full_text, emitted_text)
+                        if delta:
+                            emitted_text = f"{emitted_text}{delta}"
+                            await event_queue.put(("message_chunk", {"text": delta}))
+                        stripped_full = full_text.strip()
+                        if stripped_full and (
+                            not assistant_message_texts
+                            or assistant_message_texts[-1] != stripped_full
+                        ):
+                            assistant_message_texts.append(stripped_full)
+                        continue
+
+                    if isinstance(message, ResultMessage):
+                        if message.is_error:
+                            errors = ", ".join(message.errors or [])
+                            raise ProviderIssue(
+                                provider="CLAUDE_AGENT_SDK",
+                                message=errors or message.result or "Claude Agent SDK 返回错误。",
+                            )
+
+                        final_result_text = (message.result or "").strip()
+                        continue
+            except CLINotFoundError as exc:
+                raise ProviderIssue(
+                    provider="CLAUDE_AGENT_SDK",
+                    message=f"未找到 Claude Code CLI：{exc}",
+                ) from exc
+            except FileNotFoundError as exc:
+                raise ProviderIssue(
+                    provider="CLAUDE_AGENT_SDK",
+                    message=f"Claude Agent SDK 运行失败：{exc}",
+                ) from exc
+
+            final_assistant_message = (
+                "\n\n".join(assistant_message_texts)
+                or emitted_text.strip()
+                or final_result_text
+            )
+
+            latest_evidence = evidence_results[-1] if evidence_results else None
+            citations = latest_evidence.get("citations", []) if latest_evidence else []
+            if latest_evidence:
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_completed:query_project_evidence",
+                            "label": "已拿到资料证据",
+                        },
+                    )
+                )
+            if citations:
+                await event_queue.put(("citations", {"items": citations}))
+
+            if applied_state_updates:
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_completed:update_project_state",
+                            "label": "已写入本轮沉淀",
+                        },
+                    )
+                )
+                for category, items in applied_state_updates.items():
+                    if not items:
+                        continue
+                    await event_queue.put(
+                        (
+                            f"{category}_patch",
+                            {
+                                "op": "upsert",
+                                "items": [item.model_dump() for item in items],
+                            },
+                        )
+                    )
+
+            explicit_versions = [
+                version for version in generated_versions if version.title != "artifact_generated"
+            ]
+            if explicit_versions:
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_completed:create_version_snapshot",
+                            "label": "已生成版本快照",
+                        },
+                    )
+                )
+
+            if generated_versions:
+                await event_queue.put(
+                    (
+                        "version_patch",
+                        {
+                            "op": "upsert",
+                            "items": [version.model_dump() for version in generated_versions],
+                        },
+                    )
+                )
+
+            if wiki_reads:
+                await event_queue.put(("wiki_reads", {"items": list(wiki_reads)}))
+
+            if generated_artifacts:
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_completed:generate_artifact",
+                            "label": "已生成交付物预览",
+                        },
+                    )
+                )
+                await event_queue.put(
+                    (
+                        "artifact_patch",
+                        {
+                            "op": "upsert",
+                            "items": [artifact.model_dump() for artifact in generated_artifacts],
+                        },
+                    )
+                )
+
+            if generated_image_tasks:
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_running:generate_visual_mockup",
+                            "label": "正在生成视觉稿",
+                        },
+                    )
+                )
+                try:
+                    generated_images = await asyncio.wait_for(
+                        asyncio.gather(*generated_image_tasks),
+                        timeout=self.settings.image_generation_timeout_seconds + 15,
+                    )
+                except Exception as exc:
+                    raise ProviderIssue(
+                        provider="APIMART_IMAGE",
+                        message=str(exc) or "视觉稿生成失败。",
+                    ) from exc
+                await event_queue.put(
+                    (
+                        "assistant_status",
+                        {
+                            "phase": "tool_completed:generate_visual_mockup",
+                            "label": "视觉稿已生成",
+                        },
+                    )
+                )
+                for image in generated_images:
+                    await event_queue.put(("image_result", image))
+
+            await event_queue.put(
+                (
+                    "final_message",
+                    {
+                        "text": final_assistant_message,
+                        "citations": citations,
+                    },
+                )
+            )
+            await event_queue.put(
+                (
+                    "assistant_status",
+                    {
+                        "phase": "agent_completed",
+                        "label": "本轮分析已完成",
+                    },
+                )
+            )
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            await event_queue.put(("__error__", exc))
+        finally:
+            await event_queue.put(None)
 
     async def run_turn(
         self,

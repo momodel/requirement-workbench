@@ -60,6 +60,12 @@ class ChatService:
                 self.catalog.settings.evidence_query_timeout_seconds + 10,
             )
 
+        if phase == "tool_running:ask_user_question":
+            return max(
+                base_timeout,
+                self.catalog.settings.ask_user_question_timeout_seconds + 15,
+            )
+
         return base_timeout
 
     @staticmethod
@@ -295,10 +301,20 @@ class ChatService:
                     current_timeout = self._stream_timeout_for_phase(
                         str(value.get("phase") or "")
                     )
+                elif event_type == "ask_user_question":
+                    current_timeout = self.catalog.settings.ask_user_question_timeout_seconds + 15
+                elif event_type == "ask_user_question_answered":
+                    current_timeout = self.catalog.settings.claude_stream_timeout_seconds
                 elif payload.request_artifact_types:
                     current_timeout = self.catalog.settings.claude_artifact_timeout_seconds + 15
                 else:
                     current_timeout = self.catalog.settings.claude_stream_timeout_seconds
+
+                if event_type == "ask_user_question_answered":
+                    # 用户的回答不再单独建一条 user 消息——
+                    # 已经通过 QuestionCard 的"已回答"态在原 assistant 消息里展示了。
+                    yield (event_type, value)
+                    continue
 
                 if event_type == "image_result":
                     final_images.append(value)

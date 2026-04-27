@@ -41,6 +41,7 @@ import {
   getArtifactTypeLabel,
 } from '../../lib/artifact-display';
 import { Textarea } from '../../components/ui/textarea';
+import { QuestionCard } from './QuestionCard';
 import { cn } from '../../lib/utils';
 import type {
   ArtifactRecord,
@@ -78,6 +79,10 @@ type WorkbenchPageProps = {
   retryingSourceId: string | null;
   initializingKnowledgeBase: boolean;
   onSendMessage: (message: string, imageAttachments?: ChatImageAttachment[]) => Promise<void>;
+  onAnswerQuestion: (
+    questionId: string,
+    answer: { selected_labels: string[]; free_text: string | null }
+  ) => Promise<void>;
   onUploadTextSource: (payload: { name: string; text: string }) => Promise<void>;
   onUploadFileSource: (files: File[]) => Promise<void>;
   onDeleteSource: (sourceId: string) => Promise<void>;
@@ -1289,6 +1294,48 @@ function MessageMarkdown({ content }: { content: string }) {
   );
 }
 
+function renderAssistantBody(
+  message: MessageRecord,
+  onAnswer: WorkbenchPageProps['onAnswerQuestion']
+) {
+  const content = message.content ?? '';
+  const questions = (message.pending_questions ?? [])
+    .slice()
+    .sort(
+      (a, b) =>
+        (a.content_offset ?? Number.POSITIVE_INFINITY) -
+        (b.content_offset ?? Number.POSITIVE_INFINITY)
+    );
+
+  if (!questions.length) {
+    return <MessageMarkdown content={content} />;
+  }
+
+  const nodes: JSX.Element[] = [];
+  let cursor = 0;
+  for (const q of questions) {
+    const offset = Math.min(q.content_offset ?? content.length, content.length);
+    if (offset > cursor) {
+      nodes.push(
+        <MessageMarkdown
+          key={`text-${cursor}`}
+          content={content.slice(cursor, offset)}
+        />
+      );
+    }
+    nodes.push(
+      <QuestionCard key={q.question_id} question={q} onSubmit={onAnswer} />
+    );
+    cursor = offset;
+  }
+  if (cursor < content.length) {
+    nodes.push(
+      <MessageMarkdown key={`text-${cursor}`} content={content.slice(cursor)} />
+    );
+  }
+  return <>{nodes}</>;
+}
+
 function DocumentMarkdown({ content }: { content: string }) {
   return (
     <div className="markdown-body text-sm leading-7 text-ink">
@@ -1399,6 +1446,7 @@ export function WorkbenchPage({
   retryingSourceId,
   initializingKnowledgeBase,
   onSendMessage,
+  onAnswerQuestion,
   onUploadTextSource,
   onUploadFileSource,
   onDeleteSource,
@@ -1888,7 +1936,9 @@ export function WorkbenchPage({
                             </div>
                           </div>
                         ) : null}
-                        <MessageMarkdown content={message.content} />
+                        {message.role === 'assistant'
+                          ? renderAssistantBody(message, onAnswerQuestion)
+                          : <MessageMarkdown content={message.content} />}
                         {(message.image_results?.length ?? 0) > 0 ? (
                           <div className="mt-3 grid gap-3">
                             {message.image_results?.map((image) => (

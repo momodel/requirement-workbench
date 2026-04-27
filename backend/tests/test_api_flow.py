@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 import sqlite3
 from subprocess import CompletedProcess
@@ -783,6 +784,49 @@ def test_chat_stream_reports_provider_not_configured(tmp_path: Path, monkeypatch
         assert "event: error" in body
         assert "CLAUDE_AGENT_SDK" in body
         assert f"\"project_id\": \"{project_id}\"" in body
+
+
+def test_answer_question_endpoint_resolves_pending_future(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "答题端点测试",
+                "scenario_type": "general",
+                "summary": "验证答题端点能解锁后端 future。",
+            },
+        )
+        project_id = create_response.json()["id"]
+
+        registry = app.state.services.agent_runtime.question_registry
+
+        async def scenario() -> dict:
+            loop = asyncio.get_running_loop()
+            future: asyncio.Future = loop.create_future()
+            registry.register(project_id, "q-flow", future)
+
+            response = await asyncio.to_thread(
+                client.post,
+                f"/api/projects/{project_id}/chat/questions/q-flow/answer",
+                json={"selected_labels": ["对齐理解"], "free_text": "可以再聊聊范围"},
+            )
+            assert response.status_code == 200
+            assert response.json() == {"status": "accepted"}
+            return await asyncio.wait_for(future, timeout=2.0)
+
+        result = asyncio.run(scenario())
+        assert result == {
+            "selected_labels": ["对齐理解"],
+            "free_text": "可以再聊聊范围",
+        }
+
+        missing_response = client.post(
+            f"/api/projects/{project_id}/chat/questions/q-missing/answer",
+            json={"selected_labels": [], "free_text": None},
+        )
+        assert missing_response.status_code == 404
 
 
 def test_project_readiness_reports_knowledge_base_required_when_evidence_runtime_is_ready(

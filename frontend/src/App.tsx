@@ -20,17 +20,20 @@ import {
   initProjectKnowledgeBase,
   reindexProjectSource,
   streamChat,
+  submitQuestionAnswer,
   uploadFileSources,
   uploadTextSource,
 } from './lib/api';
 import type {
   ArtifactRecord,
+  AskUserQuestionOption,
   ChatImageAttachment,
   ChatImageResult,
   ChatStreamRequest,
   GlobalReadiness,
   MessageActionEvent,
   MessageRecord,
+  PendingQuestion,
   ProjectReadiness,
   ProjectState,
   ProjectSummary,
@@ -125,6 +128,41 @@ function appendAssistantAction(
   });
 }
 
+
+function upsertPendingQuestion(
+  messages: MessageRecord[],
+  assistantId: string,
+  question: PendingQuestion
+) {
+  return updateAssistantMessage(messages, assistantId, (item) => {
+    const existing = item.pending_questions ?? [];
+    const idx = existing.findIndex((q) => q.question_id === question.question_id);
+    if (idx >= 0) {
+      const next = [...existing];
+      next[idx] = { ...next[idx], ...question };
+      return { ...item, pending_questions: next };
+    }
+    return { ...item, pending_questions: [...existing, question] };
+  });
+}
+
+function patchPendingQuestion(
+  messages: MessageRecord[],
+  questionId: string,
+  patch: Partial<PendingQuestion>
+) {
+  return messages.map((msg) => {
+    if (!msg.pending_questions?.some((q) => q.question_id === questionId)) {
+      return msg;
+    }
+    return {
+      ...msg,
+      pending_questions: msg.pending_questions.map((q) =>
+        q.question_id === questionId ? { ...q, ...patch } : q
+      ),
+    };
+  });
+}
 
 function appendAssistantImageResult(
   messages: MessageRecord[],
@@ -635,6 +673,61 @@ function WorkbenchRoute() {
             return;
           }
 
+          if (event === 'ask_user_question') {
+            const questionId = String(payload.question_id ?? '');
+            if (!questionId) return;
+            setData((current) => {
+              const target = current.messages.find((m) => m.id === assistantId);
+              const pending: PendingQuestion = {
+                project_id: String(payload.project_id ?? projectId),
+                question_id: questionId,
+                question: String(payload.question ?? ''),
+                header: (payload.header as string | null | undefined) ?? null,
+                options: (payload.options as AskUserQuestionOption[] | undefined) ?? [],
+                multi_select: Boolean(payload.multi_select),
+                status: 'pending',
+                content_offset: target?.content.length ?? 0,
+              };
+              return {
+                ...current,
+                messages: upsertPendingQuestion(
+                  updateAssistantMessage(current.messages, assistantId, (item) => ({
+                    ...item,
+                    status_label: '等待你的选择',
+                    status_phase: 'awaiting_user_answer',
+                  })),
+                  assistantId,
+                  pending
+                ),
+              };
+            });
+            return;
+          }
+
+          if (event === 'ask_user_question_answered') {
+            const questionId = String(payload.question_id ?? '');
+            if (!questionId) return;
+            const labels = Array.isArray(payload.selected_labels)
+              ? (payload.selected_labels as string[])
+              : [];
+            const free = (payload.free_text as string | null | undefined) ?? null;
+            const timedOut = Boolean(payload.timed_out);
+            setData((current) => {
+              let messages = patchPendingQuestion(current.messages, questionId, {
+                status: timedOut ? 'timed_out' : 'answered',
+                selected_labels: labels,
+                free_text: free,
+              });
+              messages = updateAssistantMessage(messages, assistantId, (item) => ({
+                ...item,
+                status_label: timedOut ? '问答超时' : '已收到你的选择',
+                status_phase: 'received_user_answer',
+              }));
+              return { ...current, messages };
+            });
+            return;
+          }
+
           if (event === 'current_understanding_patch' && payload.items) {
             markRecentInsights(payload.items as StateItem[]);
             setData((current) => ({
@@ -824,6 +917,34 @@ function WorkbenchRoute() {
     }
   }
 
+  async function handleAnswerQuestion(
+    questionId: string,
+    answer: { selected_labels: string[]; free_text: string | null }
+  ) {
+    setData((current) => ({
+      ...current,
+      messages: patchPendingQuestion(current.messages, questionId, { status: 'submitting' }),
+    }));
+    try {
+      await submitQuestionAnswer(projectId, questionId, answer);
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : '提交回答失败。';
+      setNotices((current) => [
+        {
+          id: `answer-${Date.now()}`,
+          kind: 'error',
+          title: '提交回答失败',
+          body: messageText,
+        },
+        ...current,
+      ]);
+      setData((current) => ({
+        ...current,
+        messages: patchPendingQuestion(current.messages, questionId, { status: 'pending' }),
+      }));
+    }
+  }
+
   async function handleUploadTextSource(payload: { name: string; text: string }) {
     setUploading(true);
     try {
@@ -942,6 +1063,7 @@ function WorkbenchRoute() {
       retryingSourceId={retryingSourceId}
       initializingKnowledgeBase={initializingKnowledgeBase}
       onSendMessage={handleSendMessage}
+      onAnswerQuestion={handleAnswerQuestion}
       onUploadTextSource={handleUploadTextSource}
       onUploadFileSource={handleUploadFileSource}
       onDeleteSource={handleDeleteSource}
