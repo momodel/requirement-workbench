@@ -1289,6 +1289,82 @@ function MessageMarkdown({ content }: { content: string }) {
   );
 }
 
+function DocumentMarkdown({ content }: { content: string }) {
+  return (
+    <div className="markdown-body text-sm leading-7 text-ink">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1 className="mb-3 mt-4 text-xl font-semibold text-ink first:mt-0">{children}</h1>
+          ),
+          h2: ({ children }) => (
+            <h2 className="mb-2 mt-5 text-lg font-semibold text-ink first:mt-0">{children}</h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="mb-2 mt-4 text-base font-semibold text-ink first:mt-0">{children}</h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="mb-2 mt-3 text-sm font-semibold text-ink first:mt-0">{children}</h4>
+          ),
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          ul: ({ children }) => (
+            <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>
+          ),
+          li: ({ children }) => <li>{children}</li>,
+          strong: ({ children }) => (
+            <strong className="font-semibold text-ink">{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic">{children}</em>,
+          blockquote: ({ children }) => (
+            <blockquote className="mb-3 border-l-2 border-borderWarm pl-3 text-muted last:mb-0">
+              {children}
+            </blockquote>
+          ),
+          hr: () => <hr className="my-4 border-line" />,
+          pre: ({ children }) => (
+            <pre className="mb-3 overflow-x-auto rounded-2xl bg-warmDarker p-3 font-mono text-[0.92em] text-warmSilver last:mb-0">
+              {children}
+            </pre>
+          ),
+          code: ({ children }) => (
+            <code className="rounded-[6px] bg-sand px-1.5 py-0.5 font-mono text-[0.92em] text-charcoal">
+              {children}
+            </code>
+          ),
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-terracotta underline decoration-terracotta/40 underline-offset-2"
+            >
+              {children}
+            </a>
+          ),
+          table: ({ children }) => (
+            <div className="mb-3 overflow-x-auto last:mb-0">
+              <table className="w-full border-collapse text-left text-sm">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-sand/60">{children}</thead>,
+          th: ({ children }) => (
+            <th className="border border-line px-3 py-2 font-semibold text-ink">{children}</th>
+          ),
+          td: ({ children }) => (
+            <td className="border border-line px-3 py-2 align-top">{children}</td>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function actionEventTone(kind: MessageActionEvent['kind']) {
   if (kind === 'artifact') {
     return 'border-[#e6cfbf] bg-[#f4e3d2] text-[#7a4520]';
@@ -2077,8 +2153,8 @@ export function WorkbenchPage({
 
       <Dialog open={Boolean(activeDocument)} onOpenChange={(open) => !open && setActiveDocument(null)}>
         {activeDocument ? (
-          <DialogContent className="left-auto right-4 top-4 h-[calc(100vh-2rem)] w-[520px] max-w-none translate-x-0 translate-y-0 p-0 data-[state=open]:animate-none">
-            <div className="flex h-full flex-col">
+          <DialogContent className="left-auto right-4 top-4 flex h-[calc(100vh-2rem)] w-[520px] max-w-none translate-x-0 translate-y-0 flex-col gap-0 p-0 data-[state=open]:animate-none">
+            <div className="flex min-h-0 flex-1 flex-col">
               <DialogHeader className="border-b border-line px-6 py-5">
                 <DialogTitle>{activeDocument.title}</DialogTitle>
                 <DialogDescription>
@@ -2086,9 +2162,17 @@ export function WorkbenchPage({
                 </DialogDescription>
               </DialogHeader>
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-muted">
-                  {activeDocument.body ?? '当前文档还没有正文。'}
-                </pre>
+                {activeDocument.body ? (
+                  activeDocument.content_format === 'markdown' ? (
+                    <DocumentMarkdown content={activeDocument.body} />
+                  ) : (
+                    <pre className="whitespace-pre-wrap font-sans text-sm leading-7 text-muted">
+                      {activeDocument.body}
+                    </pre>
+                  )
+                ) : (
+                  <div className="text-sm leading-7 text-muted">当前文档还没有正文。</div>
+                )}
               </div>
             </div>
           </DialogContent>
