@@ -1,6 +1,7 @@
 .vercel
 .worktrees
 .idea
+/.claude/
 node_modules
 dist
 *.tsbuildinfo
