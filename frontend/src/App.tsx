@@ -948,6 +948,9 @@ function WorkbenchRoute() {
       onReindexSource={handleRetrySourceSync}
       onRequestSourceContent={handleRequestSourceContent}
       onInitializeKnowledgeBase={ensureProjectKnowledgeBase}
+      onArtifactsChanged={(artifacts) =>
+        setData((current) => ({ ...current, artifacts }))
+      }
     />
   );
 }

@@ -2016,6 +2016,69 @@ def test_generate_artifact_returns_validation_detail(tmp_path: Path, monkeypatch
     assert response.json()["detail"] == "交互稿 的 HTML 缺少 title。"
 
 
+def test_artifact_history_and_promote_endpoints(tmp_path: Path) -> None:
+    app = create_app(make_settings(tmp_path))
+
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/projects",
+            json={
+                "name": "版本测试项目",
+                "scenario_type": "versioning",
+                "summary": "覆盖交付物多版本接口。",
+            },
+        )
+        assert create_response.status_code in (200, 201)
+        project_id = create_response.json()["id"]
+
+        catalog = app.state.services.catalog
+        catalog.create_artifact_revision(
+            project_id=project_id,
+            artifact_type="document",
+            title="文档稿 v1",
+            summary="第一版",
+            status="generated",
+            content_format="markdown",
+            storage_path=None,
+            body="# v1",
+        )
+        catalog.create_artifact_revision(
+            project_id=project_id,
+            artifact_type="document",
+            title="文档稿 v2",
+            summary="第二版",
+            status="generated",
+            content_format="markdown",
+            storage_path=None,
+            body="# v2",
+        )
+
+        listed = client.get(f"/api/projects/{project_id}/artifacts").json()
+        document_entries = [item for item in listed if item["artifact_type"] == "document"]
+        assert len(document_entries) == 1
+        assert document_entries[0]["revision_number"] == 2
+
+        history = client.get(
+            f"/api/projects/{project_id}/artifacts/by-type/document/history"
+        ).json()
+        assert [item["revision_number"] for item in history] == [1, 2]
+
+        first_id = next(item["id"] for item in history if item["revision_number"] == 1)
+        promote_response = client.post(
+            f"/api/projects/{project_id}/artifacts/{first_id}/promote"
+        )
+        assert promote_response.status_code == 200
+        promoted = promote_response.json()
+        assert promoted["revision_number"] == 3
+        assert promoted["body"] == "# v1"
+        assert promoted["id"] != first_id
+
+        history_after = client.get(
+            f"/api/projects/{project_id}/artifacts/by-type/document/history"
+        ).json()
+        assert [item["revision_number"] for item in history_after] == [1, 2, 3]
+
+
 def test_e2e_upload_index_chat_returns_rag_citations(tmp_path: Path, monkeypatch) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_evidence_runtime(app, monkeypatch)

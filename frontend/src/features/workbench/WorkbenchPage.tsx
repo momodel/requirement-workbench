@@ -3,6 +3,7 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  History,
   List,
   Bot,
   CheckCircle2,
@@ -11,6 +12,7 @@ import {
   MonitorCog,
   PanelRight,
   Paperclip,
+  RotateCcw,
   Send,
   Sparkles,
   Trash2,
@@ -40,6 +42,7 @@ import {
   getArtifactStatusLabel,
   getArtifactTypeLabel,
 } from '../../lib/artifact-display';
+import { listArtifacts, listArtifactHistory, promoteArtifact } from '../../lib/api';
 import { Textarea } from '../../components/ui/textarea';
 import { cn } from '../../lib/utils';
 import type {
@@ -84,6 +87,7 @@ type WorkbenchPageProps = {
   onReindexSource: (sourceId: string) => Promise<void>;
   onRequestSourceContent: (sourceId: string) => Promise<SourceContentRecord>;
   onInitializeKnowledgeBase: () => Promise<boolean>;
+  onArtifactsChanged?: (artifacts: ArtifactRecord[]) => void;
 };
 
 type PendingChatImage = ChatImageAttachment & {
@@ -372,6 +376,7 @@ function toArtifactRecord(item: StateOverviewItem): ArtifactRecord {
     storage_path: null,
     preview_url: item.previewUrl ?? null,
     body: item.documentBody ?? null,
+    revision_number: 1,
     updated_at: item.updatedAt ?? '',
   };
 }
@@ -1165,6 +1170,7 @@ function StateSectionDrawer({
                                 storage_path: null,
                                 preview_url: activeItem.previewUrl ?? null,
                                 body: activeItem.documentBody ?? null,
+                                revision_number: 1,
                                 updated_at: activeItem.updatedAt ?? '',
                               })
                             }
@@ -1186,6 +1192,7 @@ function StateSectionDrawer({
                                 storage_path: null,
                                 preview_url: activeItem.previewUrl ?? null,
                                 body: activeItem.documentBody ?? null,
+                                revision_number: 1,
                                 updated_at: activeItem.updatedAt ?? '',
                               })
                             }
@@ -1365,6 +1372,115 @@ function DocumentMarkdown({ content }: { content: string }) {
   );
 }
 
+function ArtifactVersionSwitcher({
+  projectId,
+  artifact,
+  onSelectRevision,
+  onPromoted,
+}: {
+  projectId: string;
+  artifact: ArtifactRecord;
+  onSelectRevision: (next: ArtifactRecord) => void;
+  onPromoted: (next: ArtifactRecord) => void;
+}) {
+  const [history, setHistory] = useState<ArtifactRecord[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [promoting, setPromoting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listArtifactHistory(projectId, artifact.artifact_type)
+      .then((items) => {
+        if (cancelled) return;
+        setHistory(items);
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, artifact.artifact_type]);
+
+  const sortedHistory = useMemo(
+    () => [...history].sort((a, b) => b.revision_number - a.revision_number),
+    [history]
+  );
+  const latestRevision = sortedHistory[0]?.revision_number ?? artifact.revision_number;
+  const isLatest = artifact.revision_number === latestRevision;
+  const canPromote = !isLatest && artifact.status === 'generated';
+
+  const handleSelect = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextId = event.target.value;
+    const next = history.find((item) => item.id === nextId);
+    if (next) onSelectRevision(next);
+  };
+
+  const handlePromote = async () => {
+    setPromoting(true);
+    setError(null);
+    try {
+      const promoted = await promoteArtifact(projectId, artifact.id);
+      onPromoted(promoted);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setPromoting(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-line bg-parchment/40 px-6 py-3 text-xs">
+      <History className="h-3.5 w-3.5 text-muted" aria-hidden="true" />
+      <span className="text-muted">版本</span>
+      <select
+        value={artifact.id}
+        onChange={handleSelect}
+        disabled={loading || sortedHistory.length === 0}
+        className="rounded-md border border-line bg-ivory px-2 py-1 text-xs text-ink disabled:cursor-not-allowed"
+      >
+        {sortedHistory.length === 0 ? (
+          <option value={artifact.id}>v{artifact.revision_number}（当前）</option>
+        ) : (
+          sortedHistory.map((item) => (
+            <option key={item.id} value={item.id}>
+              {`v${item.revision_number} · ${getArtifactStatusLabel(item.status)}${
+                item.updated_at ? ` · ${compactRelativeTime(item.updated_at)}` : ''
+              }`}
+            </option>
+          ))
+        )}
+      </select>
+      {loading ? <span className="text-muted">加载历史中…</span> : null}
+      {!isLatest ? (
+        <span className="rounded-full border border-[#e6cfbf] bg-[#f4e3d2] px-2 py-0.5 text-[#7a4520]">
+          查看历史版本（只读）
+        </span>
+      ) : null}
+      {canPromote ? (
+        <Button
+          variant="secondary"
+          size="sm"
+          className="ml-auto h-7 px-2 text-xs"
+          onClick={handlePromote}
+          disabled={promoting}
+        >
+          {promoting ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : <RotateCcw className="mr-1 h-3 w-3" />}
+          设为当前最新
+        </Button>
+      ) : null}
+      {error ? <span className="ml-auto text-[#a94422]">{error}</span> : null}
+    </div>
+  );
+}
+
 function actionEventTone(kind: MessageActionEvent['kind']) {
   if (kind === 'artifact') {
     return 'border-[#e6cfbf] bg-[#f4e3d2] text-[#7a4520]';
@@ -1405,7 +1521,17 @@ export function WorkbenchPage({
   onReindexSource,
   onRequestSourceContent,
   onInitializeKnowledgeBase,
+  onArtifactsChanged,
 }: WorkbenchPageProps) {
+  const refreshArtifacts = async () => {
+    if (!onArtifactsChanged) return;
+    try {
+      const updated = await listArtifacts(project.id);
+      onArtifactsChanged(updated);
+    } catch {
+      // 静默：刷新失败不阻断 dialog 中的版本切换体验。
+    }
+  };
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
@@ -2124,11 +2250,25 @@ export function WorkbenchPage({
           <DialogContent className="w-[min(1320px,94vw)] max-w-none p-0">
             <div className="flex h-[82vh] flex-col">
               <DialogHeader className="border-b border-line px-6 py-5">
-                <DialogTitle>{activeArtifact.title}</DialogTitle>
+                <DialogTitle>
+                  {activeArtifact.title}
+                  <span className="ml-2 text-xs font-normal text-muted">
+                    v{activeArtifact.revision_number}
+                  </span>
+                </DialogTitle>
                 <DialogDescription>
                   {`${getArtifactDisplayLabel(activeArtifact)} · ${activeArtifact.summary}`}
                 </DialogDescription>
               </DialogHeader>
+              <ArtifactVersionSwitcher
+                projectId={project.id}
+                artifact={activeArtifact}
+                onSelectRevision={setActiveArtifact}
+                onPromoted={(next) => {
+                  setActiveArtifact(next);
+                  void refreshArtifacts();
+                }}
+              />
               <div className="min-h-0 flex-1 bg-sand">
                 {activeArtifact.preview_url && activeArtifact.content_format === 'image' ? (
                   <div className="flex h-full items-center justify-center bg-sand p-6">
@@ -2156,11 +2296,25 @@ export function WorkbenchPage({
           <DialogContent className="left-auto right-4 top-4 flex h-[calc(100vh-2rem)] w-[520px] max-w-none translate-x-0 translate-y-0 flex-col gap-0 p-0 data-[state=open]:animate-none">
             <div className="flex min-h-0 flex-1 flex-col">
               <DialogHeader className="border-b border-line px-6 py-5">
-                <DialogTitle>{activeDocument.title}</DialogTitle>
+                <DialogTitle>
+                  {activeDocument.title}
+                  <span className="ml-2 text-xs font-normal text-muted">
+                    v{activeDocument.revision_number}
+                  </span>
+                </DialogTitle>
                 <DialogDescription>
                   {`${getArtifactDisplayLabel(activeDocument)} · ${activeDocument.summary}`}
                 </DialogDescription>
               </DialogHeader>
+              <ArtifactVersionSwitcher
+                projectId={project.id}
+                artifact={activeDocument}
+                onSelectRevision={setActiveDocument}
+                onPromoted={(next) => {
+                  setActiveDocument(next);
+                  void refreshArtifacts();
+                }}
+              />
               <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
                 {activeDocument.body ? (
                   activeDocument.content_format === 'markdown' ? (

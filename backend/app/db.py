@@ -27,6 +27,7 @@ MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
     },
     "demo_artifacts": {
         "body": "ALTER TABLE demo_artifacts ADD COLUMN body TEXT",
+        "revision_number": "ALTER TABLE demo_artifacts ADD COLUMN revision_number INTEGER NOT NULL DEFAULT 1",
     },
 }
 
@@ -348,6 +349,31 @@ def _apply_column_migrations(connection: sqlite3.Connection) -> None:
                 connection.execute(statement)
 
 
+def _backfill_artifact_revision_numbers(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "demo_artifacts"):
+        return
+
+    rows = connection.execute(
+        """
+        SELECT id, project_id, artifact_type, revision_number
+        FROM demo_artifacts
+        ORDER BY project_id, artifact_type, datetime(created_at) ASC, id ASC
+        """
+    ).fetchall()
+
+    counters: dict[tuple[str, str], int] = {}
+    for row in rows:
+        key = (row["project_id"], row["artifact_type"])
+        counters[key] = counters.get(key, 0) + 1
+        expected = counters[key]
+        # 老库已有行迁移上来时 revision_number 默认全是 1，需要按 created_at 重排成 1..N。
+        if row["revision_number"] != expected:
+            connection.execute(
+                "UPDATE demo_artifacts SET revision_number = ? WHERE id = ?",
+                (expected, row["id"]),
+            )
+
+
 def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
     settings.sqlite_dir.mkdir(parents=True, exist_ok=True)
     settings.projects_dir.mkdir(parents=True, exist_ok=True)
@@ -358,10 +384,14 @@ def init_db(settings: AppSettings = DEFAULT_SETTINGS) -> None:
         connection.execute("PRAGMA foreign_keys = ON")
         _migrate_sources_table(connection)
         _migrate_source_chunks_table(connection)
+        # 在跑 schema.sql 之前先补齐已知 ADD COLUMN，避免 schema.sql 内的 CREATE INDEX
+        # 引用到尚未存在的列（例如 demo_artifacts.revision_number）。
+        _apply_column_migrations(connection)
         schema_path = Path(__file__).with_name("schema.sql")
         connection.executescript(schema_path.read_text(encoding="utf-8"))
         _ensure_source_chunks_schema(connection)
         _apply_column_migrations(connection)
+        _backfill_artifact_revision_numbers(connection)
         connection.commit()
     finally:
         connection.close()

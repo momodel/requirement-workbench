@@ -1173,80 +1173,12 @@ class ProjectCatalog:
                     (summary, timestamp, row["id"], project_id),
                 )
 
-    def list_artifacts(self, project_id: str) -> list[ArtifactRecord]:
-        self.mark_stale_generating_artifacts_failed(project_id)
-        with connection_scope(self.settings) as connection:
-            rows = connection.execute(
-                """
-                SELECT id, project_id, artifact_type, title, summary, status, content_format,
-                       storage_path, body, updated_at
-                FROM demo_artifacts
-                WHERE project_id = ?
-                ORDER BY datetime(updated_at) DESC
-                """,
-                (project_id,),
-            ).fetchall()
-        records: list[ArtifactRecord] = []
-        for row in rows:
-            preview_url = None
-            if row["storage_path"] and row["content_format"] in {"html", "image"}:
-                preview_url = f"/api/projects/{project_id}/artifacts/{row['id']}/preview"
-
-            records.append(
-                ArtifactRecord(
-                    id=row["id"],
-                    project_id=row["project_id"],
-                    artifact_type=row["artifact_type"],
-                    title=row["title"],
-                    summary=row["summary"],
-                    status=row["status"],
-                    content_format=row["content_format"],
-                    storage_path=row["storage_path"],
-                    preview_url=preview_url,
-                    body=row["body"],
-                    updated_at=row["updated_at"],
-                )
-            )
-        return records
-
-    def get_artifact(self, project_id: str, artifact_id: str) -> ArtifactRecord | None:
-        for artifact in self.list_artifacts(project_id):
-            if artifact.id == artifact_id:
-                return artifact
-        return None
-
-    def get_latest_artifact_with_metadata(
-        self,
-        project_id: str,
-        artifact_type: str,
-    ) -> tuple[ArtifactRecord, dict] | None:
-        with connection_scope(self.settings) as connection:
-            row = connection.execute(
-                """
-                SELECT id, project_id, artifact_type, title, summary, status, content_format,
-                       storage_path, metadata_json, body, updated_at
-                FROM demo_artifacts
-                WHERE project_id = ? AND artifact_type = ? AND status = 'generated'
-                ORDER BY datetime(updated_at) DESC
-                LIMIT 1
-                """,
-                (project_id, artifact_type),
-            ).fetchone()
-
-        if not row:
-            return None
-
+    def _row_to_artifact(self, project_id: str, row) -> ArtifactRecord:
         preview_url = None
         if row["storage_path"] and row["content_format"] in {"html", "image"}:
             preview_url = f"/api/projects/{project_id}/artifacts/{row['id']}/preview"
 
-        metadata_json = row["metadata_json"] or "{}"
-        try:
-            metadata = json.loads(metadata_json)
-        except json.JSONDecodeError:
-            metadata = {}
-
-        artifact = ArtifactRecord(
+        return ArtifactRecord(
             id=row["id"],
             project_id=row["project_id"],
             artifact_type=row["artifact_type"],
@@ -1257,11 +1189,171 @@ class ProjectCatalog:
             storage_path=row["storage_path"],
             preview_url=preview_url,
             body=row["body"],
+            revision_number=row["revision_number"] if "revision_number" in row.keys() else 1,
             updated_at=row["updated_at"],
         )
-        return artifact, metadata
 
-    def save_artifact(
+    def list_artifacts(
+        self,
+        project_id: str,
+        *,
+        include_history: bool = False,
+    ) -> list[ArtifactRecord]:
+        self.mark_stale_generating_artifacts_failed(project_id)
+        with connection_scope(self.settings) as connection:
+            if include_history:
+                rows = connection.execute(
+                    """
+                    SELECT id, project_id, artifact_type, title, summary, status, content_format,
+                           storage_path, body, revision_number, updated_at
+                    FROM demo_artifacts
+                    WHERE project_id = ?
+                    ORDER BY artifact_type ASC, revision_number ASC
+                    """,
+                    (project_id,),
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    """
+                    SELECT a.id, a.project_id, a.artifact_type, a.title, a.summary, a.status,
+                           a.content_format, a.storage_path, a.body, a.revision_number, a.updated_at
+                    FROM demo_artifacts a
+                    INNER JOIN (
+                        SELECT artifact_type, MAX(revision_number) AS max_rev
+                        FROM demo_artifacts
+                        WHERE project_id = ?
+                        GROUP BY artifact_type
+                    ) latest
+                      ON latest.artifact_type = a.artifact_type
+                     AND latest.max_rev = a.revision_number
+                    WHERE a.project_id = ?
+                    ORDER BY datetime(a.updated_at) DESC
+                    """,
+                    (project_id, project_id),
+                ).fetchall()
+        return [self._row_to_artifact(project_id, row) for row in rows]
+
+    def list_artifact_history(
+        self,
+        project_id: str,
+        artifact_type: str,
+    ) -> list[ArtifactRecord]:
+        self.mark_stale_generating_artifacts_failed(project_id)
+        with connection_scope(self.settings) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, artifact_type, title, summary, status, content_format,
+                       storage_path, body, revision_number, updated_at
+                FROM demo_artifacts
+                WHERE project_id = ? AND artifact_type = ?
+                ORDER BY revision_number ASC
+                """,
+                (project_id, artifact_type),
+            ).fetchall()
+        return [self._row_to_artifact(project_id, row) for row in rows]
+
+    def get_artifact(self, project_id: str, artifact_id: str) -> ArtifactRecord | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, artifact_type, title, summary, status, content_format,
+                       storage_path, body, revision_number, updated_at
+                FROM demo_artifacts
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, artifact_id),
+            ).fetchone()
+        return self._row_to_artifact(project_id, row) if row else None
+
+    def get_latest_artifact_with_metadata(
+        self,
+        project_id: str,
+        artifact_type: str,
+    ) -> tuple[ArtifactRecord, dict] | None:
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, artifact_type, title, summary, status, content_format,
+                       storage_path, metadata_json, body, revision_number, updated_at
+                FROM demo_artifacts
+                WHERE project_id = ? AND artifact_type = ? AND status = 'generated'
+                ORDER BY revision_number DESC
+                LIMIT 1
+                """,
+                (project_id, artifact_type),
+            ).fetchone()
+
+        if not row:
+            return None
+
+        metadata_json = row["metadata_json"] or "{}"
+        try:
+            metadata = json.loads(metadata_json)
+        except json.JSONDecodeError:
+            metadata = {}
+
+        return self._row_to_artifact(project_id, row), metadata
+
+    def _next_artifact_revision(
+        self,
+        connection,
+        *,
+        project_id: str,
+        artifact_type: str,
+    ) -> int:
+        row = connection.execute(
+            """
+            SELECT COALESCE(MAX(revision_number), 0) AS max_rev
+            FROM demo_artifacts
+            WHERE project_id = ? AND artifact_type = ?
+            """,
+            (project_id, artifact_type),
+        ).fetchone()
+        return int(row["max_rev"] or 0) + 1
+
+    def _replace_artifact_state_item(
+        self,
+        connection,
+        *,
+        project_id: str,
+        artifact_type: str,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        timestamp: str,
+    ) -> None:
+        # 工作台「交付物」分区里每个 artifact_type 只对应一条 state_item，指向最新 revision。
+        connection.execute(
+            """
+            DELETE FROM state_items
+            WHERE project_id = ? AND category = 'artifacts'
+              AND id IN (
+                SELECT id FROM demo_artifacts
+                WHERE project_id = ? AND artifact_type = ?
+              )
+              AND id <> ?
+            """,
+            (project_id, project_id, artifact_type, artifact_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO state_items (id, project_id, category, title, body, status, source_ids_json, updated_at)
+            VALUES (?, ?, 'artifacts', ?, ?, 'active', '[]', ?)
+            ON CONFLICT(id) DO UPDATE SET
+              title = excluded.title,
+              body = excluded.body,
+              updated_at = excluded.updated_at
+            """,
+            (
+                artifact_id,
+                project_id,
+                title,
+                summary,
+                timestamp,
+            ),
+        )
+
+    def create_artifact_revision(
         self,
         *,
         project_id: str,
@@ -1278,22 +1370,18 @@ class ProjectCatalog:
         record_id = artifact_id or f"artifact-{uuid.uuid4().hex[:10]}"
         timestamp = now_iso(self.settings)
         with connection_scope(self.settings) as connection:
+            revision_number = self._next_artifact_revision(
+                connection,
+                project_id=project_id,
+                artifact_type=artifact_type,
+            )
             connection.execute(
                 """
                 INSERT INTO demo_artifacts (
                   id, project_id, artifact_type, title, summary, status, content_format,
-                  storage_path, metadata_json, body, created_at, updated_at
+                  storage_path, metadata_json, body, revision_number, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  title = excluded.title,
-                  summary = excluded.summary,
-                  status = excluded.status,
-                  content_format = excluded.content_format,
-                  storage_path = excluded.storage_path,
-                  metadata_json = excluded.metadata_json,
-                  body = excluded.body,
-                  updated_at = excluded.updated_at
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record_id,
@@ -1306,26 +1394,19 @@ class ProjectCatalog:
                     storage_path,
                     json.dumps(metadata or {}, ensure_ascii=False),
                     body,
+                    revision_number,
                     timestamp,
                     timestamp,
                 ),
             )
-            connection.execute(
-                """
-                INSERT INTO state_items (id, project_id, category, title, body, status, source_ids_json, updated_at)
-                VALUES (?, ?, 'artifacts', ?, ?, 'active', '[]', ?)
-                ON CONFLICT(id) DO UPDATE SET
-                  title = excluded.title,
-                  body = excluded.body,
-                  updated_at = excluded.updated_at
-                """,
-                (
-                    record_id,
-                    project_id,
-                    title,
-                    summary,
-                    timestamp,
-                ),
+            self._replace_artifact_state_item(
+                connection,
+                project_id=project_id,
+                artifact_type=artifact_type,
+                artifact_id=record_id,
+                title=title,
+                summary=summary,
+                timestamp=timestamp,
             )
             connection.execute(
                 "UPDATE projects SET updated_at = ? WHERE id = ?",
@@ -1345,5 +1426,167 @@ class ProjectCatalog:
             storage_path=storage_path,
             preview_url=preview_url,
             body=body,
+            revision_number=revision_number,
             updated_at=timestamp,
+        )
+
+    def update_artifact(
+        self,
+        *,
+        project_id: str,
+        artifact_id: str,
+        title: str,
+        summary: str,
+        status: str,
+        content_format: str,
+        storage_path: str | None,
+        body: str | None,
+        metadata: dict | None = None,
+    ) -> ArtifactRecord:
+        timestamp = now_iso(self.settings)
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                """
+                SELECT artifact_type, revision_number
+                FROM demo_artifacts
+                WHERE id = ? AND project_id = ?
+                """,
+                (artifact_id, project_id),
+            ).fetchone()
+            if not row:
+                raise LookupError("Artifact not found")
+            artifact_type = row["artifact_type"]
+
+            connection.execute(
+                """
+                UPDATE demo_artifacts
+                SET title = ?, summary = ?, status = ?, content_format = ?,
+                    storage_path = ?, metadata_json = ?, body = ?, updated_at = ?
+                WHERE id = ? AND project_id = ?
+                """,
+                (
+                    title,
+                    summary,
+                    status,
+                    content_format,
+                    storage_path,
+                    json.dumps(metadata or {}, ensure_ascii=False),
+                    body,
+                    timestamp,
+                    artifact_id,
+                    project_id,
+                ),
+            )
+            # update_artifact 只在「同一行翻状态」场景下使用（generating→generated/failed）。
+            # state_items 中该 artifact_type 的指向不变，但 title/summary 需同步刷新。
+            self._replace_artifact_state_item(
+                connection,
+                project_id=project_id,
+                artifact_type=artifact_type,
+                artifact_id=artifact_id,
+                title=title,
+                summary=summary,
+                timestamp=timestamp,
+            )
+            connection.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ?",
+                (timestamp, project_id),
+            )
+
+        updated = self.get_artifact(project_id, artifact_id)
+        if not updated:
+            raise LookupError("Artifact not found after update")
+        return updated
+
+    def promote_artifact_to_latest(
+        self,
+        *,
+        project_id: str,
+        artifact_id: str,
+    ) -> ArtifactRecord:
+        source = self.get_artifact(project_id, artifact_id)
+        if not source:
+            raise LookupError("Artifact not found")
+
+        new_storage_path: str | None = None
+        if source.storage_path:
+            origin = Path(source.storage_path)
+            if origin.exists():
+                target_dir = self.settings.projects_dir / project_id / "artifacts" / source.artifact_type
+                target_dir.mkdir(parents=True, exist_ok=True)
+                target = target_dir / f"index-promoted-{uuid.uuid4().hex[:8]}{origin.suffix or ''}"
+                shutil.copy2(origin, target)
+                new_storage_path = str(target)
+            else:
+                new_storage_path = source.storage_path
+
+        with connection_scope(self.settings) as connection:
+            row = connection.execute(
+                "SELECT metadata_json FROM demo_artifacts WHERE id = ? AND project_id = ?",
+                (artifact_id, project_id),
+            ).fetchone()
+        try:
+            metadata = json.loads(row["metadata_json"] or "{}") if row else {}
+        except json.JSONDecodeError:
+            metadata = {}
+        metadata = dict(metadata)
+        metadata["promoted_from"] = artifact_id
+        metadata["promoted_from_revision"] = source.revision_number
+
+        return self.create_artifact_revision(
+            project_id=project_id,
+            artifact_type=source.artifact_type,
+            title=source.title,
+            summary=source.summary,
+            status="generated",
+            content_format=source.content_format,
+            storage_path=new_storage_path,
+            body=source.body,
+            metadata=metadata,
+        )
+
+    def save_artifact(
+        self,
+        *,
+        project_id: str,
+        artifact_type: str,
+        title: str,
+        summary: str,
+        status: str,
+        content_format: str,
+        storage_path: str | None,
+        body: str | None,
+        metadata: dict | None = None,
+        artifact_id: str | None = None,
+    ) -> ArtifactRecord:
+        # 兼容旧调用：带 artifact_id 且记录已存在 → update；否则 → create_revision。
+        if artifact_id:
+            with connection_scope(self.settings) as connection:
+                existing = connection.execute(
+                    "SELECT 1 FROM demo_artifacts WHERE id = ? AND project_id = ?",
+                    (artifact_id, project_id),
+                ).fetchone()
+            if existing:
+                return self.update_artifact(
+                    project_id=project_id,
+                    artifact_id=artifact_id,
+                    title=title,
+                    summary=summary,
+                    status=status,
+                    content_format=content_format,
+                    storage_path=storage_path,
+                    body=body,
+                    metadata=metadata,
+                )
+        return self.create_artifact_revision(
+            project_id=project_id,
+            artifact_type=artifact_type,
+            title=title,
+            summary=summary,
+            status=status,
+            content_format=content_format,
+            storage_path=storage_path,
+            body=body,
+            metadata=metadata,
+            artifact_id=artifact_id,
         )
