@@ -19,8 +19,11 @@ from .routes.sources import router as sources_router
 from .routes.state import router as state_router
 from .routes.versions import router as versions_router
 from .routes.wiki import router as wiki_router
+import os
+
 from .services.agent_runtime import ClaudeAgentRuntime
 from .services.audio_ingestion_orchestrator import AudioIngestionOrchestrator
+from .services.mock_agent_runtime import MockAgentRuntime
 from .services.audio_transcription_service import AudioTranscriptionService
 from .services.artifact_generation import ArtifactGenerationService
 from .services.chat_service import ChatService
@@ -72,7 +75,16 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         audio_transcription=audio_transcription,
         evidence_runtime=evidence_runtime,
     )
-    agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
+    use_mock_agent = os.getenv("USE_MOCK_AGENT_RUNTIME", "0").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if use_mock_agent:
+        agent_runtime: AgentRuntime = MockAgentRuntime(settings)
+    else:
+        agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
     wiki_store = WikiStore(settings)
     wiki_maintainer = WikiMaintainer(
         settings,
