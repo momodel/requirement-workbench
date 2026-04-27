@@ -247,8 +247,8 @@ describe('App', () => {
     render(<App />);
 
     await user.click(await screen.findByRole('button', { name: '新建项目' }));
-    await user.type(screen.getByPlaceholderText('例如：集团业财逐笔对账需求分析'), '渠道对账需求分析');
-    await user.type(screen.getByPlaceholderText('例如：financial-reconciliation'), 'channel-reconciliation');
+    await user.type(screen.getByPlaceholderText('例如：智慧园区平台需求转译'), '渠道对账需求分析');
+    await user.type(screen.getByPlaceholderText('例如：smart-park-platform'), 'channel-reconciliation');
     await user.type(
       screen.getByPlaceholderText('用一句话说明这个项目想解决什么问题。'),
       '分析渠道业务与财务入账之间的逐笔核对需求。'

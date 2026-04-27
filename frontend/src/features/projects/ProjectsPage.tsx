@@ -156,7 +156,7 @@ export function ProjectsPage({
               <Input
                 value={projectName}
                 onChange={(event) => setProjectName(event.target.value)}
-                placeholder="例如：集团业财逐笔对账需求分析"
+                placeholder="例如：智慧园区平台需求转译"
               />
             </label>
             <label className="grid gap-1.5">
@@ -164,7 +164,7 @@ export function ProjectsPage({
               <Input
                 value={scenarioType}
                 onChange={(event) => setScenarioType(event.target.value)}
-                placeholder="例如：financial-reconciliation"
+                placeholder="例如：smart-park-platform"
               />
             </label>
             <label className="grid gap-1.5">
@@ -279,7 +279,7 @@ function HeroSection({
         <div className="flex flex-wrap gap-3 pt-2">
           <Button asChild size="lg">
             <Link to={`/projects/${SEED_PROJECT_ID}/workbench`}>
-              进入业财对账演示
+              进入演示
               <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
@@ -513,7 +513,7 @@ function MultimodalChatSection() {
           <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-stone">客户输入</div>
           <div className="mt-4 rounded-[14px] border border-borderWarm bg-parchment/60 p-4">
             <div className="text-[13px] leading-[1.6] text-charcoal">
-              "我们订单系统和财务系统对账，两边总有几毛钱差。下个月 PPT 要给老板看…"
+              "客户给我发了 5 份会议纪要、几个微信群截图、一份补充说明 PDF，让我下周给方向。我读得头都大了…"
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
               {MULTIMODAL_INPUTS.map((input) => {
@@ -614,7 +614,7 @@ function WorkbenchPreviewSection() {
         })}
       </div>
       <p className="text-center text-[13px] text-stone">
-        想直接看？跳到下面的 <span className="font-medium text-terracotta">业财对账 demo →</span>
+        想直接看？跳到下面的 <span className="font-medium text-terracotta">产品自我分析 demo →</span>
       </p>
     </section>
   );
@@ -755,7 +755,7 @@ function SedimentGridSection({
               </h3>
               <p className="mt-2 text-[13px] leading-[1.6] text-olive">{tile.desc}</p>
               <div className="mt-3 flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-stone">
-                <span>业财对账 seed</span>
+                <span>产品自我分析 seed</span>
                 <span className="font-mono text-[13px] normal-case tracking-normal text-charcoal">
                   {count ?? '—'} 条
                 </span>
@@ -914,9 +914,9 @@ function SeedFeaturedSection({
   if (!seedProject) {
     return (
       <section className="space-y-6">
-        <SectionHead overline="Seed Demo" title="业财对账 · 演示项目" />
+        <SectionHead overline="Seed Demo" title="产品自我分析 · 演示项目" />
         <div className="rounded-[20px] border border-dashed border-borderWarm bg-ivory/60 p-8 text-center text-[14px] leading-[1.6] text-stone">
-          演示数据加载中…后端 ready 后会自动展示业财对账 seed 项目。
+          演示数据加载中…后端 ready 后会自动展示产品自我分析 seed 项目。
         </div>
       </section>
     );
@@ -948,8 +948,8 @@ function SeedFeaturedSection({
     <section className="space-y-6">
       <SectionHead
         overline="Seed Demo"
-        title="一个真案子在跑：业财对账"
-        description="点进去就能看到沉淀总集、阶段 rail 和真实生成的交付物 —— 别只看截图。"
+        title="递归 demo：把产品当客户分析自己"
+        description="左侧资料就是这个产品最早的会议纪要 / 群聊 / 补充说明，中间是 agent 引导的 15 轮分析，右侧是 7 类沉淀与三件套交付物。"
       />
       <div className="overflow-hidden rounded-[24px] border border-borderCream bg-ivory shadow-whisper">
         <div className="grid gap-0 md:grid-cols-[1fr_auto]">
