@@ -193,6 +193,19 @@ export async function generateArtifact(
   });
 }
 
+export function listArtifactHistory(projectId: string, artifactType: string) {
+  return fetchJson<ArtifactRecord[]>(
+    `/api/projects/${projectId}/artifacts/by-type/${encodeURIComponent(artifactType)}/history`
+  );
+}
+
+export function promoteArtifact(projectId: string, artifactId: string) {
+  return fetchJson<ArtifactRecord>(
+    `/api/projects/${projectId}/artifacts/${artifactId}/promote`,
+    { method: 'POST' }
+  );
+}
+
 function parseEventBlock(block: string) {
   const lines = block.split('\n');
   const event = lines.find((line) => line.startsWith('event: '))?.slice(7).trim();

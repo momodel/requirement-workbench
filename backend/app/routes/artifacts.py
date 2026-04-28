@@ -70,6 +70,46 @@ async def generate_artifact(
         ) from exc
 
 
+@router.get("/by-type/{artifact_type}/history", response_model=list[ArtifactRecord])
+def list_artifact_history(
+    project_id: str,
+    artifact_type: str,
+    request: Request,
+) -> list[ArtifactRecord]:
+    project = request.app.state.services.catalog.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return [
+        with_public_preview_url(artifact, request)
+        for artifact in request.app.state.services.catalog.list_artifact_history(
+            project_id, artifact_type
+        )
+    ]
+
+
+@router.post("/{artifact_id}/promote", response_model=ArtifactRecord)
+def promote_artifact(project_id: str, artifact_id: str, request: Request) -> ArtifactRecord:
+    services = request.app.state.services
+    project = services.catalog.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    try:
+        new_artifact = services.catalog.promote_artifact_to_latest(
+            project_id=project_id,
+            artifact_id=artifact_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    services.project_state.create_version(
+        project_id=project_id,
+        trigger_kind="artifact_promoted",
+        summary=f"已将历史版本设为当前最新：{new_artifact.title}（v{new_artifact.revision_number}）",
+    )
+    return with_public_preview_url(new_artifact, request)
+
+
 @router.get("/{artifact_id}/preview")
 def preview_artifact(project_id: str, artifact_id: str, request: Request):
     artifact = request.app.state.services.catalog.get_artifact(project_id, artifact_id)

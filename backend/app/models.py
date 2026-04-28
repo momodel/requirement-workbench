@@ -230,6 +230,7 @@ class ArtifactRecord(BaseModel):
     storage_path: str | None = None
     preview_url: str | None = None
     body: str | None = None
+    revision_number: int = 1
     updated_at: str
 
 

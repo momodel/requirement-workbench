@@ -187,6 +187,7 @@ export type ArtifactRecord = {
   storage_path: string | null;
   preview_url: string | null;
   body: string | null;
+  revision_number: number;
   updated_at: string;
 };
 

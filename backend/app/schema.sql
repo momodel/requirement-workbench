@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS demo_artifacts (
   storage_path TEXT,
   metadata_json TEXT,
   body TEXT,
+  revision_number INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -125,6 +126,7 @@ CREATE INDEX IF NOT EXISTS idx_state_items_project_id ON state_items(project_id)
 CREATE INDEX IF NOT EXISTS idx_state_items_category ON state_items(category);
 CREATE INDEX IF NOT EXISTS idx_versions_project_id ON version_snapshots(project_id);
 CREATE INDEX IF NOT EXISTS idx_artifacts_project_id ON demo_artifacts(project_id);
+CREATE INDEX IF NOT EXISTS idx_artifacts_project_type_rev ON demo_artifacts(project_id, artifact_type, revision_number);
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_project_id ON knowledge_bases(project_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_bases_status ON knowledge_bases(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_bases_project_provider ON knowledge_bases(project_id, provider);

@@ -142,6 +142,7 @@ describe('workbench-derived', () => {
         storage_path: '/tmp/page-v2.html',
         preview_url: '/preview/page-v2',
         body: null,
+        revision_number: 2,
         updated_at: '2026-04-20T18:15:00+08:00',
       },
     ];
