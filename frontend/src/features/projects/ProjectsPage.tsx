@@ -7,25 +7,26 @@ import {
   FileText,
   FolderKanban,
   GitBranch,
-  GitCompareArrows,
+  HelpCircle,
   Image as ImageIcon,
   Layers,
   Link2,
   ListChecks,
   Loader2,
+  MessageSquare,
   Mic,
   MousePointerClick,
-  Notebook,
+  Package,
   Paperclip,
   Plus,
-  ScrollText,
   Send,
-  ShieldCheck,
+  ShieldAlert,
   Smartphone,
   Sparkles,
+  Users,
   Workflow,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { Badge } from '../../components/ui/badge';
@@ -46,7 +47,6 @@ import type {
   GlobalReadiness,
   ProjectState,
   ProjectSummary,
-  ProviderReadiness,
 } from '../../lib/types';
 import {
   WORKBENCH_STAGE_LABELS,
@@ -112,13 +112,11 @@ export function ProjectsPage({
           onOpenCreateDialog={() => setIsCreateDialogOpen(true)}
         />
 
-        <SkillStackSection />
-
-        <KnowledgeArchitectureSection />
-
-        <MultimodalChatSection />
+        <PainPointsSection />
 
         <WorkbenchPreviewSection />
+
+        <MultimodalChatSection />
 
         <StageRailSection seedState={seedState} />
 
@@ -126,13 +124,13 @@ export function ProjectsPage({
 
         <ArtifactPipelineSection />
 
-        <MobileVoiceSection />
-
         <SeedFeaturedSection
           seedProject={seedProject}
           seedState={seedState}
           seedArtifacts={seedArtifacts}
         />
+
+        <ArchitectureSection />
 
         <ProjectListSection
           projects={projects}
@@ -246,46 +244,100 @@ function ReadyPill({ label, status }: { label: string; status: string }) {
 }
 
 function HeroSection({
-  readiness,
-  onOpenCreateDialog,
+  readiness: _readiness,
+  onOpenCreateDialog: _onOpenCreateDialog,
 }: {
   readiness: GlobalReadiness | null;
   onOpenCreateDialog: () => void;
 }) {
+  const heroRef = useRef<HTMLElement>(null);
+  const [parallaxY, setParallaxY] = useState(0);
+  const [tilt, setTilt] = useState<{ x: number; y: number; engaged: boolean }>({ x: 0, y: 0, engaged: false });
+  const reducedMotionRef = useRef(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    reducedMotionRef.current = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotionRef.current) return;
+
+    const heroEl = heroRef.current;
+    if (!heroEl) return;
+
+    let visible = true;
+    let rafId: number | null = null;
+
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        visible = entry.isIntersecting;
+      },
+      { threshold: 0 }
+    );
+    io.observe(heroEl);
+
+    const update = () => {
+      rafId = null;
+      if (!visible) return;
+      // Cap displacement at 16px so the screenshot drifts up subtly only.
+      const next = Math.max(-16, window.scrollY * -0.08);
+      setParallaxY(next);
+    };
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    update();
+
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      io.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (reducedMotionRef.current) return;
+    if (event.pointerType === 'touch') return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const px = (event.clientX - rect.left) / rect.width - 0.5;
+    const py = (event.clientY - rect.top) / rect.height - 0.5;
+    // Up to ±3 degrees, inverted on X so cursor toward top tips card forward.
+    setTilt({ x: -py * 6, y: px * 6, engaged: true });
+  };
+
+  const handlePointerLeave = () => {
+    setTilt({ x: 0, y: 0, engaged: false });
+  };
+
+  const cardStyle: React.CSSProperties = {
+    transform: `perspective(1200px) translateY(${parallaxY}px) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+    transition: tilt.engaged ? 'transform 120ms ease-out' : 'transform 500ms ease-out',
+  };
+
   return (
-    <section className="grid gap-10 md:grid-cols-[1.55fr_0.85fr] md:items-end">
-      <div className="space-y-6">
-        <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.22em] text-stone">
+    <section ref={heroRef} className="grid gap-12 md:grid-cols-[1.1fr_1fr] md:items-center">
+      <div className="space-y-7">
+        <div className="inline-flex items-center gap-2 rounded-full border border-borderWarm bg-parchment/60 px-3 py-1 text-[11px] font-medium tracking-[0.16em] text-charcoal">
           <Sparkles className="h-3.5 w-3.5 text-terracotta" />
-          Fullstack Phase 1
+          AI 需求分析工作台
         </div>
-        <h1 className="font-display text-balance text-[3rem] font-medium leading-[1.05] tracking-tightish text-nearBlack md:text-[3.75rem]">
-          客户需求转译台
+        <h1 className="font-display text-balance text-[2.6rem] font-medium leading-[1.08] tracking-tightish text-nearBlack md:text-[3.4rem]">
+          把模糊诉求，转成
+          <span className="text-terracotta">可追溯、可确认、可交付</span>
+          的需求结论
         </h1>
-        <p className="max-w-2xl text-[1.05rem] leading-[1.65] text-olive md:text-[1.15rem]">
-          把模糊诉求讲清楚 ·
-          <span className="px-1 text-nearBlack">方法论 + 智能体 + 多模态对话</span>
-          的需求分析工作台。
+        <p className="max-w-xl text-[1.02rem] leading-[1.7] text-olive md:text-[1.1rem]">
+          面向产品经理、需求分析师、售前 ——
+          导入散乱的客户资料（纪要 / PDF / 截图 / 群聊），
+          通过和 AI 持续对话，让客户那句"我们想做个系统"
+          变成工程团队能直接接的需求结论。
         </p>
-        <div className="flex flex-wrap gap-2">
-          {readiness?.claude ? (
-            <ReadyPill label="Claude Agent SDK" status={readiness.claude.status} />
-          ) : null}
-          {evidenceReadiness(readiness) ? (
-            <ReadyPill label="项目知识库 RAG" status={evidenceReadiness(readiness)!.status} />
-          ) : null}
-          <ReadyPill label="LLM Wiki" status="ready" />
-        </div>
-        <div className="flex flex-wrap gap-3 pt-2">
+        <div className="flex flex-wrap gap-3 pt-1">
           <Button asChild size="lg">
-            <Link to={`/projects/${SEED_PROJECT_ID}/workbench`}>
-              进入演示
+            <a href="#seed-demo">
+              进入演示工作台
               <ArrowRight className="h-4 w-4" />
-            </Link>
-          </Button>
-          <Button variant="secondary" size="lg" onClick={onOpenCreateDialog}>
-            <Plus className="h-4 w-4" />
-            新建项目
+            </a>
           </Button>
           <Button asChild variant="ghost" size="lg">
             <a href="#project-list">
@@ -296,199 +348,303 @@ function HeroSection({
         </div>
       </div>
 
-      <aside className="rounded-[18px] border border-borderCream bg-ivory p-6 shadow-whisper">
-        <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.18em] text-stone">方法论金句</div>
-        <blockquote className="font-display text-[1.35rem] italic leading-[1.45] text-nearBlack">
-          "分析优先，生成其次；
-          <br />
-          AI 起草，人确认排版。"
-        </blockquote>
-        <div className="mt-4 flex items-center gap-2 text-[12px] text-stone">
-          <ScrollText className="h-3.5 w-3.5" />
-          backend/.claude/skills/requirement-analysis-methodology
+      <div className="relative" style={{ perspective: '1200px' }}>
+        <div className="absolute -inset-2 rounded-[24px] bg-accentSoft/40 blur-2xl" aria-hidden />
+        <div
+          className="relative overflow-hidden rounded-[18px] border border-borderCream bg-ivory shadow-[0_30px_70px_-32px_rgba(20,20,19,0.28)] will-change-transform"
+          style={cardStyle}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
+        >
+          <img
+            src="/images/landing/workbench-overview.png"
+            alt="客户需求转译台 · 三栏工作台总览：左侧资料区、中间 AI 对话、右侧沉淀总集"
+            className="block w-full"
+            loading="eager"
+            draggable={false}
+          />
         </div>
-      </aside>
+        <div className="mt-3 flex items-center justify-center gap-2 text-[11px] uppercase tracking-[0.18em] text-stone">
+          <span className="h-px w-6 bg-borderWarm" aria-hidden />
+          真实工作台 · 资料 / 对话 / 沉淀 同步推进
+        </div>
+      </div>
     </section>
   );
 }
 
-const SKILL_CARDS = [
+const PAIN_INPUTS = [
+  { icon: MessageSquare, title: '一句话诉求', desc: '"我们想做个对账系统"——除此之外什么都没说' },
+  { icon: FileText, title: '零散资料', desc: '会议纪要、PDF、表格、群聊截图，混在一起发过来' },
+  { icon: Users, title: '多方口径', desc: '业务、财务、技术对同一个事的理解都不太一样' },
+  { icon: MousePointerClick, title: '临时想法', desc: '突然想加的页面、报表、自动化，散落在不同对话里' },
+] as const;
+
+const PAIN_CONSEQUENCES = [
+  { icon: HelpCircle, title: '结论不可追溯', desc: '评审会被反复追问"这个结论从哪儿来的"' },
+  { icon: Layers, title: '范围说不清', desc: '一期必做和未来想法混成一团，工程没法估时' },
+  { icon: MousePointerClick, title: '设计难落地', desc: '页面目标和交互边界都模糊，UI 反复返工' },
+  { icon: Package, title: '方案难交付', desc: '售前讲得清，工程团队接到手却落不下去' },
+  { icon: ShieldAlert, title: 'AI 输出没证据', desc: '答案完整但没引用，没人敢直接用' },
+] as const;
+
+function PainPointsSection() {
+  return (
+    <section className="space-y-10">
+      <SectionHead
+        overline="为什么需要它"
+        title="客户从来不直接给你 PRD"
+        description="需求分析真正难的地方，不是写文档——是把一句话和一堆散资料，转译成所有人都认账的结论。"
+        align="center"
+      />
+      <div className="grid gap-5 md:grid-cols-2">
+        <div className="rounded-[20px] border border-borderCream bg-ivory p-6 shadow-whisper">
+          <h3 className="flex items-center gap-2 text-[15px] font-medium text-terracotta">
+            <span className="font-display text-[1.6rem] leading-none">"</span>
+            客户给的，其实长这样
+          </h3>
+          <div className="mt-5 space-y-4">
+            {PAIN_INPUTS.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.title} className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-accentSoft">
+                    <Icon className="h-4 w-4 text-terracotta" />
+                  </span>
+                  <div>
+                    <div className="text-[14px] font-medium text-nearBlack">{item.title}</div>
+                    <p className="mt-0.5 text-[13px] leading-[1.6] text-olive">{item.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-[20px] border border-borderCream bg-ivory p-6 shadow-whisper">
+          <h3 className="text-[15px] font-medium text-[#a14834]">
+            如果不被结构化，会发生什么
+          </h3>
+          <div className="mt-5 space-y-4">
+            {PAIN_CONSEQUENCES.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.title} className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#fbeeec]">
+                    <Icon className="h-4 w-4 text-[#a14834]" />
+                  </span>
+                  <div>
+                    <div className="text-[14px] font-medium text-nearBlack">{item.title}</div>
+                    <p className="mt-0.5 text-[13px] leading-[1.6] text-olive">{item.desc}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const ARCHITECTURE_LAYERS = [
   {
-    file: 'requirement-analysis-methodology',
-    title: '需求分析方法论',
-    badge: 'method skill',
-    icon: ListChecks,
-    bullets: ['5 阶段推进', '7 类沉淀分桶', 'revisit 触发条件'],
+    num: '01',
+    icon: FileText,
+    title: '资料层',
+    modules: ['文本粘贴', '文件上传（PDF / DOCX / XLSX / MD）', '截图与图片 OCR', '链接导入', '语音转写（实时）'],
   },
   {
-    file: 'rag-evidence-workflow',
-    title: 'RAG 证据工作流',
-    badge: 'evidence skill',
-    icon: ShieldCheck,
-    bullets: ['source 入库摘要', 'grounding 检索', 'citation 强约束'],
+    num: '02',
+    icon: FolderKanban,
+    title: '证据层',
+    modules: ['解析与标准化', '向量化检索', '引用追溯', '项目级隔离', '增量索引'],
   },
   {
-    file: 'artifact-generation-guidelines',
-    title: '交付物生成指南',
-    badge: 'artifact skill',
+    num: '03',
+    icon: Brain,
+    title: '智能分析层',
+    modules: ['主智能体', '覆盖度检查', 'job-to-be-done 追问', '流程重建', '冲突识别', 'MVP 收敛'],
+  },
+  {
+    num: '04',
     icon: Layers,
-    bullets: ['document / page_solution / interaction_flow', '何时生成 · 何时拒绝', 'grounded-only 输出'],
+    title: '状态沉淀层',
+    modules: ['当前理解', '待确认项', '已确认项', '冲突项', 'MVP 方向', '版本快照'],
+  },
+  {
+    num: '05',
+    icon: Send,
+    title: '交付物层',
+    modules: ['需求文档', '页面方案', '可点击交互稿', '生成预览与回滚'],
   },
 ] as const;
 
-const METHOD_STACK = [
+const ARCHITECTURE_MECHANISMS = [
   {
-    name: 'BABOK',
-    role: '覆盖度检查',
-    desc: 'goals · stakeholders · process · rules · constraints · acceptance —— 缺一项就丢进 pending。',
+    icon: GitBranch,
+    title: '可追溯',
+    desc: '每一条结论都能回到原始资料。',
   },
   {
-    name: 'JTBD',
-    role: '诉求 truth-test',
-    desc: '"做个看板"、"自动化一下" —— 这种模糊话背后到底想完成什么 job。',
+    icon: CheckCircle2,
+    title: '可确认',
+    desc: '关键项主动追问，推动客户拍板。',
   },
   {
-    name: 'Event Storming',
-    role: '流程重建',
-    desc: '业务事件 · 上下游 · handoff · exception path —— 抓出"问题其实是流程错位"。',
+    icon: Package,
+    title: '可交付',
+    desc: '从理解到 HTML demo，一次生成。',
   },
 ] as const;
 
-function SkillStackSection() {
+// Maps each layer index → which mechanism it activates.
+// 01 资料层 / 02 证据层 → 可追溯；03 分析 / 04 沉淀 → 可确认；05 交付物 → 可交付。
+const LAYER_TO_MECHANISM = [0, 0, 1, 1, 2] as const;
+
+function ArchitectureSection() {
+  const layerRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const [activeLayerIdx, setActiveLayerIdx] = useState(0);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const els = layerRefs.current.filter((el): el is HTMLDivElement => el !== null);
+    if (els.length === 0) return;
+
+    let rafId: number | null = null;
+    const update = () => {
+      rafId = null;
+      const targetY = window.innerHeight * 0.4;
+      let bestIdx = 0;
+      let bestDistance = Infinity;
+      let anyEligible = false;
+      for (let i = 0; i < els.length; i += 1) {
+        const top = els[i].getBoundingClientRect().top;
+        if (top <= targetY) {
+          const distance = targetY - top;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestIdx = i;
+            anyEligible = true;
+          }
+        }
+      }
+      if (anyEligible) setActiveLayerIdx(bestIdx);
+    };
+    const onScroll = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(update);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    update();
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  const activeMechanismIdx = LAYER_TO_MECHANISM[activeLayerIdx] ?? 0;
+
   return (
-    <section className="space-y-8">
+    <section className="space-y-10">
       <SectionHead
-        overline="智能体内核"
-        title="把方法论写进智能体"
-        description="三份 Claude Skill 同时挂载，agent 每轮自动读，方法论不再藏在 prompt 里。"
+        overline="完整闭环"
+        title="从输入到交付，五层一条闭环"
+        description="每一层都有自己的语义和归档方式 —— 这是 chatbot 替代不了的部分。"
+        align="center"
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        {SKILL_CARDS.map((skill) => {
-          const Icon = skill.icon;
-          return (
-            <div
-              key={skill.file}
-              className="group flex h-full flex-col gap-4 rounded-[18px] border border-borderCream bg-ivory p-5 transition-shadow duration-200 hover:shadow-whisper"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <Icon className="h-5 w-5 text-terracotta" />
-                <Badge>{skill.badge}</Badge>
+      <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
+        <div className="space-y-3">
+          {ARCHITECTURE_LAYERS.map((layer, idx) => {
+            const Icon = layer.icon;
+            const isActive = idx === activeLayerIdx;
+            return (
+              <div
+                key={layer.num}
+                ref={(el) => {
+                  layerRefs.current[idx] = el;
+                }}
+                className={cn(
+                  'rounded-[16px] border bg-ivory p-5 transition-all duration-300 ease-out motion-reduce:transition-none',
+                  isActive
+                    ? 'border-terracotta/60 shadow-[0_22px_48px_-20px_rgba(201,100,66,0.45)] scale-[1.015]'
+                    : 'border-borderCream shadow-whisper opacity-90'
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <span
+                    className={cn(
+                      'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold transition-colors duration-300 motion-reduce:transition-none',
+                      isActive ? 'bg-terracotta text-ivory' : 'bg-terracotta/85 text-ivory'
+                    )}
+                  >
+                    {layer.num}
+                  </span>
+                  <Icon className="h-4 w-4 text-terracotta" />
+                  <h3 className="font-display text-[1.1rem] font-medium leading-tight text-nearBlack">
+                    {layer.title}
+                  </h3>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 pl-11">
+                  {layer.modules.map((mod) => (
+                    <span
+                      key={mod}
+                      className="rounded-[10px] border border-borderCream bg-parchment/60 px-2.5 py-1 text-[12.5px] leading-[1.5] text-charcoal"
+                    >
+                      {mod}
+                    </span>
+                  ))}
+                </div>
               </div>
-              <div className="space-y-2">
-                <div className="font-mono text-[11px] leading-tight text-stone break-all">{skill.file}</div>
-                <h3 className="font-display text-[1.35rem] font-medium leading-tight text-nearBlack">
-                  {skill.title}
-                </h3>
-              </div>
-              <ul className="mt-1 space-y-1.5 text-[14px] leading-[1.6] text-olive">
-                {skill.bullets.map((bullet) => (
-                  <li key={bullet} className="flex items-start gap-2">
-                    <span className="mt-[7px] h-1 w-1 shrink-0 rounded-full bg-terracotta/70" aria-hidden />
-                    <span>{bullet}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
 
-      <div className="rounded-[18px] border border-borderCream bg-parchment/60 px-5 py-5">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-stone">
-            <span className="h-px w-6 bg-borderWarm" aria-hidden />
-            内化的分析视角
+        <aside className="h-fit rounded-[20px] border border-borderCream bg-ivory p-5 shadow-whisper lg:sticky lg:top-6">
+          <div className="border-b border-borderCream pb-3 text-center text-[11px] font-medium uppercase tracking-[0.18em] text-stone">
+            核心机制
           </div>
-          <span className="text-[12px] italic text-stone">
-            agent 内部用，不强塞客户
-          </span>
-        </div>
-        <p className="mt-2 text-[14px] leading-[1.65] text-olive">
-          "需求分析方法论" skill 里挂了三套成熟的分析视角。<span className="text-charcoal">不暴露术语给客户</span>，但 agent 在追问、归档、识别冲突时会用上：
-        </p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {METHOD_STACK.map((method) => (
-            <div
-              key={method.name}
-              className="rounded-[12px] border border-borderCream bg-ivory px-4 py-3"
-            >
-              <div className="flex items-baseline justify-between gap-2">
-                <span className="font-display text-[1rem] font-medium text-nearBlack">
-                  {method.name}
-                </span>
-                <span className="text-[11px] uppercase tracking-[0.14em] text-stone">{method.role}</span>
-              </div>
-              <p className="mt-1.5 text-[13px] leading-[1.6] text-olive">{method.desc}</p>
-            </div>
-          ))}
-        </div>
+          <div className="mt-5 space-y-2">
+            {ARCHITECTURE_MECHANISMS.map((m, idx) => {
+              const Icon = m.icon;
+              const isActive = idx === activeMechanismIdx;
+              return (
+                <div
+                  key={m.title}
+                  className={cn(
+                    'rounded-[14px] p-3 text-center transition-all duration-300 ease-out motion-reduce:transition-none',
+                    isActive
+                      ? 'bg-accentSoft/55 ring-1 ring-terracotta/30'
+                      : 'opacity-70'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-[12px] transition-colors duration-300 motion-reduce:transition-none',
+                      isActive ? 'bg-terracotta' : 'bg-accentSoft'
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        'h-4 w-4 transition-colors duration-300 motion-reduce:transition-none',
+                        isActive ? 'text-ivory' : 'text-terracotta'
+                      )}
+                    />
+                  </span>
+                  <div className="font-display text-[1rem] font-medium text-nearBlack">{m.title}</div>
+                  <p className="mt-1 text-[12.5px] leading-[1.6] text-olive">{m.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </aside>
       </div>
 
-      <p className="text-center text-[13px] italic leading-[1.6] text-stone">
-        三块互锁，agent runtime 在 <span className="font-mono not-italic text-charcoal">backend/.claude/skills/</span> 自动发现。
+      <p className="text-center text-[12px] leading-[1.7] text-stone">
+        基于 <span className="text-charcoal">Claude Agent SDK</span> · <span className="text-charcoal">Docling</span> · <span className="text-charcoal">Qdrant</span> · <span className="text-charcoal">LlamaIndex</span> 等开源能力构建；
+        分析视角内化了 <span className="text-charcoal">BABOK</span> · <span className="text-charcoal">JTBD</span> · <span className="text-charcoal">Event Storming</span> 三套成熟方法论。
       </p>
     </section>
-  );
-}
-
-function KnowledgeArchitectureSection() {
-  return (
-    <section className="space-y-8">
-      <SectionHead
-        overline="知识架构"
-        title="证据 + 长期理解，双层共存"
-        description="项目知识库 RAG 给客观 grounding，LLM Wiki 攒可修订的工作理解 —— 互相补位，不互相替代。"
-      />
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-[20px] border border-borderCream bg-ivory p-6 shadow-whisper">
-          <div className="flex items-start justify-between gap-3">
-            <Notebook className="h-6 w-6 text-terracotta" />
-            <Badge>证据 grounding 层</Badge>
-          </div>
-          <h3 className="mt-4 font-display text-[1.5rem] font-medium leading-tight text-nearBlack">
-            项目知识库 RAG
-          </h3>
-          <p className="mt-2 text-[14px] leading-[1.6] text-olive">
-            每一条结论都能回到原文 —— 客户改主意时，最容易找到差异点的就是这一层。
-          </p>
-          <div className="mt-5 grid gap-2 text-[14px] leading-[1.6] text-charcoal">
-            <KnowledgeRow label="Docling" value="文档解析（PDF · DOCX · XLSX · MD · 图片 OCR）" />
-            <KnowledgeRow label="Qdrant" value="向量化检索 + 项目级隔离" />
-            <KnowledgeRow label="LlamaIndex" value="grounding + citation 追溯" />
-          </div>
-        </div>
-
-        <div className="rounded-[20px] border border-borderCream bg-ivory p-6 shadow-whisper">
-          <div className="flex items-start justify-between gap-3">
-            <Brain className="h-6 w-6 text-terracotta" />
-            <Badge>长期理解层</Badge>
-          </div>
-          <h3 className="mt-4 font-display text-[1.5rem] font-medium leading-tight text-nearBlack">
-            LLM Wiki
-          </h3>
-          <p className="mt-2 text-[14px] leading-[1.6] text-olive">
-            项目内 markdown 知识页，沉淀长期工作理解。Agent 每轮自带，作为"连续记忆"。
-          </p>
-          <div className="mt-5 grid gap-2 text-[14px] leading-[1.6] text-charcoal">
-            <KnowledgeRow label="overview" value="项目背景 · 当前理解" />
-            <KnowledgeRow label="intake" value="source 摘要索引" />
-            <KnowledgeRow label="rules" value="业务规则 · 冲突 · 待验证口径" />
-          </div>
-        </div>
-      </div>
-      <p className="text-center text-[13px] italic leading-[1.6] text-stone">
-        互补不替代 —— grounding 不可替代，wiki 提供持续上下文。
-      </p>
-    </section>
-  );
-}
-
-function KnowledgeRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[100px_minmax(0,1fr)] items-baseline gap-3 border-t border-borderCream pt-2 first:border-t-0 first:pt-0">
-      <div className="font-mono text-[11px] uppercase tracking-[0.12em] text-stone">{label}</div>
-      <div>{value}</div>
-    </div>
   );
 }
 
@@ -571,19 +727,19 @@ function MultimodalChatSection() {
 
 const WORKBENCH_PANES = [
   {
-    icon: FolderKanban,
-    title: 'Sources',
-    desc: '资料导入 → Docling 解析 → Qdrant 索引；多格式、多文件、失败可重试。',
+    image: '/images/landing/pane-sources.png',
+    title: '资料区',
+    caption: '混杂资料一键导入，自动解析、索引、版本化，原文随时可回看。',
   },
   {
-    icon: Send,
-    title: 'Chat',
-    desc: 'SSE 流式对话 + citation；助手主动追问，每轮把结论自动归档到右栏。',
+    image: '/images/landing/pane-chat.png',
+    title: '对话区',
+    caption: 'AI 主动追问、引用原文、流式输出；客户像聊天一样把上下文喂进来。',
   },
   {
-    icon: GitBranch,
-    title: 'Project State',
-    desc: '7 类沉淀总集 + 5 阶段 rail，新信息回流时自动 revisit 对应阶段。',
+    image: '/images/landing/pane-state.png',
+    title: '沉淀区',
+    caption: '每一轮的结论自动归档到 7 类沉淀，结论不再埋在长对话里。',
   },
 ] as const;
 
@@ -591,31 +747,31 @@ function WorkbenchPreviewSection() {
   return (
     <section className="space-y-8">
       <SectionHead
-        overline="工作台"
-        title="Sources · Chat · Project State"
-        description="不是 chatbot —— 三栏一体的需求分析工作台，资料、对话、沉淀同步推进。"
+        overline="核心工作台"
+        title="资料 · 对话 · 沉淀，同时推进"
+        description="不是 chatbot —— 聊天负责推进，右栏负责沉淀，每条结论都能回到原始资料。"
+        align="center"
       />
-      <div className="grid gap-4 md:grid-cols-3">
-        {WORKBENCH_PANES.map((pane) => {
-          const Icon = pane.icon;
-          return (
-            <div key={pane.title} className="rounded-[18px] border border-borderCream bg-ivory p-5">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-accentSoft">
-                  <Icon className="h-4 w-4 text-terracotta" />
-                </span>
-                <h3 className="font-display text-[1.15rem] font-medium leading-tight text-nearBlack">
-                  {pane.title}
-                </h3>
-              </div>
-              <p className="mt-3 text-[14px] leading-[1.65] text-olive">{pane.desc}</p>
+      <div className="grid gap-5 md:grid-cols-3">
+        {WORKBENCH_PANES.map((pane, index) => (
+          <div key={pane.title} className="space-y-3">
+            <div className="overflow-hidden rounded-[16px] border border-borderCream bg-ivory shadow-whisper">
+              <img
+                src={pane.image}
+                alt={`工作台 ${pane.title}：${pane.caption}`}
+                className="block aspect-[3/4] w-full object-cover object-top"
+                loading={index === 0 ? 'eager' : 'lazy'}
+              />
             </div>
-          );
-        })}
+            <div className="px-1">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-stone">
+                {String(index + 1).padStart(2, '0')} · {pane.title}
+              </div>
+              <p className="mt-1 text-[13.5px] leading-[1.6] text-charcoal">{pane.caption}</p>
+            </div>
+          </div>
+        ))}
       </div>
-      <p className="text-center text-[13px] text-stone">
-        想直接看？跳到下面的 <span className="font-medium text-terracotta">产品自我分析 demo →</span>
-      </p>
     </section>
   );
 }
@@ -777,25 +933,25 @@ function SedimentGridSection({
 
 const ARTIFACT_CARDS = [
   {
+    key: 'document',
     title: '需求文档',
-    type: 'document',
     icon: FileText,
-    tag: 'Markdown · Word',
-    desc: '正式可交付的需求说明，章节、来源引用、评审建议齐全。',
+    tag: '可交付',
+    desc: '正式的需求说明，章节、引用、评审建议齐全；可直接进入工程评审。',
   },
   {
+    key: 'page_solution',
     title: '页面方案',
-    type: 'page_solution',
     icon: ImageIcon,
-    tag: 'gpt-image-2 → HTML',
-    desc: '极快预览精美设计稿；agent 把视觉稿生成为可嵌入的 HTML。',
+    tag: '精美静态稿',
+    desc: '客户能感受到的视觉稿；和文档配套，让"长什么样"不再靠口说。',
   },
   {
-    title: '交互稿',
-    type: 'interaction_flow',
+    key: 'interaction_flow',
+    title: '可点击交互稿',
     icon: MousePointerClick,
-    tag: 'HTML 可点',
-    desc: '可点开真用的小原型，客户摸一摸就能消除对功能的歧义。',
+    tag: '可点真用',
+    desc: '小原型，客户摸一摸就能消除对功能的歧义，比一千句描述都管用。',
   },
 ] as const;
 
@@ -804,99 +960,29 @@ function ArtifactPipelineSection() {
     <section className="space-y-8">
       <SectionHead
         overline="交付物"
-        title="从精美静态稿到可点击 demo，一次生成"
-        description="文档、页面、交互三件套，全部 grounded 在已经入库的 source 上 —— 不靠想象。"
+        title="从需求文档到可点击 demo，一次生成"
+        description="文档、页面、交互三件套，全部基于已经入库的资料生成 —— 每一句都有出处。"
+        align="center"
       />
       <div className="grid gap-4 md:grid-cols-3">
         {ARTIFACT_CARDS.map((card) => {
           const Icon = card.icon;
           return (
             <div
-              key={card.type}
+              key={card.key}
               className="flex h-full flex-col gap-4 rounded-[18px] border border-borderCream bg-ivory p-5 shadow-whisper"
             >
               <div className="flex items-start justify-between gap-3">
                 <Icon className="h-5 w-5 text-terracotta" />
                 <Badge variant="accent">{card.tag}</Badge>
               </div>
-              <div>
-                <h3 className="font-display text-[1.35rem] font-medium leading-tight text-nearBlack">
-                  {card.title}
-                </h3>
-                <div className="mt-1 font-mono text-[11px] text-stone">{card.type}</div>
-              </div>
+              <h3 className="font-display text-[1.35rem] font-medium leading-tight text-nearBlack">
+                {card.title}
+              </h3>
               <p className="text-[14px] leading-[1.65] text-olive">{card.desc}</p>
             </div>
           );
         })}
-      </div>
-      <p className="text-center text-[13px] italic leading-[1.6] text-stone">
-        客户能直接点的 demo，比一千句需求描述都管用。
-      </p>
-    </section>
-  );
-}
-
-function MobileVoiceSection() {
-  return (
-    <section className="space-y-8">
-      <SectionHead
-        overline="下一步"
-        title="移动端 · 实时语音 · 随手沉淀"
-        description="客户在路上、在会议间隙也能讲；语音直接落入项目沉淀，不丢一个想法。"
-      />
-      <div className="grid gap-6 lg:grid-cols-[0.7fr_1fr] lg:items-center">
-        <div className="flex justify-center">
-          <div className="relative w-[220px] rounded-[34px] border border-borderCream bg-ivory p-4 shadow-whisper">
-            <div className="absolute left-1/2 top-2 h-1 w-12 -translate-x-1/2 rounded-full bg-borderWarm" />
-            <div className="mt-6 space-y-3">
-              <div className="rounded-[14px] border border-borderCream bg-parchment/60 px-3 py-2 text-[12px] leading-[1.55] text-charcoal">
-                客户：你看我刚才说的那个发货单 …
-              </div>
-              <div className="rounded-[14px] bg-accentSoft px-3 py-2 text-[12px] leading-[1.55] text-nearBlack shadow-[0_0_0_1px_rgba(201,100,66,0.18)]">
-                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.16em] text-[#7a3a22]">
-                  <Mic className="h-3 w-3" /> 实时音频 · 0:32
-                </div>
-                <div className="flex items-end gap-0.5">
-                  {Array.from({ length: 22 }).map((_, idx) => (
-                    <span
-                      key={idx}
-                      className="block w-[3px] rounded-full bg-terracotta/70"
-                      style={{ height: `${6 + ((idx * 7) % 18)}px` }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="rounded-[10px] border border-[#cdded0] bg-[#e6efe5] px-3 py-2 text-[11px] leading-[1.5] text-[#3d6b50]">
-                ✓ 转写已写入 当前需求定义
-              </div>
-            </div>
-          </div>
-        </div>
-        <div className="space-y-4">
-          <Badge variant="warning">Coming soon</Badge>
-          <h3 className="font-display text-[1.5rem] font-medium leading-tight text-nearBlack">
-            把客户的"随口一说"也接进来
-          </h3>
-          <p className="text-[15px] leading-[1.7] text-olive">
-            移动端常驻、实时音频转写，客户在车上、电梯里、会议间隙的灵感不再靠"等回去再补一段"。
-            语音直接落入项目沉淀，agent 当轮就能根据它追问。
-          </p>
-          <ul className="space-y-2 text-[14px] leading-[1.6] text-charcoal">
-            <li className="flex items-start gap-2">
-              <Mic className="mt-1 h-3.5 w-3.5 shrink-0 text-terracotta" />
-              <span>实时音频对话，断断续续也能拼接</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <Smartphone className="mt-1 h-3.5 w-3.5 shrink-0 text-terracotta" />
-              <span>移动端 PWA，扫码就能跳进同一个 project</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <GitCompareArrows className="mt-1 h-3.5 w-3.5 shrink-0 text-terracotta" />
-              <span>desktop / mobile 同一份沉淀，差异自动 merge</span>
-            </li>
-          </ul>
-        </div>
       </div>
     </section>
   );
@@ -913,10 +999,10 @@ function SeedFeaturedSection({
 }) {
   if (!seedProject) {
     return (
-      <section className="space-y-6">
-        <SectionHead overline="Seed Demo" title="产品自我分析 · 演示项目" />
+      <section id="seed-demo" className="scroll-mt-12 space-y-6">
+        <SectionHead overline="递归实证" title="我们用这个产品分析了它自己" align="center" />
         <div className="rounded-[20px] border border-dashed border-borderWarm bg-ivory/60 p-8 text-center text-[14px] leading-[1.6] text-stone">
-          演示数据加载中…后端 ready 后会自动展示产品自我分析 seed 项目。
+          演示数据加载中…后端 ready 后会自动展示递归 seed 项目。
         </div>
       </section>
     );
@@ -945,11 +1031,12 @@ function SeedFeaturedSection({
   ).size : 0;
 
   return (
-    <section className="space-y-6">
+    <section id="seed-demo" className="scroll-mt-12 space-y-6">
       <SectionHead
-        overline="Seed Demo"
-        title="递归 demo：把产品当客户分析自己"
-        description="左侧资料就是这个产品最早的会议纪要 / 群聊 / 补充说明，中间是 agent 引导的 15 轮分析，右侧是 7 类沉淀与三件套交付物。"
+        overline="递归实证"
+        title="我们用这个产品分析了它自己"
+        description="左侧资料就是这个产品最早的会议纪要、群聊、补充说明；中间是 agent 引导的 15 轮分析；右侧是 7 类沉淀与三件套交付物 —— 全部是你现在正在看的这套系统的真实数据。"
+        align="center"
       />
       <div className="overflow-hidden rounded-[24px] border border-borderCream bg-ivory shadow-whisper">
         <div className="grid gap-0 md:grid-cols-[1fr_auto]">
@@ -1083,61 +1170,23 @@ function ProjectListSection({
 }
 
 function ReadinessFooter({ readiness }: { readiness: GlobalReadiness | null }) {
-  const wikiReadiness: ProviderReadiness = {
-    provider: 'LLM_WIKI',
-    status: 'ready',
-    summary: 'LLM Wiki 项目内 markdown 知识页层已就绪。',
-    detail: null,
-    action_label: null,
-  };
-
-  const providers: Array<{ icon: typeof Sparkles; label: string; data: ProviderReadiness | null }> = [
-    { icon: Sparkles, label: 'Claude Agent SDK', data: readiness?.claude ?? null },
-    { icon: Notebook, label: '项目知识库 RAG', data: evidenceReadiness(readiness) ?? null },
-    { icon: Brain, label: 'LLM Wiki', data: wikiReadiness },
-  ];
-
   return (
-    <section className="space-y-5 border-t border-borderCream pt-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-medium uppercase tracking-[0.22em] text-stone">Provider Readiness</div>
-          <h2 className="mt-2 font-display text-[1.5rem] font-medium leading-tight text-nearBlack">
-            真 provider · 真状态
-          </h2>
+    <footer className="border-t border-borderCream pt-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {readiness?.claude ? (
+            <ReadyPill label="Claude Agent SDK" status={readiness.claude.status} />
+          ) : null}
+          {evidenceReadiness(readiness) ? (
+            <ReadyPill label="项目知识库" status={evidenceReadiness(readiness)!.status} />
+          ) : null}
+          <ReadyPill label="LLM Wiki" status="ready" />
         </div>
-        <p className="max-w-xl text-[13px] leading-[1.6] text-stone">
-          这里直接显示后端 readiness 接口的状态。失败就报失败，未配置就报未配置 —— 没有静默 fallback。
+        <p className="text-[12px] leading-[1.6] text-stone">
+          实时显示后端 provider 状态 —— 失败就报失败，没有静默 fallback。
         </p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
-        {providers.map((provider) => {
-          const Icon = provider.icon;
-          const data = provider.data;
-          return (
-            <div key={provider.label} className="rounded-[14px] border border-borderCream bg-ivory p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Icon className="h-4 w-4 text-terracotta" />
-                  <span className="font-medium text-nearBlack">{provider.label}</span>
-                </div>
-                {data ? (
-                  <Badge variant={readinessVariant(data.status)}>{data.status}</Badge>
-                ) : (
-                  <Badge>—</Badge>
-                )}
-              </div>
-              <p className="mt-2 text-[13px] leading-[1.6] text-olive">
-                {data?.summary ?? '状态加载中…'}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-      <p className="text-center text-[12px] italic text-stone">
-        失败就报失败，未配置就报未配置 —— 没有静默 fallback。
-      </p>
-    </section>
+    </footer>
   );
 }
 
