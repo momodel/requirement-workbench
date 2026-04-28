@@ -13,6 +13,7 @@ from .routes.chat import router as chat_router
 from .routes.chat_images import router as chat_images_router
 from .routes.knowledge_base import router as knowledge_base_router
 from .routes.messages import router as messages_router
+from .routes.mobile_voice import router as mobile_voice_router
 from .routes.projects import router as projects_router
 from .routes.readiness import router as readiness_router
 from .routes.sources import router as sources_router
@@ -27,11 +28,13 @@ from .services.chat_service import ChatService
 from .services.docling_normalizer import DoclingNormalizer
 from .services.evidence_runtime import QdrantLlamaIndexEvidenceRuntime
 from .services.object_storage_service import ObjectStorageService
+from .services.mobile_voice import MobileVoiceService
 from .services.project_catalog import ProjectCatalog
 from .services.project_state import ProjectStateService
 from .services.runtime_contracts import AgentRuntime, EvidenceRuntime, WikiRuntime
 from .services.seed_projects import ensure_seed_project
 from .services.source_ingestion import SourceIngestionService
+from .services.volcengine_realtime_voice import VolcengineRealtimeVoiceBridge
 from .services.wiki_maintenance import WikiMaintainer
 from .services.wiki_runtime import ClaudeWikiRuntime
 from .services.wiki_store import WikiStore
@@ -48,6 +51,8 @@ class ServiceContainer:
     audio_transcription: AudioTranscriptionService
     audio_ingestion: AudioIngestionOrchestrator
     evidence_runtime: EvidenceRuntime
+    mobile_voice: MobileVoiceService
+    realtime_voice_bridge: VolcengineRealtimeVoiceBridge
     wiki_runtime: WikiRuntime
     agent_runtime: AgentRuntime
     artifact_generation: ArtifactGenerationService
@@ -71,6 +76,15 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         object_storage=object_storage,
         audio_transcription=audio_transcription,
         evidence_runtime=evidence_runtime,
+    )
+    mobile_voice = MobileVoiceService(
+        catalog=catalog,
+        project_state=project_state,
+        evidence_runtime=evidence_runtime,
+    )
+    realtime_voice_bridge = VolcengineRealtimeVoiceBridge(
+        settings=settings,
+        mobile_voice=mobile_voice,
     )
     agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
     wiki_store = WikiStore(settings)
@@ -107,6 +121,8 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         audio_transcription=audio_transcription,
         audio_ingestion=audio_ingestion,
         evidence_runtime=evidence_runtime,
+        mobile_voice=mobile_voice,
+        realtime_voice_bridge=realtime_voice_bridge,
         wiki_runtime=wiki_runtime,
         agent_runtime=agent_runtime,
         artifact_generation=artifact_generation,
@@ -153,6 +169,7 @@ def create_app(settings: AppSettings = DEFAULT_SETTINGS) -> FastAPI:
     app.include_router(sources_router)
     app.include_router(knowledge_base_router)
     app.include_router(messages_router)
+    app.include_router(mobile_voice_router)
     app.include_router(state_router)
     app.include_router(chat_router)
     app.include_router(chat_images_router)

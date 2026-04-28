@@ -180,6 +180,15 @@ class SourceContentRecord(BaseModel):
     detail: str | None = None
 
 
+class VoiceTranscriptEntry(BaseModel):
+    role: Literal["user", "assistant", "system"] = "user"
+    text: str
+    is_final: bool = False
+    question_id: str | None = None
+    reply_id: str | None = None
+    updated_at: str | None = None
+
+
 class MessageRecord(BaseModel):
     id: str
     role: str
@@ -367,6 +376,14 @@ class WikiMaintenanceResult(BaseModel):
     log_entry: str | None = None
     error: str | None = None
     trigger_kind: str | None = None
+
+
+class MobileVoiceBootstrap(BaseModel):
+    project: ProjectSummary
+    evidence: ProviderReadiness
+    voice: ProviderReadiness
+    initial_prompt: str
+    recent_rounds: list[SourceRecord] = Field(default_factory=list)
 
 
 @dataclass(slots=True)

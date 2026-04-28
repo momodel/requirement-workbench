@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
+import { MobileProjectsPage } from './features/mobile/MobileProjectsPage';
+import { MobileVoicePage } from './features/mobile/MobileVoicePage';
 import { ProjectsPage } from './features/projects/ProjectsPage';
 import { WorkbenchPage } from './features/workbench/WorkbenchPage';
 import { getArtifactDisplayLabel } from './lib/artifact-display';
@@ -952,6 +954,82 @@ function WorkbenchRoute() {
   );
 }
 
+function isProbablyMobileDevice() {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const mobileUa =
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+  const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  const narrowViewport =
+    window.matchMedia('(max-width: 960px)').matches ||
+    Math.min(window.innerWidth, window.innerHeight) <= 1024;
+  const touchCapable = navigator.maxTouchPoints > 0;
+
+  return mobileUa || (narrowViewport && coarsePointer && touchCapable);
+}
+
+function useIsProbablyMobileDevice() {
+  const [isMobile, setIsMobile] = useState(() => isProbablyMobileDevice());
+
+  useEffect(() => {
+    const update = () => setIsMobile(isProbablyMobileDevice());
+    const viewportMedia = window.matchMedia('(max-width: 960px)');
+    const coarsePointerMedia = window.matchMedia('(pointer: coarse)');
+
+    update();
+    window.addEventListener('resize', update);
+
+    if (typeof viewportMedia.addEventListener === 'function') {
+      viewportMedia.addEventListener('change', update);
+      coarsePointerMedia.addEventListener('change', update);
+      return () => {
+        window.removeEventListener('resize', update);
+        viewportMedia.removeEventListener('change', update);
+        coarsePointerMedia.removeEventListener('change', update);
+      };
+    }
+
+    viewportMedia.addListener(update);
+    coarsePointerMedia.addListener(update);
+    return () => {
+      window.removeEventListener('resize', update);
+      viewportMedia.removeListener(update);
+      coarsePointerMedia.removeListener(update);
+    };
+  }, []);
+
+  return isMobile;
+}
+
+function DeviceAwareHomeRoute() {
+  const isMobile = useIsProbablyMobileDevice();
+  return isMobile ? <MobileProjectsPage /> : <HomeRoute />;
+}
+
+function DeviceAwareProjectRoute() {
+  const isMobile = useIsProbablyMobileDevice();
+  const { projectId = '' } = useParams();
+  return isMobile ? <MobileVoicePage /> : <Navigate to={`/projects/${projectId}/workbench`} replace />;
+}
+
+function DeviceAwareWorkbenchRoute() {
+  const isMobile = useIsProbablyMobileDevice();
+  return isMobile ? <MobileVoicePage /> : <WorkbenchRoute />;
+}
+
+function LegacyMobileVoiceRoute() {
+  const { projectId = '' } = useParams();
+  return <Navigate to={`/projects/${projectId}`} replace />;
+}
+
+function LegacyWorkbenchRoute() {
+  const { projectId = '' } = useParams();
+  return <Navigate to={`/projects/${projectId}/workbench`} replace />;
+}
+
 export default function App() {
   return (
     <BrowserRouter
@@ -961,9 +1039,13 @@ export default function App() {
       }}
     >
       <Routes>
-        <Route path="/" element={<HomeRoute />} />
-        <Route path="/projects/:projectId/workbench" element={<WorkbenchRoute />} />
-        <Route path="/project/:projectId/workbench" element={<Navigate to="/projects/seed-reconciliation/workbench" replace />} />
+        <Route path="/" element={<DeviceAwareHomeRoute />} />
+        <Route path="/desktop" element={<HomeRoute />} />
+        <Route path="/projects/:projectId" element={<DeviceAwareProjectRoute />} />
+        <Route path="/projects/:projectId/workbench" element={<DeviceAwareWorkbenchRoute />} />
+        <Route path="/m" element={<Navigate to="/" replace />} />
+        <Route path="/m/projects/:projectId/voice" element={<LegacyMobileVoiceRoute />} />
+        <Route path="/project/:projectId/workbench" element={<LegacyWorkbenchRoute />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

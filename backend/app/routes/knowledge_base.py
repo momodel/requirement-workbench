@@ -42,6 +42,13 @@ def init_project_knowledge_base(project_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Project not found")
 
     try:
-        return services.evidence_runtime.ensure_project_knowledge_base(project_id)
+        record = services.evidence_runtime.ensure_project_knowledge_base(project_id)
+        for source in services.catalog.list_sources(project_id):
+            if source.normalize_status != "parsed":
+                continue
+            if source.index_status == "indexed":
+                continue
+            services.evidence_runtime.reindex_source(project_id, source.id)
+        return record
     except ProviderIssue as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc

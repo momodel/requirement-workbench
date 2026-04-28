@@ -73,6 +73,15 @@ class AppSettings:
     aliyun_ak_secret: str | None = None
     aliyun_app_key: str | None = None
     aliyun_filetrans_region: str = "cn-shanghai"
+    volcengine_voice_ws_url: str = "wss://openspeech.bytedance.com/api/v3/realtime/dialogue"
+    volcengine_voice_app_id: str | None = None
+    volcengine_voice_access_key: str | None = None
+    volcengine_voice_resource_id: str = "volc.speech.dialog"
+    volcengine_voice_app_key: str = "PlgvMymc7f3tQnJ6"
+    volcengine_voice_bot_name: str = "需求访谈助手"
+    volcengine_voice_speaking_style: str = "口语自然、像资深需求分析顾问。"
+    volcengine_voice_model: str | None = None
+    volcengine_voice_speaker: str = "zh_female_vv_jupiter_bigtts"
 
     def __post_init__(self) -> None:
         if self.qdrant_path is None:
@@ -175,6 +184,39 @@ class AppSettings:
             aliyun_filetrans_region=os.getenv(
                 "REQUIREMENT_WORKBENCH_ALIYUN_FILETRANS_REGION",
                 "cn-shanghai",
+            ),
+            volcengine_voice_ws_url=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_WS_URL",
+                "wss://openspeech.bytedance.com/api/v3/realtime/dialogue",
+            ),
+            volcengine_voice_app_id=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_APP_ID"
+            ),
+            volcengine_voice_access_key=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_ACCESS_KEY"
+            ),
+            volcengine_voice_resource_id=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_RESOURCE_ID",
+                "volc.speech.dialog",
+            ),
+            volcengine_voice_app_key=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_APP_KEY",
+                "PlgvMymc7f3tQnJ6",
+            ),
+            volcengine_voice_bot_name=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_BOT_NAME",
+                "需求访谈助手",
+            ),
+            volcengine_voice_speaking_style=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_SPEAKING_STYLE",
+                "口语自然、简短明确、像资深需求分析顾问。",
+            ),
+            volcengine_voice_model=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_MODEL"
+            ),
+            volcengine_voice_speaker=os.getenv(
+                "REQUIREMENT_WORKBENCH_VOLCENGINE_VOICE_SPEAKER",
+                "zh_female_vv_jupiter_bigtts",
             ),
         )
 

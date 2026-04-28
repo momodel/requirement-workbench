@@ -4,6 +4,7 @@ import type {
   CreateProjectRequest,
   GlobalReadiness,
   MessageRecord,
+  MobileVoiceBootstrap,
   ProjectState,
   ProjectReadiness,
   ProjectSummary,
@@ -77,6 +78,10 @@ export async function getGlobalReadiness() {
 
 export function getProject(projectId: string) {
   return fetchJson<ProjectSummary>(`/api/projects/${projectId}`);
+}
+
+export function getMobileVoiceBootstrap(projectId: string) {
+  return fetchJson<MobileVoiceBootstrap>(`/api/projects/${projectId}/mobile-voice/bootstrap`);
 }
 
 export async function getProjectReadiness(projectId: string) {
@@ -248,4 +253,24 @@ export async function streamChat(
       onEvent(parsed.event, parsed.data);
     }
   }
+}
+
+export function getMobileVoiceWebSocketUrl(projectId: string) {
+  const rawBase = API_BASE || window.location.origin;
+  const base = new URL(rawBase, window.location.origin);
+  const isLocalViteDevServer =
+    !API_BASE &&
+    ['127.0.0.1', 'localhost'].includes(window.location.hostname) &&
+    /^517\d$/.test(window.location.port);
+
+  if (isLocalViteDevServer) {
+    base.hostname = window.location.hostname;
+    base.port = '8000';
+  }
+
+  base.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
+  base.pathname = `/api/projects/${projectId}/mobile-voice/ws`;
+  base.search = '';
+  base.hash = '';
+  return base.toString();
 }

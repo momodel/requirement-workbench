@@ -54,6 +54,14 @@ export type ProjectReadiness = {
   knowledge_base: KnowledgeBaseRecord | null;
 };
 
+export type MobileVoiceBootstrap = {
+  project: ProjectSummary;
+  evidence: ProviderReadiness;
+  voice: ProviderReadiness;
+  initial_prompt: string;
+  recent_rounds: SourceRecord[];
+};
+
 export type SourceRecord = {
   id: string;
   project_id: string;
