@@ -66,11 +66,11 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByRole('heading', { name: '客户需求转译台' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /把模糊诉求/ })).toBeInTheDocument();
     expect(await screen.findByText('集团业财逐笔对账')).toBeInTheDocument();
     expect(screen.getByText('选择一个项目进入工作台')).toBeInTheDocument();
-    expect(screen.getByText('Provider Readiness')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '新建项目' })).toBeInTheDocument();
+    expect(screen.getByText(/实时显示后端 provider 状态/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '再开一个' })).toBeInTheDocument();
   });
 
   it('creates a project from the home page and navigates into the new workbench', async () => {
@@ -246,7 +246,7 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(await screen.findByRole('button', { name: '新建项目' }));
+    await user.click(await screen.findByRole('button', { name: '再开一个' }));
     await user.type(screen.getByPlaceholderText('例如：智慧园区平台需求转译'), '渠道对账需求分析');
     await user.type(screen.getByPlaceholderText('例如：smart-park-platform'), 'channel-reconciliation');
     await user.type(
@@ -615,7 +615,7 @@ describe('App', () => {
     await screen.findByRole('heading', { name: '集团业财逐笔对账需求分析' });
     await user.click(screen.getByRole('link', { name: '项目列表' }));
 
-    expect(await screen.findByRole('heading', { name: '客户需求转译台' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /把模糊诉求/ })).toBeInTheDocument();
     expect(screen.getByText('选择一个项目进入工作台')).toBeInTheDocument();
   });
 

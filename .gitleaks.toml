@@ -1,0 +1,16 @@
+# gitleaks configuration
+# Extends the default ruleset and allowlists known false positives.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known non-secrets"
+# Volcengine's public sample App Key from official docs (not a real credential),
+# present only in a historical commit of backend/.env.local.example.
+regexes = [
+  '''PlgvMymc7f3tQnJ6''',
+]
+paths = [
+  '''backend/.env.local.example''',
+]

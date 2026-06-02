@@ -1,0 +1,60 @@
+name: Codex PR Review
+
+# Automated pull-request review powered by OpenAI Codex.
+#
+# This is part of our maintenance workflow for the Codex for Open Source program.
+# It runs the Codex CLI against the PR diff and posts a review comment.
+#
+# Requirements:
+#   - Repository secret `OPENAI_API_KEY` (Codex Open Source Fund credits, or your
+#     own key). When the secret is absent the job is skipped, so forks and
+#     unconfigured environments stay green.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codex-review:
+    name: Codex review
+    runs-on: ubuntu-latest
+    # Skip on forked PRs (no access to secrets) and when the key is not set.
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: Check for OpenAI key
+        id: guard
+        run: |
+          if [ -n "${{ secrets.OPENAI_API_KEY }}" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "OPENAI_API_KEY not set — skipping Codex review."
+          fi
+
+      - name: Checkout
+        if: steps.guard.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Codex review
+        if: steps.guard.outputs.enabled == 'true'
+        uses: openai/codex-action@main
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt: |
+            Review the diff of this pull request against the base branch.
+            Focus on correctness bugs, security issues, and violations of the
+            engineering contract in AGENTS.md (no fake providers, no silent
+            fallback, RAG-vs-Wiki boundary, thin host). Be concise; list concrete
+            findings with file:line references. If it looks good, say so briefly.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
