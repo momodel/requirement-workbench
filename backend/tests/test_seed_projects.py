@@ -56,32 +56,35 @@ def test_ensure_seed_project_rebuilds_canonical_demo_data(tmp_path: Path) -> Non
 
     seed_project = catalog.get_project(SEED_PROJECT_ID)
     assert seed_project is not None
-    assert seed_project.name == "集团业财逐笔对账需求分析"
+    assert seed_project.name == "客户需求转译台·产品自我分析"
     assert seed_project.status == "seed"
 
     source_names = [source.name for source in catalog.list_sources(SEED_PROJECT_ID)]
     assert source_names == [
-        "订单字段说明.md",
-        "结算单样例.xlsx",
-        "财务科目口径说明.pdf",
-        "历史差异清单.txt",
+        "项目背景-先看这个.md",
+        "补充说明-v1.md",
+        "微信群里先聊的内容整理.md",
+        "0328碰一下会议纪要.md",
+        "现有材料先发这些.txt",
     ]
     source_files = catalog.list_sources(SEED_PROJECT_ID)
     assert all(source.storage_path for source in source_files)
     assert all(Path(source.storage_path).exists() for source in source_files if source.storage_path)
     assert all(source.normalize_status == "parsed" for source in source_files)
-    assert all(source.index_status == "pending" for source in source_files)
-    assert all(source.index_error for source in source_files)
-    assert all("项目知识库" in (source.index_error or "") for source in source_files)
+    assert all(source.index_status == "indexed" for source in source_files)
+    assert all(source.index_error is None for source in source_files)
 
     message_contents = [message.content for message in catalog.list_recent_messages(SEED_PROJECT_ID)]
     assert any(
-        content.startswith("客户说希望核对订单或结算系统的数据")
+        content.startswith("这堆材料先发你了")
         for content in message_contents
     )
     assert all("hello" not in content for content in message_contents)
     assert all("语雀" not in content for content in message_contents)
-    assert any("为什么现在先确认" in content for content in message_contents)
 
     artifact_titles = [artifact.title for artifact in catalog.list_artifacts(SEED_PROJECT_ID)]
-    assert set(artifact_titles) == {"交互稿", "页面方案", "需求分析与 MVP 文档稿"}
+    assert set(artifact_titles) == {
+        "端到端转译交互稿",
+        "三栏工作台页面方案",
+        "需求分析与 MVP 文档稿",
+    }

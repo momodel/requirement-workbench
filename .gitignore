@@ -12,11 +12,7 @@ frontend/coverage
 backend/.venv
 backend/.env.local
 backend/.claude-runtime
-backend/__pycache__
-backend/app/__pycache__
-backend/app/routes/__pycache__
-backend/app/services/__pycache__
-backend/tests/__pycache__
+__pycache__/
 data/sqlite/*
 !data/sqlite/.gitkeep
 data/projects/*
@@ -26,3 +22,8 @@ data/notebooklm-skill/*
 .playwright-mcp/
 data/qdrant/*
 !data/qdrant/.gitkeep
+
+# Client-facing / internal assets kept out of the public repo
+reports/demo-day/
+demo-video/
+codex-oss-application.draft.md

@@ -1,167 +1,189 @@
 # Repository Guidelines
 
-## 开工前先看什么
+> 中文版：[AGENTS.zh-CN.md](AGENTS.zh-CN.md)
 
-所有实现任务先看这三份：
+This file is the working contract for both human contributors and coding agents
+(including the OpenAI Codex review that runs in CI). Read it before making changes.
+
+## Read first
+
+For any implementation task, start with these three:
 
 - `docs/product/fullstack-phase1-spec.md`
 - `docs/planning/fullstack-phase1-todo.md`
 - `archive/legacy-demo/README.md`
 
-如果文档和现有代码冲突，以文档为准。
+When the docs and the existing code disagree, the docs win.
 
-后端 CAS 的运行时规则看：
+For backend runtime rules, read:
 
 - `backend/CLAUDE.md`
 - `backend/.claude/skills/**/SKILL.md`
 
-如果当前任务会改这些领域，再按需补看对应 skill：
+If your task touches one of these areas, also read the matching skill:
 
-- `backend/.claude/skills/requirement-analysis-methodology/SKILL.md`
-  - 适用：需求分析链路、状态沉淀、版本快照、artifact 触发
-- `backend/.claude/skills/rag-evidence-workflow/SKILL.md`
-  - 适用：source ingestion、项目知识库索引、grounding、citation
-- `backend/.claude/skills/llm-wiki-knowledge-workflow/SKILL.md`
-  - 适用：LLM Wiki 综合层（实体页、术语、规则、冲突、待确认问题），由 WikiMaintainer 子 agent 维护
-- `backend/.claude/skills/artifact-generation-guidelines/SKILL.md`
-  - 适用：文档稿、页面方案、交互稿的生成边界
+- `requirement-analysis-methodology` — requirements analysis flow, state synthesis,
+  version snapshots, artifact triggering.
+- `rag-evidence-workflow` — source ingestion, project knowledge-base indexing,
+  grounding, citations.
+- `llm-wiki-knowledge-workflow` — the LLM Wiki synthesis layer (entity pages, glossary,
+  rules, conflicts, open questions), maintained by the WikiMaintainer sub-agent.
+- `artifact-generation-guidelines` — the boundaries for generating document drafts,
+  page plans, and interaction drafts.
 
-这些 skill 只服务后端 CAS 运行时，不等于“功能已经接通”。
+These skills are reference material for the backend runtime. Their existence does not
+mean a feature is wired up.
 
-## 当前项目基线
+## Project baseline
 
-- 当前仓库里已有一批前后端探索代码，但它们不是天然正确的正式基线。
-- 是否保留某段代码，以它是否符合当前 `spec` 和 `todo` 为准。
-- 新版产品感和交互基线看 `archive/legacy-demo/`。
-- 新版可以重写样式和实现，但不能退化成后台表单页或配置页。
+- The repo already contains exploratory frontend and backend code. None of it is
+  authoritative by default.
+- Keep a piece of code only if it matches the current `spec` and `todo`.
+- The product-feel and interaction baseline lives in `archive/legacy-demo/`.
+- New work may rewrite styling and implementation, but must not regress into a
+  back-office form or a settings page.
 
-## 正式技术路线
+## Technical direction
 
-- 主智能体：`Claude Agent SDK`
-- 证据层：`Docling + Qdrant + LlamaIndex + 项目内 EvidenceRuntime`
-- 综合层：`LLM Wiki`（项目内 markdown 页面，由 `WikiMaintainer` 子 agent 通过 Claude Agent SDK 维护）
+- Agent: `Claude Agent SDK`.
+- Evidence layer: `Docling + Qdrant + LlamaIndex` plus the in-repo `EvidenceRuntime`.
+- Synthesis layer: the `LLM Wiki` (project-local markdown maintained by the
+  `WikiMaintainer` sub-agent via the Claude Agent SDK).
 
-不要做这些事：
+Do not:
 
-- 用本地规则拼接结果，却命名成 `ClaudeAgentRuntime`
-- 用本地摘要服务，却命名成 `EvidenceRuntime`
-- 用 Python 模板渲染 markdown，却命名成 `LLMWikiService` / `WikiRuntime`
-- 在文档、注释、UI 里把 stub 写成“已接入正式 provider”
-- 未配置时做静默 fallback
+- stitch results together with local rules and call it `ClaudeAgentRuntime`;
+- run a local summarizer and call it `EvidenceRuntime`;
+- render markdown from Python templates and call it `LLMWikiService` / `WikiRuntime`;
+- describe a stub as a "connected provider" in docs, comments, or the UI;
+- silently fall back when something is unconfigured.
 
-未配置就报未配置，失败就报失败。
+If it is unconfigured, say so. If it fails, report the failure.
 
-### Wiki 与 RAG 的边界
+### Wiki vs RAG boundary
 
-- **RAG = 证据层**：chunk 级、可追到原文行号的 citation。`confirmed_items` 与 artifact 的 `source_refs` 必须只来自 `query_project_evidence` 的真实返回。
-- **Wiki = 综合层**：跨多源的合成、术语、规则、冲突、待确认问题。Wiki 页面里的每条断言必须 front-matter 带 `source_ids`，回查时仍走 RAG 取原文。
-- 不允许把 wiki 段落当作 citation 给前端；不允许在 RAG 不可用时让 wiki 顶替证据层。
-- ingest 成功后 wiki 维护是 fire-and-forget 后台任务；wiki 失败不回滚 RAG。
+- **RAG is the evidence layer:** chunk-level citations traceable to source line
+  numbers. `confirmed_items` and artifact `source_refs` must come only from real
+  `query_project_evidence` returns.
+- **Wiki is the synthesis layer:** cross-source synthesis, glossary, rules, conflicts,
+  open questions. Every assertion on a wiki page must carry `source_ids` in its front
+  matter, and lookups still go through RAG to fetch the original text.
+- Never pass a wiki paragraph to the frontend as a citation, and never let the wiki
+  stand in for the evidence layer when RAG is unavailable.
+- After a successful ingest, wiki maintenance is a fire-and-forget background task; a
+  wiki failure does not roll back RAG.
 
-## 项目内依赖边界
+## Dependency boundary
 
-- 运行依赖、脚本、数据目录优先放项目内，不默认吃用户家目录里的安装
-- 不能把“我电脑上刚好有”当成项目能力
-- provider、CLI、skill、认证态、数据目录都要先确认是不是项目内路径
-- 如果还必须依赖用户手工登录或授权，要明确指出“只差这一步必须人工完成”
+- Prefer in-repo runtimes, scripts, and data directories over whatever is installed in
+  the developer's home directory.
+- "It happens to be on my machine" is not a project capability.
+- Confirm that providers, CLIs, skills, auth state, and data directories resolve to
+  in-repo paths.
+- If a step still requires manual login or authorization, call it out explicitly as
+  the one thing a human must do.
 
-## Backend CAS 边界
+## Backend CAS scope
 
-- 后端服务启动目录默认是 `backend/`
-- CAS 在这个项目里的 project cwd 也固定为 `backend/`
-- `backend/CLAUDE.md` 和 `backend/.claude/**` 只服务于后端 CAS
-- 根目录的项目文档和开发规则，不是 CAS 的运行时提示词来源
-- 如果代码、文档、脚本仍把 CAS 作用域写成仓库根目录，视为未对齐
+- The backend service starts from `backend/` by default.
+- The agent's project cwd is also fixed to `backend/`.
+- `backend/CLAUDE.md` and `backend/.claude/**` serve the backend runtime only.
+- The root-level project docs and dev rules are not the runtime prompt source.
+- If any code, doc, or script still treats the runtime scope as the repo root, that is
+  considered out of alignment.
 
-## 开发原则
+## Development principles
 
-### 宿主和 CAS 的分工
+### Host vs agent responsibilities
 
-- 后端默认采用“薄宿主 + 单 Agent loop”思路，不走厚 `ChatService` 编排
-- 宿主负责：
-  - HTTP / SSE
-  - tool / MCP 注册
-  - 持久化
-  - 超时与错误处理
-  - 事件转发
-- 宿主不应该替模型做大量业务判断，例如：
-  - 先固定查 项目知识库 再聊天
-  - 根据关键词猜要不要写沉淀
-  - 根据 assistant 文本二次推断要不要生成 artifact
-  - 用一长串 if / else 模拟需求分析流程
+- The backend uses a thin host plus a single agent loop — no heavy `ChatService`
+  orchestration.
+- The host handles: HTTP / SSE, tool / MCP registration, persistence, timeouts and
+  error handling, and event forwarding.
+- The host must not make business judgements for the model, e.g.:
+  - always querying the knowledge base before chatting;
+  - guessing from keywords whether to write state;
+  - re-inferring from assistant text whether to generate an artifact;
+  - simulating the analysis flow with a long `if/else` chain.
 
-### Skill / Tool / MCP 原则
+### Skill / Tool / MCP principles
 
-- skill 提供长期稳定的方法参考，不保存当前项目的动态状态
-- tool 是模型可调用的真实动作能力，不是宿主内部 if / else 的别名
-- MCP 适合承载外部能力或值得独立复用的能力面，不要滥拆
-- 不要把同一大段策略同时塞进 `backend/CLAUDE.md`、runtime prompt、skill、tool description
+- A skill is long-lived methodology reference; it does not store the project's dynamic
+  state.
+- A tool is a real action the model can invoke, not an alias for host-side `if/else`.
+- MCP is for external capabilities or capability surfaces worth reusing on their own —
+  do not over-split.
+- Do not duplicate the same large policy across `backend/CLAUDE.md`, the runtime
+  prompt, a skill, and a tool description.
 
-### 前后端事件原则
+### Frontend/backend event principles
 
-- 前端应展示真实 agent loop 事件，不展示宿主虚构步骤
-- `assistant_status`、tool running/completed、patch、artifact、version 应来自真实运行结果
-- 右侧沉淀、版本、交付物应由真实 patch 驱动，不靠正文关键词猜
+- The frontend shows real agent-loop events, not host-invented steps.
+- `assistant_status`, tool running/completed, patch, artifact, and version events come
+  from real run results.
+- The right-hand state, versions, and deliverables are driven by real patches, not
+  guessed from message text.
 
-## 本地环境规则
+## Local environment
 
-- Python 相关命令默认走 `backend/.venv/bin/...`
-- 前端命令默认在 `frontend/` 目录执行
-- 跑测试、起服务、做接口验证前，先确认当前 worktree 的本地环境可用
-- 如果命令失败，先区分：
-  - 路径用错
-  - 当前 worktree 环境没装
-  - 项目依赖确实缺失
+- Run Python commands through `backend/.venv/bin/...`.
+- Run frontend commands from `frontend/`.
+- Before running tests, starting services, or verifying endpoints, confirm the current
+  worktree's local environment works.
+- When a command fails, first distinguish: wrong path, environment not installed in
+  this worktree, or a genuinely missing project dependency.
 
 ## Preflight
 
-开始实现或验收前，默认先做这些检查：
+Before implementing or accepting work, run these checks:
 
-1. 对齐文档：
-   - `docs/product/fullstack-phase1-spec.md`
-   - `docs/planning/fullstack-phase1-todo.md`
-   - `AGENTS.md`
-2. 如果当前任务涉及后端 CAS，再对齐：
-   - `backend/CLAUDE.md`
-   - 必要的 backend skills
-3. 先验证 provider readiness，不要先写功能再补检查
+1. Align with the docs: `docs/product/fullstack-phase1-spec.md`,
+   `docs/planning/fullstack-phase1-todo.md`, `AGENTS.md`.
+2. If the task touches the backend runtime, also align with `backend/CLAUDE.md` and the
+   relevant backend skills.
+3. Verify provider readiness first — do not build the feature and bolt on checks later.
 
-以下任一项没过，都不能把主链路说成“已打通”：
+You may not call the main path "wired up" unless all of these pass:
 
-- `Claude Agent SDK` 可调用
-- `CLAUDE_MODEL` 已配置
-- 项目内 `Docling + Qdrant + LlamaIndex` provider 可调用
-- 项目内 项目知识库 认证已完成
-- 当前项目已初始化自己的 knowledge base
-- LLM Wiki 维护链路可调用：WikiMaintainer 注入、Claude SDK 就绪、`POST /wiki/maintain?probe=true` 能在 `wiki/.health` 写入并验证标记
+- `Claude Agent SDK` is callable.
+- `CLAUDE_MODEL` is configured.
+- The in-repo `Docling + Qdrant + LlamaIndex` provider is callable.
+- The project knowledge base is authenticated.
+- The current project has initialized its own knowledge base.
+- The LLM Wiki maintenance path is callable: WikiMaintainer injected, Claude SDK ready,
+  and `POST /wiki/maintain?probe=true` can write and verify a marker in `wiki/.health`.
 
-## 实现中持续检查
+## Continuous checks
 
-- 不允许把“路径存在”“类名像真的”“接口壳子跑起来”当成“provider 已接通”
-- 不允许把 stub、mock、fallback 命名成正式 provider
-- 不允许把本机个人环境中的现成状态，当成项目正式能力
-- 做前端时，不能只看功能通不通，还要对照 `archive/legacy-demo/` 检查产品感有没有退步成后台表单页
-- 每补一条主链路，都要同步补失败路径，而不是只补成功路径
+- A path existing, a class name looking real, or an interface shell starting up does
+  not mean a provider is connected.
+- Do not name a stub, mock, or fallback after a real provider.
+- Do not treat ready-made state in your personal environment as a project capability.
+- On the frontend, do not check only whether a feature works — also compare against
+  `archive/legacy-demo/` to ensure the product feel has not regressed into a back-office
+  form.
+- For every main path you add, add the failure path too, not just the happy path.
 
-## 收尾验收
+## Acceptance
 
-收尾时至少逐项检查这些：
+At minimum, check each of these when wrapping up:
 
-- 文档对齐检查
-- provider 真伪检查
-- UI 对齐检查
-- 失败路径检查
-- Chrome DevTools 联调检查
-- 必要时的专项 review
+- doc alignment;
+- provider authenticity;
+- UI alignment;
+- failure paths;
+- Chrome DevTools integration;
+- a focused review where needed.
 
-只要 preflight 没过，或关键验收项没过，就不能包装成“基本可用”。
+If preflight or a key acceptance item does not pass, do not package it as "basically
+working".
 
-## 默认实现顺序
+## Default order of work
 
-如果用户没有明确改顺序，就按这个来：
+Unless the user changes the order, follow this:
 
-1. 先对齐文档和规则
-2. 再清理误导性的旧实现
-3. 再重建前端工作台
-4. 再接真实 provider
-5. 最后做联调和验收
+1. Align docs and rules.
+2. Remove misleading legacy implementations.
+3. Rebuild the frontend workbench.
+4. Wire up real providers.
+5. Integrate and accept.
