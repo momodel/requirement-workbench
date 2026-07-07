@@ -14,6 +14,7 @@ import type {
   WikiPage,
   WikiPageMeta,
   WikiRecord,
+  ClaudeSettings,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -261,4 +262,16 @@ export async function streamChat(
       onEvent(parsed.event, parsed.data);
     }
   }
+}
+
+export function getClaudeSettings() {
+  return fetchJson<ClaudeSettings>('/api/settings/claude');
+}
+
+export function updateClaudeSettings(payload: Partial<ClaudeSettings>) {
+  return fetchJson<ClaudeSettings>('/api/settings/claude', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }

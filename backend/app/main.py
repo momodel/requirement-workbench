@@ -15,6 +15,7 @@ from .routes.knowledge_base import router as knowledge_base_router
 from .routes.messages import router as messages_router
 from .routes.projects import router as projects_router
 from .routes.readiness import router as readiness_router
+from .routes.settings import router as settings_router
 from .routes.sources import router as sources_router
 from .routes.state import router as state_router
 from .routes.versions import router as versions_router
@@ -150,6 +151,7 @@ def create_app(settings: AppSettings = DEFAULT_SETTINGS) -> FastAPI:
 
     app.include_router(projects_router)
     app.include_router(readiness_router)
+    app.include_router(settings_router)
     app.include_router(sources_router)
     app.include_router(knowledge_base_router)
     app.include_router(messages_router)
