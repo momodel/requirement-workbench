@@ -31,6 +31,9 @@ def resolve_llm_config(
     fmt = (settings.llm_api_format or _env("LLM_API_FORMAT") or "").lower()
     if fmt not in ("anthropic", "openai"):
         # Auto-detect by base_url shape when not specified explicitly.
+        # Note: "/v1" alone (without "anthropic" in the URL) is treated as OpenAI.
+        # Edge case: an Anthropic-compatible proxy whose URL contains "/v1" but not
+        # "anthropic" would be misdetected. Set LLM_API_FORMAT explicitly to override.
         if base_url and "anthropic" in base_url:
             fmt = "anthropic"
         elif base_url and ("/v1" in base_url or "openai" in base_url):

@@ -494,7 +494,7 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
         except Exception as exc:
             raise ProviderIssue(provider=PROVIDER, message=f"交付物生成失败：{exc}") from exc
 
-    async def _invoke_text(self, model, prompt: str) -> str:
+    async def _invoke_text(self, model: BaseChatModel, prompt: str) -> str:
         resp = await model.ainvoke(prompt)
         return _extract_text(getattr(resp, "content", ""))
 

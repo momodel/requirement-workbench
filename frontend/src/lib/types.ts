@@ -231,4 +231,4 @@ export type LlmSettingsUpdate = {
   base_url?: string;
   model?: string;
   api_format?: string;
-}
+};
