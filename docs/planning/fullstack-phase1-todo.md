@@ -76,7 +76,7 @@
 ### 3.4 Provider 接入
 
 - [x] `claude-agent-sdk` Python 依赖已进入 `backend/requirements.txt`
-- [x] Claude 运行时已显式依赖 `claude` CLI 或 `CLAUDE_CODE_CLI_PATH`
+- [x] Claude 运行时已显式依赖 `claude` CLI 或 `LLM_CLI_PATH`
 - [x] `Docling + Qdrant + LlamaIndex` 已作为正式 项目知识库 provider 接入
 - [x] 项目知识库 认证路径已改为项目内 `data/rag/`
 - [x] source 自动索引项目知识库 的文本和文件主路径已接通
@@ -227,7 +227,7 @@ phase-1 的 RAG 证据层不动，并行叠加 LLM Wiki 综合层。两者并存
 - [ ] source 列表行显示 `wiki_sync_status` 角标
 - [ ] readiness 面板显示 wiki provider 状态
 - [ ] 端到端联调：上传 PDF → RAG indexed → 等待 wiki maintained → 聊天里用 `wiki_read_page` 看到合成结论
-- [ ] 失败路径联调：临时清空 `CLAUDE_MODEL`，wiki 应该 `degraded_readonly`，前端不报 500
+- [ ] 失败路径联调：临时清空 `LLM_MODEL`，wiki 应该 `degraded_readonly`，前端不报 500
 
 ## 9. 文档联动
 

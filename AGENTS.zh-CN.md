@@ -131,7 +131,7 @@
 以下任一项没过，都不能把主链路说成“已打通”：
 
 - `Claude Agent SDK` 可调用
-- `CLAUDE_MODEL` 已配置
+- `LLM_MODEL` 已配置（旧名 `CLAUDE_MODEL` 仍可使用）
 - 项目内 `Docling + Qdrant + LlamaIndex` provider 可调用
 - 项目内 项目知识库 认证已完成
 - 当前项目已初始化自己的 knowledge base

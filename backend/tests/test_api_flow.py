@@ -77,7 +77,7 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        claude_cli_path=str(tmp_path / "fake-claude"),
+        llm_cli_path=str(tmp_path / "fake-claude"),
     )
 
 
@@ -570,27 +570,29 @@ def test_global_readiness_payload_uses_evidence_semantics_only(tmp_path: Path, m
     assert "notebooklm" not in readiness
 
 
-def test_readiness_endpoints_surface_claude_model_not_configured_status(
+def test_readiness_endpoints_surface_llm_model_not_configured_status(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     app = create_app(make_settings(tmp_path))
     install_fake_evidence_runtime(app, monkeypatch)
 
-    # DeepAgents runtime surfaces model-not-configured via ANTHROPIC_API_KEY +
-    # CLAUDE_MODEL config (no CLI / subprocess). Provide a key but leave the model
+    # DeepAgents runtime surfaces model-not-configured via LLM_API_KEY +
+    # LLM_MODEL config (no CLI / subprocess). Provide a key but leave the model
     # unset so readiness reports the model-missing path.
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.delenv("CLAUDE_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
 
     with TestClient(app) as client:
         create_response = client.post(
             "/api/projects",
             json={
-                "name": "Claude 模型缺失测试",
+                "name": "LLM 模型缺失测试",
                 "scenario_type": "general",
-                "summary": "验证 readiness 接口会把 Claude 模型缺失显式透出给前端",
+                "summary": "验证 readiness 接口会把 LLM 模型缺失显式透出给前端",
             },
         )
         assert create_response.status_code == 201
@@ -600,10 +602,10 @@ def test_readiness_endpoints_surface_claude_model_not_configured_status(
         project_readiness = client.get(f"/api/projects/{project_id}/readiness").json()
 
     assert global_readiness["claude"]["status"] == "not_configured"
-    assert "CLAUDE_MODEL" in global_readiness["claude"]["detail"]
+    assert "LLM_MODEL" in global_readiness["claude"]["detail"]
     assert global_readiness["claude"]["action_label"]
     assert project_readiness["claude"]["status"] == "not_configured"
-    assert "CLAUDE_MODEL" in project_readiness["claude"]["detail"]
+    assert "LLM_MODEL" in project_readiness["claude"]["detail"]
     assert project_readiness["claude"]["action_label"]
 
 

@@ -23,7 +23,7 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        claude_cli_path=str(tmp_path / "fake-claude"),
+        llm_cli_path=str(tmp_path / "fake-claude"),
     )
 
 

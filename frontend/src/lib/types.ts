@@ -218,15 +218,17 @@ export type SseEventPayload = {
   stream_group_id?: string;
 };
 
-export type ClaudeSettings = {
+export type LlmSettings = {
   api_key_configured: boolean;
   api_key_preview: string;
   base_url: string;
   model: string;
+  api_format: string;
 };
 
-export type ClaudeSettingsUpdate = {
+export type LlmSettingsUpdate = {
   api_key?: string;
   base_url?: string;
   model?: string;
+  api_format?: string;
 };

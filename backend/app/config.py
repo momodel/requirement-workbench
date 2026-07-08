@@ -47,12 +47,13 @@ class AppSettings:
     chunk_overlap: int = 120
     evidence_query_timeout_seconds: float = 15.0
     evidence_top_k: int = 6
-    claude_cli_path: str | None = None
-    claude_model: str | None = None
-    claude_max_turns: int = 6
-    claude_stream_timeout_seconds: float = 90.0
-    claude_structured_timeout_seconds: float = 45.0
-    claude_artifact_timeout_seconds: float = 180.0
+    llm_cli_path: str | None = None
+    llm_model: str | None = None
+    llm_max_turns: int = 6
+    llm_stream_timeout_seconds: float = 90.0
+    llm_structured_timeout_seconds: float = 45.0
+    llm_artifact_timeout_seconds: float = 180.0
+    llm_api_format: str | None = None
     default_timezone: str = "Asia/Shanghai"
     apimart_api_key: str | None = None
     apimart_base_url: str | None = None
@@ -128,18 +129,19 @@ class AppSettings:
                     os.getenv("EVIDENCE_TOP_K", "6"),
                 )
             ),
-            claude_cli_path=os.getenv("CLAUDE_CODE_CLI_PATH"),
-            claude_model=os.getenv("CLAUDE_MODEL"),
-            claude_max_turns=int(os.getenv("CLAUDE_MAX_TURNS", "6")),
-            claude_stream_timeout_seconds=float(
-                os.getenv("CLAUDE_STREAM_TIMEOUT_SECONDS", "90")
+            llm_cli_path=os.getenv("LLM_CLI_PATH") or os.getenv("CLAUDE_CODE_CLI_PATH"),
+            llm_model=os.getenv("LLM_MODEL") or os.getenv("CLAUDE_MODEL"),
+            llm_max_turns=int(os.getenv("LLM_MAX_TURNS") or os.getenv("CLAUDE_MAX_TURNS") or "6"),
+            llm_stream_timeout_seconds=float(
+                os.getenv("LLM_STREAM_TIMEOUT_SECONDS") or os.getenv("CLAUDE_STREAM_TIMEOUT_SECONDS") or "90"
             ),
-            claude_structured_timeout_seconds=float(
-                os.getenv("CLAUDE_STRUCTURED_TIMEOUT_SECONDS", "45")
+            llm_structured_timeout_seconds=float(
+                os.getenv("LLM_STRUCTURED_TIMEOUT_SECONDS") or os.getenv("CLAUDE_STRUCTURED_TIMEOUT_SECONDS") or "45"
             ),
-            claude_artifact_timeout_seconds=float(
-                os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS", "180")
+            llm_artifact_timeout_seconds=float(
+                os.getenv("LLM_ARTIFACT_TIMEOUT_SECONDS") or os.getenv("CLAUDE_ARTIFACT_TIMEOUT_SECONDS") or "180"
             ),
+            llm_api_format=os.getenv("LLM_API_FORMAT"),
             default_timezone=os.getenv("REQUIREMENT_WORKBENCH_TIMEZONE", "Asia/Shanghai"),
             apimart_api_key=os.getenv("APIMART_API_KEY"),
             apimart_base_url=os.getenv("APIMART_BASE_URL"),

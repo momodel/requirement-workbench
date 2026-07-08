@@ -9,7 +9,7 @@ messages should be in English; documentation can be either.
 ## Development setup
 
 Prerequisites: Python `3.11+`, Node.js `18+`, a working `claude` CLI (or
-`CLAUDE_CODE_CLI_PATH` configured), and network access for the Claude provider and
+`LLM_CLI_PATH` configured), and network access for the Claude provider and
 the RAG evidence layer.
 
 ```bash
@@ -17,7 +17,7 @@ the RAG evidence layer.
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.local.example .env.local   # fill in at least ANTHROPIC_API_KEY
+cp .env.local.example .env.local   # fill in at least LLM_API_KEY
 
 # Frontend
 cd frontend

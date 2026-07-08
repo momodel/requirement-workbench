@@ -6,31 +6,25 @@ from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ..config import DEFAULT_SETTINGS
+from ..config import AppSettings, DEFAULT_SETTINGS
+from ..services.llm_model import resolve_llm_config
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 
-class ClaudeSettingsPayload(BaseModel):
+class LlmSettingsPayload(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+    api_format: str | None = None
 
 
-class ClaudeSettingsResponse(BaseModel):
+class LlmSettingsResponse(BaseModel):
     api_key_configured: bool
     api_key_preview: str
     base_url: str
     model: str
-
-
-def _mask_api_key(key: str) -> str:
-    """Return a non-secret preview so the UI can confirm a key is set without exposing it."""
-    if not key:
-        return ""
-    if len(key) <= 12:
-        return "****"
-    return f"{key[:6]}...{key[-4:]}"
+    api_format: str
 
 
 def _env_local_path() -> Path:
@@ -57,34 +51,52 @@ def _persist_env_setting(key: str, value: str) -> None:
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-@router.get("/claude", response_model=ClaudeSettingsResponse)
-def get_claude_settings() -> ClaudeSettingsResponse:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    return ClaudeSettingsResponse(
+def _mask_api_key(key: str) -> str:
+    """Return a non-secret preview so the UI can confirm a key is set without exposing it."""
+    if not key:
+        return ""
+    if len(key) <= 12:
+        return "****"
+    return f"{key[:6]}...{key[-4:]}"
+
+
+def _current_snapshot(settings: AppSettings = DEFAULT_SETTINGS) -> LlmSettingsResponse:
+    api_key, base_url, model, fmt = resolve_llm_config(settings)
+    return LlmSettingsResponse(
         api_key_configured=bool(api_key),
         api_key_preview=_mask_api_key(api_key),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL", ""),
-        model=DEFAULT_SETTINGS.claude_model or os.environ.get("CLAUDE_MODEL", ""),
+        base_url=base_url or "",
+        model=model,
+        api_format=fmt,
     )
 
 
-@router.put("/claude", response_model=ClaudeSettingsResponse)
-def update_claude_settings(payload: ClaudeSettingsPayload) -> ClaudeSettingsResponse:
+@router.get("/llm", response_model=LlmSettingsResponse)
+def get_llm_settings() -> LlmSettingsResponse:
+    return _current_snapshot()
+
+
+@router.put("/llm", response_model=LlmSettingsResponse)
+def update_llm_settings(payload: LlmSettingsPayload) -> LlmSettingsResponse:
     if payload.api_key:
-        os.environ["ANTHROPIC_API_KEY"] = payload.api_key
-        _persist_env_setting("ANTHROPIC_API_KEY", payload.api_key)
+        os.environ["LLM_API_KEY"] = payload.api_key
+        _persist_env_setting("LLM_API_KEY", payload.api_key)
     if payload.base_url is not None:
-        os.environ["ANTHROPIC_BASE_URL"] = payload.base_url
-        _persist_env_setting("ANTHROPIC_BASE_URL", payload.base_url)
+        os.environ["LLM_BASE_URL"] = payload.base_url
+        _persist_env_setting("LLM_BASE_URL", payload.base_url)
     if payload.model is not None:
-        DEFAULT_SETTINGS.claude_model = payload.model
-        os.environ["CLAUDE_MODEL"] = payload.model
-        _persist_env_setting("CLAUDE_MODEL", payload.model)
+        DEFAULT_SETTINGS.llm_model = payload.model
+        os.environ["LLM_MODEL"] = payload.model
+        _persist_env_setting("LLM_MODEL", payload.model)
+    if payload.api_format is not None:
+        fmt = payload.api_format.strip().lower()
+        if fmt in ("anthropic", "openai", ""):
+            DEFAULT_SETTINGS.llm_api_format = fmt or None
+            if fmt:
+                os.environ["LLM_API_FORMAT"] = fmt
+                _persist_env_setting("LLM_API_FORMAT", fmt)
+            else:
+                os.environ.pop("LLM_API_FORMAT", None)
+                _persist_env_setting("LLM_API_FORMAT", "")
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    return ClaudeSettingsResponse(
-        api_key_configured=bool(api_key),
-        api_key_preview=_mask_api_key(api_key),
-        base_url=os.environ.get("ANTHROPIC_BASE_URL", ""),
-        model=DEFAULT_SETTINGS.claude_model or os.environ.get("CLAUDE_MODEL", ""),
-    )
+    return _current_snapshot()

@@ -14,8 +14,8 @@ import type {
   WikiPage,
   WikiPageMeta,
   WikiRecord,
-  ClaudeSettings,
-  ClaudeSettingsUpdate,
+  LlmSettings,
+  LlmSettingsUpdate,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -265,12 +265,12 @@ export async function streamChat(
   }
 }
 
-export function getClaudeSettings() {
-  return fetchJson<ClaudeSettings>('/api/settings/claude');
+export function getLlmSettings() {
+  return fetchJson<LlmSettings>('/api/settings/llm');
 }
 
-export function updateClaudeSettings(payload: ClaudeSettingsUpdate) {
-  return fetchJson<ClaudeSettings>('/api/settings/claude', {
+export function updateLlmSettings(payload: LlmSettingsUpdate) {
+  return fetchJson<LlmSettings>('/api/settings/llm', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

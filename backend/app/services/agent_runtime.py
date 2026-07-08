@@ -510,11 +510,11 @@ class ClaudeAgentRuntime:
             system_prompt=system_prompt,
             allowed_tools=allowed_tools or [],
             tools=[],
-            model=self.settings.claude_model,
+            model=self.settings.llm_model,
             permission_mode="bypassPermissions" if mcp_servers else None,
-            max_turns=self.settings.claude_max_turns,
+            max_turns=self.settings.llm_max_turns,
             cwd=str(self.settings.cas_project_dir),
-            cli_path=self.settings.claude_cli_path,
+            cli_path=self.settings.llm_cli_path,
             include_partial_messages=include_partial_messages,
             output_format=output_format,
             mcp_servers=mcp_servers,
@@ -580,7 +580,7 @@ class ClaudeAgentRuntime:
         return "\n\n".join(summary_parts) if summary_parts else "当前还没有可用沉淀，请基于项目摘要给出最小可用交付物。"
 
     def ensure_available(self) -> None:
-        cli_path = self.settings.claude_cli_path
+        cli_path = self.settings.llm_cli_path
         if cli_path and not Path(cli_path).exists():
             raise ProviderIssue(
                 provider="CLAUDE_AGENT_SDK",
@@ -593,7 +593,7 @@ class ClaudeAgentRuntime:
             )
 
     def resolved_cli_path(self) -> str:
-        cli_path = self.settings.claude_cli_path
+        cli_path = self.settings.llm_cli_path
         if cli_path:
             return cli_path
 
@@ -663,12 +663,12 @@ class ClaudeAgentRuntime:
                 action_label="完成 Claude 登录",
             )
 
-        if self.settings.claude_model:
+        if self.settings.llm_model:
             return ProviderReadiness(
                 provider="CLAUDE_AGENT_SDK",
                 status="ready",
                 summary="Claude Agent SDK 已就绪，且已锁定模型配置。",
-                detail=f"当前模型：{self.settings.claude_model}",
+                detail=f"当前模型：{self.settings.llm_model}",
             )
 
         return ProviderReadiness(
