@@ -13,18 +13,33 @@ import uuid
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 
-from claude_agent_sdk import (
-    AssistantMessage,
-    CLINotFoundError,
-    ClaudeAgentOptions,
-    McpSdkServerConfig,
-    ResultMessage,
-    StreamEvent,
-    TextBlock,
-    create_sdk_mcp_server,
-    query,
-    tool,
-)
+try:
+    from claude_agent_sdk import (
+        AssistantMessage,
+        CLINotFoundError,
+        ClaudeAgentOptions,
+        McpSdkServerConfig,
+        ResultMessage,
+        StreamEvent,
+        TextBlock,
+        create_sdk_mcp_server,
+        query,
+        tool,
+    )
+
+    _CLAUDE_AGENT_SDK_AVAILABLE = True
+except ImportError:  # claude-agent-sdk is optional; the active runtime uses deepagents.
+    _CLAUDE_AGENT_SDK_AVAILABLE = False
+    AssistantMessage = None  # type: ignore[assignment]
+    CLINotFoundError = None  # type: ignore[assignment]
+    ClaudeAgentOptions = None  # type: ignore[assignment]
+    McpSdkServerConfig = None  # type: ignore[assignment]
+    ResultMessage = None  # type: ignore[assignment]
+    StreamEvent = None  # type: ignore[assignment]
+    TextBlock = None  # type: ignore[assignment]
+    create_sdk_mcp_server = None  # type: ignore[assignment]
+    query = None  # type: ignore[assignment]
+    tool = None  # type: ignore[assignment]
 from pydantic import ValidationError
 
 from ..config import AppSettings, DEFAULT_SETTINGS

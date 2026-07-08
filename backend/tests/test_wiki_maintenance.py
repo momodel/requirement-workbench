@@ -102,7 +102,7 @@ def test_prompt_includes_focus_source_and_allowed_source_ids(tmp_path: Path):
     assert "硬规则" in prompt
     assert "不许伪造 source_id" in prompt
     # page index lines are JSON, do NOT contain page bodies
-    assert "正文用 Read 工具自取" in prompt
+    assert "正文用 read_file 自取" in prompt
     assert "_骨架页" not in prompt  # body sentinel from skeleton not embedded
 
 
@@ -136,7 +136,7 @@ def test_system_prompt_embeds_skill_text(tmp_path: Path):
     )
     text = maintainer._system_prompt()
     assert "fake skill marker" in text
-    assert "Read / Write / Edit / Glob" in text
+    assert "read_file / write_file / edit_file / ls / glob" in text
     assert "wiki" in text
 
 
@@ -156,13 +156,20 @@ class _FakeAsyncIterator:
         return self._items.pop(0)
 
 
+def _patch_run_query(write_fn):
+    """Patch WikiMaintainer._run_query to invoke write_fn(prompt) instead of the real agent."""
+    async def fake_run_query(self, *, prompt, cwd, system_prompt, allowed_tools, max_turns):
+        write_fn(prompt)
+    return patch.object(WikiMaintainer, "_run_query", fake_run_query)
+
+
 def test_run_marks_maintained_when_sdk_writes_valid_page(tmp_path: Path):
     settings, catalog, store, project = make_setup(tmp_path)
     src = insert_source(catalog, project.id, source_id="s-real", name="资料", summary="规则要点")
 
     maintainer = WikiMaintainer(settings, store=store, catalog=catalog)
 
-    def fake_query(prompt: str, options):
+    def write_fn(prompt: str):
         # Simulate a real subagent: write a new entity page directly to disk.
         wiki_dir = store.project_wiki_dir(project.id)
         page_text = (
@@ -181,9 +188,8 @@ def test_run_marks_maintained_when_sdk_writes_valid_page(tmp_path: Path):
             + "\n---\n\n# 订单\n\n订单实体的工作理解。[src: " + src.id + "]\n"
         )
         (wiki_dir / "pages" / "entity-order.md").write_text(page_text, encoding="utf-8")
-        return _FakeAsyncIterator([])
 
-    with patch("app.services.wiki_maintenance.query", side_effect=fake_query):
+    with _patch_run_query(write_fn):
         result = asyncio.run(
             maintainer.run(project.id, trigger_kind="source_ingested", source_id=src.id)
         )
@@ -201,7 +207,7 @@ def test_run_fails_when_sdk_writes_unknown_source_id(tmp_path: Path):
 
     maintainer = WikiMaintainer(settings, store=store, catalog=catalog)
 
-    def fake_query(prompt: str, options):
+    def write_fn(prompt: str):
         wiki_dir = store.project_wiki_dir(project.id)
         page_text = (
             "---\n"
@@ -219,9 +225,8 @@ def test_run_fails_when_sdk_writes_unknown_source_id(tmp_path: Path):
             + "\n---\n\nbody\n"
         )
         (wiki_dir / "pages" / "entity-fake.md").write_text(page_text, encoding="utf-8")
-        return _FakeAsyncIterator([])
 
-    with patch("app.services.wiki_maintenance.query", side_effect=fake_query):
+    with _patch_run_query(write_fn):
         result = asyncio.run(
             maintainer.run(project.id, trigger_kind="source_ingested", source_id=src.id)
         )
@@ -236,13 +241,12 @@ def test_run_fails_when_sdk_writes_outside_pages_dir(tmp_path: Path):
 
     maintainer = WikiMaintainer(settings, store=store, catalog=catalog)
 
-    def fake_query(prompt: str, options):
+    def write_fn(prompt: str):
         wiki_dir = store.project_wiki_dir(project.id)
         # Write a markdown file in wiki root (not under pages/), which is forbidden.
         (wiki_dir / "rogue.md").write_text("# rogue\n", encoding="utf-8")
-        return _FakeAsyncIterator([])
 
-    with patch("app.services.wiki_maintenance.query", side_effect=fake_query):
+    with _patch_run_query(write_fn):
         result = asyncio.run(
             maintainer.run(project.id, trigger_kind="source_ingested", source_id=src.id)
         )
@@ -257,16 +261,15 @@ def test_run_health_probe_passes_when_marker_written(tmp_path: Path):
     captured_prompt: dict[str, Any] = {}
     maintainer = WikiMaintainer(settings, store=store, catalog=catalog)
 
-    def fake_query(prompt: str, options):
+    def write_fn(prompt: str):
         captured_prompt["text"] = prompt
         # extract marker the subagent was told to write
         wiki_dir = store.project_wiki_dir(project.id)
         # find the marker in the prompt: it appears between backticks after "包含一行："
         marker = prompt.split("`")[3]
         (wiki_dir / ".health").write_text(marker, encoding="utf-8")
-        return _FakeAsyncIterator([])
 
-    with patch("app.services.wiki_maintenance.query", side_effect=fake_query):
+    with _patch_run_query(write_fn):
         result = asyncio.run(maintainer.run_health_probe(project.id))
 
     assert result.status == "maintained"
@@ -279,11 +282,11 @@ def test_run_health_probe_fails_when_marker_missing(tmp_path: Path):
 
     maintainer = WikiMaintainer(settings, store=store, catalog=catalog)
 
-    def fake_query(prompt: str, options):
-        # subagent does nothing
-        return _FakeAsyncIterator([])
+    def write_fn(prompt: str):
+        # subagent does nothing (marker missing on purpose)
+        pass
 
-    with patch("app.services.wiki_maintenance.query", side_effect=fake_query):
+    with _patch_run_query(write_fn):
         with pytest.raises(ProviderIssue) as info:
             asyncio.run(maintainer.run_health_probe(project.id))
 

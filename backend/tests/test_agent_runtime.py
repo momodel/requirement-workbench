@@ -19,6 +19,11 @@ from app.services.project_catalog import ProjectCatalog
 from app.services.project_state import ProjectStateService
 from app.services.seed_projects import ensure_seed_project
 
+pytestmark = pytest.mark.skipif(
+    not agent_runtime_module._CLAUDE_AGENT_SDK_AVAILABLE,
+    reason="claude-agent-sdk not installed; legacy ClaudeAgentRuntime tests are skipped (active runtime uses deepagents).",
+)
+
 
 def test_visual_mockup_reference_urls_are_absolutized(tmp_path: Path) -> None:
     settings = AppSettings(

@@ -19,7 +19,12 @@ from app.models import (
     WikiPageMeta,
     WikiRecord,
 )
-from app.services.agent_runtime import ClaudeAgentRuntime
+from app.services.agent_runtime import ClaudeAgentRuntime, _CLAUDE_AGENT_SDK_AVAILABLE
+
+pytestmark = pytest.mark.skipif(
+    not _CLAUDE_AGENT_SDK_AVAILABLE,
+    reason="claude-agent-sdk not installed; legacy tool-factory tests skipped (active tools are LangChain StructuredTools in DeepAgentsRuntime).",
+)
 from app.services.project_catalog import ProjectCatalog
 
 
