@@ -15,6 +15,7 @@ import type {
   WikiPageMeta,
   WikiRecord,
   ClaudeSettings,
+  ClaudeSettingsUpdate,
 } from './types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -268,7 +269,7 @@ export function getClaudeSettings() {
   return fetchJson<ClaudeSettings>('/api/settings/claude');
 }
 
-export function updateClaudeSettings(payload: Partial<ClaudeSettings>) {
+export function updateClaudeSettings(payload: ClaudeSettingsUpdate) {
   return fetchJson<ClaudeSettings>('/api/settings/claude', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

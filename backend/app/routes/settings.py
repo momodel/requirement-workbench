@@ -18,9 +18,19 @@ class ClaudeSettingsPayload(BaseModel):
 
 
 class ClaudeSettingsResponse(BaseModel):
-    api_key: str
+    api_key_configured: bool
+    api_key_preview: str
     base_url: str
     model: str
+
+
+def _mask_api_key(key: str) -> str:
+    """Return a non-secret preview so the UI can confirm a key is set without exposing it."""
+    if not key:
+        return ""
+    if len(key) <= 12:
+        return "****"
+    return f"{key[:6]}...{key[-4:]}"
 
 
 def _env_local_path() -> Path:
@@ -49,8 +59,10 @@ def _persist_env_setting(key: str, value: str) -> None:
 
 @router.get("/claude", response_model=ClaudeSettingsResponse)
 def get_claude_settings() -> ClaudeSettingsResponse:
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     return ClaudeSettingsResponse(
-        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        api_key_configured=bool(api_key),
+        api_key_preview=_mask_api_key(api_key),
         base_url=os.environ.get("ANTHROPIC_BASE_URL", ""),
         model=DEFAULT_SETTINGS.claude_model or os.environ.get("CLAUDE_MODEL", ""),
     )
@@ -58,7 +70,7 @@ def get_claude_settings() -> ClaudeSettingsResponse:
 
 @router.put("/claude", response_model=ClaudeSettingsResponse)
 def update_claude_settings(payload: ClaudeSettingsPayload) -> ClaudeSettingsResponse:
-    if payload.api_key is not None:
+    if payload.api_key:
         os.environ["ANTHROPIC_API_KEY"] = payload.api_key
         _persist_env_setting("ANTHROPIC_API_KEY", payload.api_key)
     if payload.base_url is not None:
@@ -69,8 +81,10 @@ def update_claude_settings(payload: ClaudeSettingsPayload) -> ClaudeSettingsResp
         os.environ["CLAUDE_MODEL"] = payload.model
         _persist_env_setting("CLAUDE_MODEL", payload.model)
 
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     return ClaudeSettingsResponse(
-        api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+        api_key_configured=bool(api_key),
+        api_key_preview=_mask_api_key(api_key),
         base_url=os.environ.get("ANTHROPIC_BASE_URL", ""),
         model=DEFAULT_SETTINGS.claude_model or os.environ.get("CLAUDE_MODEL", ""),
     )
