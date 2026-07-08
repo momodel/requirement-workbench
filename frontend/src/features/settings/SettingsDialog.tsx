@@ -21,6 +21,8 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [apiKey, setApiKey] = useState('');
+  const [apiKeyPreview, setApiKeyPreview] = useState('');
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
   const [showKey, setShowKey] = useState(false);
@@ -34,7 +36,9 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setSaved(false);
     getClaudeSettings()
       .then((settings) => {
-        setApiKey(settings.api_key);
+        setApiKey('');
+        setApiKeyPreview(settings.api_key_preview);
+        setApiKeyConfigured(settings.api_key_configured);
         setBaseUrl(settings.base_url);
         setModel(settings.model);
       })
@@ -48,7 +52,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setSaved(false);
     try {
       await updateClaudeSettings({
-        api_key: apiKey,
+        api_key: apiKey.trim() ? apiKey : undefined,
         base_url: baseUrl,
         model,
       });
@@ -85,7 +89,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                   type={showKey ? 'text' : 'password'}
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="sk-..."
+                  placeholder={
+                    apiKeyConfigured
+                      ? `已配置 ${apiKeyPreview}，留空不修改`
+                      : 'sk-...'
+                  }
                   className="font-mono text-sm"
                 />
                 <Button

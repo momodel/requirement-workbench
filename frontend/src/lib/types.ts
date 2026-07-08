@@ -219,7 +219,14 @@ export type SseEventPayload = {
 };
 
 export type ClaudeSettings = {
-  api_key: string;
+  api_key_configured: boolean;
+  api_key_preview: string;
   base_url: string;
   model: string;
+};
+
+export type ClaudeSettingsUpdate = {
+  api_key?: string;
+  base_url?: string;
+  model?: string;
 };
