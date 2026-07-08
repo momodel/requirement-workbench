@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agentic Code Review"
+  short_description: "Risk-tiered multi-perspective code review"
+  default_prompt: "Use $agentic-code-review to review this PR with risk tiering, evidence gates, and human-owned merge guidance."

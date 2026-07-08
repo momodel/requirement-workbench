@@ -17,7 +17,7 @@ def make_settings(
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        claude_cli_path=str(tmp_path / "missing-claude"),
+        llm_cli_path=str(tmp_path / "missing-claude"),
     )
 
 

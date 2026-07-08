@@ -9,7 +9,7 @@ messages should be in English; documentation can be either.
 ## Development setup
 
 Prerequisites: Python `3.11+`, Node.js `18+`, a working `claude` CLI (or
-`CLAUDE_CODE_CLI_PATH` configured), and network access for the Claude provider and
+`LLM_CLI_PATH` configured), and network access for the Claude provider and
 the RAG evidence layer.
 
 ```bash
@@ -17,7 +17,7 @@ the RAG evidence layer.
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.local.example .env.local   # fill in at least ANTHROPIC_API_KEY
+cp .env.local.example .env.local   # fill in at least LLM_API_KEY
 
 # Frontend
 cd frontend
@@ -60,8 +60,9 @@ This repo has a strict "no fake providers" rule. Before opening a PR, please rea
 3. Ensure tests, type-check and build pass locally.
 4. Open a PR using the template; describe the change, the why, and how you verified
    it. Link any related issue.
-5. PRs receive an automated review (we use OpenAI Codex in CI) plus human review.
-   Address feedback and keep the branch up to date with `main`.
+5. CI runs static checks (tests, type-check, build, PR title). AI code review runs
+   locally via the pre-push hook (see AGENTS.md, Pre-push AI review). Human review
+   is always required. Address feedback and keep the branch up to date with `main`.
 
 ### PR title convention
 

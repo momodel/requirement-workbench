@@ -84,7 +84,7 @@ Read this in [English](README.md).
 
 - Python `3.11+`
 - Node.js `18+`
-- 一个可用的 `claude` CLI，或者在环境变量里显式配置 `CLAUDE_CODE_CLI_PATH`
+- 一个可用的 `claude` CLI，或者在环境变量里显式配置 `LLM_CLI_PATH`
 - 可正常联网，供 Claude provider 和 项目知识库 使用
 
 ## 5 分钟启动
@@ -119,15 +119,15 @@ cp .env.local.example .env.local
 然后填写最少这几个变量：
 
 ```bash
-ANTHROPIC_API_KEY=你的key
-ANTHROPIC_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
-CLAUDE_MODEL=glm-5
+LLM_API_KEY=你的key
+LLM_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
+LLM_MODEL=glm-5
 ```
 
 按当前代码，Claude 运行还依赖一个可执行的 `claude` CLI：
 
 - 如果 `claude` 已经在 `PATH` 里，后端会直接使用
-- 如果不在 `PATH` 里，就在 `.env.local` 里补 `CLAUDE_CODE_CLI_PATH=/absolute/path/to/claude`
+- 如果不在 `PATH` 里，就在 `.env.local` 里补 `LLM_CLI_PATH=/absolute/path/to/claude`
 - 没装过的话，可以用 `npm i -g @anthropic-ai/claude-code` 装一份
 
 快速检查方式：
@@ -139,7 +139,7 @@ python -c "import claude_agent_sdk; print('claude_agent_sdk ok')"
 which claude
 ```
 
-如果 `which claude` 没输出，就需要配 `CLAUDE_CODE_CLI_PATH`。
+如果 `which claude` 没输出，就需要配 `LLM_CLI_PATH`。
 
 ### 4. 配置音频 ASR + 七牛（可选，仅音频上传需要）
 
@@ -282,7 +282,7 @@ pip install -r requirements.txt
 处理方式：
 
 - 让 `claude` 出现在 `PATH`
-- 或在 `backend/.env.local` 配 `CLAUDE_CODE_CLI_PATH`
+- 或在 `backend/.env.local` 配 `LLM_CLI_PATH`
 
 ### 3. `RAG provider 未配置或项目 knowledge base 未初始化`
 

@@ -19,7 +19,7 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        claude_cli_path=str(tmp_path / "fake-claude"),
+        llm_cli_path=str(tmp_path / "fake-claude"),
         aliyun_ak_id="aliyun-ak",
         aliyun_ak_secret="aliyun-sk",
         aliyun_app_key="aliyun-app-key",

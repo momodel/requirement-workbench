@@ -38,14 +38,14 @@ class ChatService:
         )
 
     def _stream_timeout_for_phase(self, phase: str | None) -> float:
-        base_timeout = self.catalog.settings.claude_stream_timeout_seconds
+        base_timeout = self.catalog.settings.llm_stream_timeout_seconds
         if not phase:
             return base_timeout
 
         if phase == "tool_running:generate_artifact":
             return max(
                 base_timeout,
-                self.catalog.settings.claude_artifact_timeout_seconds + 15,
+                self.catalog.settings.llm_artifact_timeout_seconds + 15,
             )
 
         if phase == "tool_running:generate_visual_mockup":
@@ -270,9 +270,9 @@ class ChatService:
         final_citations: list[dict] = []
         final_images: list[dict] = []
         current_timeout = (
-            self.catalog.settings.claude_artifact_timeout_seconds + 15
+            self.catalog.settings.llm_artifact_timeout_seconds + 15
             if payload.request_artifact_types
-            else self.catalog.settings.claude_stream_timeout_seconds
+            else self.catalog.settings.llm_stream_timeout_seconds
         )
 
         try:
@@ -296,9 +296,9 @@ class ChatService:
                         str(value.get("phase") or "")
                     )
                 elif payload.request_artifact_types:
-                    current_timeout = self.catalog.settings.claude_artifact_timeout_seconds + 15
+                    current_timeout = self.catalog.settings.llm_artifact_timeout_seconds + 15
                 else:
-                    current_timeout = self.catalog.settings.claude_stream_timeout_seconds
+                    current_timeout = self.catalog.settings.llm_stream_timeout_seconds
 
                 if event_type == "image_result":
                     final_images.append(value)

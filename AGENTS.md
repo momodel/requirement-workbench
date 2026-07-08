@@ -34,6 +34,12 @@ If your task touches one of these areas, also read the matching skill:
 These skills are reference material for the backend runtime. Their existence does not
 mean a feature is wired up.
 
+**Project-root skill (applies to the whole repo):**
+
+- `agentic-code-review` (`.claude/skills/agentic-code-review/`) - risk-tiered code review
+  workflow for agent-authored changes; blast-radius triage, multi-perspective AI review,
+  and failure-mode checklist. Not a backend runtime skill.
+
 ## Project baseline
 
 - The repo already contains exploratory frontend and backend code. None of it is
@@ -133,6 +139,22 @@ If it is unconfigured, say so. If it fails, report the failure.
 - When a command fails, first distinguish: wrong path, environment not installed in
   this worktree, or a genuinely missing project dependency.
 
+### Pre-push AI review
+
+A pre-push hook runs the `agentic-code-review` skill via the project's configured LLM
+before each push. The review is a sensor, not a verdict: it prints findings and asks for
+confirmation, but a human owns the merge.
+
+Enable it once per clone:
+
+```
+git config core.hooksPath .githooks
+```
+
+The hook (`scripts/pre-push-review.py`) uses `backend/.venv/bin/python` and loads LLM
+credentials from `backend/.env.local`. If the LLM is not configured, it warns and lets
+the push through. The project LLM endpoint must be configured; no GitHub-side or external API keys are needed.
+
 ## Preflight
 
 Before implementing or accepting work, run these checks:
@@ -146,7 +168,7 @@ Before implementing or accepting work, run these checks:
 You may not call the main path "wired up" unless all of these pass:
 
 - `Claude Agent SDK` is callable.
-- `CLAUDE_MODEL` is configured.
+- `LLM_MODEL` is configured (legacy `CLAUDE_MODEL` still accepted).
 - The in-repo `Docling + Qdrant + LlamaIndex` provider is callable.
 - The project knowledge base is authenticated.
 - The current project has initialized its own knowledge base.

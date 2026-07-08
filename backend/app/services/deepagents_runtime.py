@@ -6,7 +6,8 @@ import os
 import uuid
 from typing import Any, AsyncIterator
 
-from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models import BaseChatModel
+from .llm_model import build_chat_model, llm_readiness, resolve_llm_config
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
@@ -132,67 +133,28 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
         evidence_runtime=None,
     ) -> None:
         super().__init__(settings, evidence_runtime=evidence_runtime)
-        self._model: ChatAnthropic | None = None
+        self._model: BaseChatModel | None = None
 
     # ------------------------------------------------------------------ #
     # Model + readiness                                                  #
     # ------------------------------------------------------------------ #
-    def _resolve_model_config(self) -> tuple[str, str, str | None]:
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
-        model_name = self.settings.claude_model or os.environ.get("CLAUDE_MODEL", "")
-        return api_key, base_url, model_name
-
-    def _get_model(self) -> ChatAnthropic:
+    def _get_model(self) -> BaseChatModel:
         if self._model is None:
-            api_key, base_url, model_name = self._resolve_model_config()
-            if not api_key:
-                raise ProviderIssue(provider=PROVIDER, message="未配置 ANTHROPIC_API_KEY。")
-            if not model_name:
-                raise ProviderIssue(provider=PROVIDER, message="未配置 CLAUDE_MODEL。")
-            self._model = ChatAnthropic(
-                model=model_name,
-                api_key=api_key,
-                base_url=base_url,
-                timeout=self.settings.claude_stream_timeout_seconds or 120,
-                max_retries=2,
-            )
+            self._model = build_chat_model(self.settings)
         return self._model
 
     def ensure_available(self) -> None:
-        api_key, _base_url, model_name = self._resolve_model_config()
+        api_key, _base_url, model_name, _fmt = resolve_llm_config(self.settings)
         if not api_key:
-            raise ProviderIssue(provider=PROVIDER, message="未配置 ANTHROPIC_API_KEY。")
+            raise ProviderIssue(provider=PROVIDER, message="未配置 LLM_API_KEY（或旧名 ANTHROPIC_API_KEY）。")
         if not model_name:
-            raise ProviderIssue(
-                provider=PROVIDER,
-                message="未配置 CLAUDE_MODEL，主链路无法启动。",
-            )
+            raise ProviderIssue(provider=PROVIDER, message="未配置 LLM_MODEL（或旧名 CLAUDE_MODEL），主链路无法启动。")
 
     def resolved_cli_path(self) -> str | None:  # no CLI in this runtime
         return None
 
     def get_readiness(self) -> ProviderReadiness:
-        try:
-            self.ensure_available()
-        except ProviderIssue as exc:
-            return ProviderReadiness(
-                provider=PROVIDER,
-                status="not_configured",
-                summary="Deep Agents 运行时还没有准备好。",
-                detail=exc.message,
-                action_label="配置 Claude 模型",
-            )
-        _api_key, base_url, model_name = self._resolve_model_config()
-        detail = f"当前模型：{model_name}"
-        if base_url:
-            detail += f"；base_url：{base_url}"
-        return ProviderReadiness(
-            provider=PROVIDER,
-            status="ready",
-            summary="Deep Agents 运行时已就绪，且已锁定模型配置。",
-            detail=detail,
-        )
+        return llm_readiness(self.settings)
 
     # ------------------------------------------------------------------ #
     # Tool factories (LangChain StructuredTool)                          #
@@ -413,7 +375,7 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
             async for mode, chunk in agent.astream(
                 {"messages": input_messages},
                 stream_mode=["messages", "updates"],
-                config={"recursion_limit": max(self.settings.claude_max_turns * 4, 40)},
+                config={"recursion_limit": max(self.settings.llm_max_turns * 4, 40)},
             ):
                 if mode == "messages":
                     try:
@@ -532,7 +494,7 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
         except Exception as exc:
             raise ProviderIssue(provider=PROVIDER, message=f"交付物生成失败：{exc}") from exc
 
-    async def _invoke_text(self, model: ChatAnthropic, prompt: str) -> str:
+    async def _invoke_text(self, model: BaseChatModel, prompt: str) -> str:
         resp = await model.ainvoke(prompt)
         return _extract_text(getattr(resp, "content", ""))
 
@@ -584,7 +546,8 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
             raw = await lc_model.ainvoke(lc_messages)
             return ModelResponse(parts=[TextPart(content=_extract_text(getattr(raw, "content", "")))])
 
-        model_name = self._resolve_model_config()[2] or "deepagents-bridge"
+        _api_key, _base_url, model_name, _fmt = resolve_llm_config(self.settings)
+        model_name = model_name or "deepagents-bridge"
         agent = Agent(
             model=FunctionModel(function=bridge_function, model_name=model_name),
             system_prompt="你是客户需求转译台的交付物生成智能体。只输出结构化内容。",

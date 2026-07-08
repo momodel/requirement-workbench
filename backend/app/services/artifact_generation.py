@@ -231,7 +231,7 @@ class ArtifactGenerationService:
                 runtime_kwargs["additional_instruction"] = additional_instruction
             generated = await asyncio.wait_for(
                 agent_runtime.generate_artifact(**runtime_kwargs),
-                timeout=self.settings.claude_artifact_timeout_seconds,
+                timeout=self.settings.llm_artifact_timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
             raise ProviderIssue(
