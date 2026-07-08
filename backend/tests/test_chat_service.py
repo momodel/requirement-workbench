@@ -18,9 +18,9 @@ def make_settings(tmp_path: Path) -> AppSettings:
         sqlite_dir=data_dir / "sqlite",
         sqlite_path=data_dir / "sqlite" / "test.db",
         projects_dir=data_dir / "projects",
-        claude_cli_path=str(tmp_path / "missing-claude"),
-        claude_stream_timeout_seconds=0.1,
-        claude_artifact_timeout_seconds=0.3,
+        llm_cli_path=str(tmp_path / "missing-claude"),
+        llm_stream_timeout_seconds=0.1,
+        llm_artifact_timeout_seconds=0.3,
         evidence_query_timeout_seconds=0.2,
     )
 

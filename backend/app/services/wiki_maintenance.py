@@ -9,7 +9,7 @@ from typing import Iterable
 
 from deepagents import create_deep_agent
 from deepagents.backends.filesystem import FilesystemBackend
-from langchain_anthropic import ChatAnthropic
+from .llm_model import build_chat_model
 
 from ..config import AppSettings, DEFAULT_SETTINGS
 from ..models import (
@@ -260,16 +260,8 @@ class WikiMaintainer:
             trigger_kind=trigger_kind,
         )
 
-    def _get_model(self) -> ChatAnthropic:
-        import os
-        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-        base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
-        model_name = self.settings.claude_model or os.environ.get("CLAUDE_MODEL", "")
-        if not api_key:
-            raise ProviderIssue(provider=WIKI_MAINTAINER_PROVIDER, message="未配置 ANTHROPIC_API_KEY，Wiki 维护子 agent 不可用。")
-        if not model_name:
-            raise ProviderIssue(provider=WIKI_MAINTAINER_PROVIDER, message="未配置 CLAUDE_MODEL，Wiki 维护子 agent 不可用。")
-        return ChatAnthropic(model=model_name, api_key=api_key, base_url=base_url, timeout=180, max_retries=1)
+    def _get_model(self):
+        return build_chat_model(self.settings, timeout=180, max_retries=1)
 
     async def _run_query(
         self,

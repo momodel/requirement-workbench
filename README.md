@@ -52,14 +52,14 @@ full engineering contract.
 ## Quick start
 
 Prerequisites: Python `3.11+`, Node.js `18+`, network access, and a working `claude`
-CLI (or `CLAUDE_CODE_CLI_PATH` configured).
+CLI (or `LLM_CLI_PATH` configured).
 
 ```bash
 # 1. Backend
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.local.example .env.local   # then fill in ANTHROPIC_API_KEY etc.
+cp .env.local.example .env.local   # then fill in LLM_API_KEY etc.
 
 # 2. Start backend (from backend/, venv active)
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
@@ -76,9 +76,9 @@ npm run dev
 Minimum `backend/.env.local`:
 
 ```bash
-ANTHROPIC_API_KEY=your-key
-ANTHROPIC_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
-CLAUDE_MODEL=glm-5
+LLM_API_KEY=your-key
+LLM_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
+LLM_MODEL=glm-5
 ```
 
 > First run downloads the embedding model `BAAI/bge-small-zh-v1.5` (~100 MB) and

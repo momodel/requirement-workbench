@@ -1131,7 +1131,7 @@ class ProjectCatalog:
 
     def mark_stale_generating_artifacts_failed(self, project_id: str) -> None:
         artifact_timeout = max(
-            self.settings.claude_artifact_timeout_seconds,
+            self.settings.llm_artifact_timeout_seconds,
             getattr(self.settings, "image_generation_timeout_seconds", 0),
         )
         cutoff = datetime.now(ZoneInfo(self.settings.default_timezone)) - timedelta(seconds=artifact_timeout + 30)

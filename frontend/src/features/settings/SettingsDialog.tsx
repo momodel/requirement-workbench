@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from '../../components/ui/dialog';
 import { Input } from '../../components/ui/input';
-import { getClaudeSettings, updateClaudeSettings } from '../../lib/api';
+import { getLlmSettings, updateLlmSettings } from '../../lib/api';
 
 type SettingsDialogProps = {
   open: boolean;
@@ -25,6 +25,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
+  const [apiFormat, setApiFormat] = useState('');
   const [showKey, setShowKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -34,13 +35,14 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setLoading(true);
     setError(null);
     setSaved(false);
-    getClaudeSettings()
+    getLlmSettings()
       .then((settings) => {
         setApiKey('');
         setApiKeyPreview(settings.api_key_preview);
         setApiKeyConfigured(settings.api_key_configured);
         setBaseUrl(settings.base_url);
         setModel(settings.model);
+        setApiFormat(settings.api_format);
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setLoading(false));
@@ -51,10 +53,11 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
     setError(null);
     setSaved(false);
     try {
-      await updateClaudeSettings({
+      await updateLlmSettings({
         api_key: apiKey.trim() ? apiKey : undefined,
         base_url: baseUrl,
         model,
+        api_format: apiFormat,
       });
       setSaved(true);
       setTimeout(() => onOpenChange(false), 700);
@@ -71,7 +74,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         <DialogHeader>
           <DialogTitle>Provider 设置</DialogTitle>
           <DialogDescription>
-            Claude Agent SDK 接口配置,修改后立即生效并写入 .env.local。
+            LLM 接口配置,修改后立即生效并写入 .env.local。
           </DialogDescription>
         </DialogHeader>
 
@@ -83,7 +86,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-1.5">
-              <label className="text-xs font-medium text-olive">ANTHROPIC_API_KEY</label>
+              <label className="text-xs font-medium text-olive">LLM_API_KEY</label>
               <div className="flex gap-2">
                 <Input
                   type={showKey ? 'text' : 'password'}
@@ -109,7 +112,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </div>
 
             <div className="grid gap-1.5">
-              <label className="text-xs font-medium text-olive">ANTHROPIC_BASE_URL</label>
+              <label className="text-xs font-medium text-olive">LLM_BASE_URL</label>
               <Input
                 type="text"
                 value={baseUrl}
@@ -120,7 +123,7 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
             </div>
 
             <div className="grid gap-1.5">
-              <label className="text-xs font-medium text-olive">CLAUDE_MODEL</label>
+              <label className="text-xs font-medium text-olive">LLM_MODEL</label>
               <Input
                 type="text"
                 value={model}
@@ -128,6 +131,29 @@ export function SettingsDialog({ open, onOpenChange }: SettingsDialogProps) {
                 placeholder="claude-sonnet-4-5-20250929"
                 className="font-mono text-sm"
               />
+            </div>
+
+            <div className="grid gap-1.5">
+              <label className="text-xs font-medium text-olive">LLM_API_FORMAT</label>
+              <div className="flex gap-1 rounded-lg border border-[#d4cab0] bg-[#f5f1e6] p-1">
+                {(['anthropic', 'openai'] as const).map((fmt) => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    onClick={() => setApiFormat(fmt)}
+                    className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      apiFormat === fmt
+                        ? 'bg-white text-olive shadow-sm'
+                        : 'text-muted hover:text-olive'
+                    }`}
+                  >
+                    {fmt === 'anthropic' ? 'Anthropic' : 'OpenAI'}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-muted">
+                留空或选择接口格式;未指定时按 base_url 自动判断。
+              </p>
             </div>
 
             {error && (

@@ -146,7 +146,7 @@ Before implementing or accepting work, run these checks:
 You may not call the main path "wired up" unless all of these pass:
 
 - `Claude Agent SDK` is callable.
-- `CLAUDE_MODEL` is configured.
+- `LLM_MODEL` is configured (legacy `CLAUDE_MODEL` still accepted).
 - The in-repo `Docling + Qdrant + LlamaIndex` provider is callable.
 - The project knowledge base is authenticated.
 - The current project has initialized its own knowledge base.
