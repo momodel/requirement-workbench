@@ -1,0 +1,39 @@
+name: PR title
+
+# Enforces conventional-commit prefixes on every pull request title.
+# See CONTRIBUTING.md > "PR title convention".
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  check:
+    name: prefix check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title prefix
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          title="$TITLE"
+          # Allowed: type: desc  or  type(scope): desc
+          pattern='^(feat|fix|chore|perf|refactor|docs|style|test)(\([^)]+\))?: .+'
+          if [[ ! "$title" =~ $pattern ]]; then
+            echo "::error::PR title must start with exactly one allowed prefix: feat|fix|chore|perf|refactor|docs|style|test"
+            echo "::error::Format: 'type: short description' (e.g. 'feat: 增加用户微信登录功能'). Do not mix multiple types."
+            echo "::error::Got: $title"
+            exit 1
+          fi
+          # Reject titles that mix multiple prefixes (e.g. "feat+fix:", "feat/fix:").
+          mix='(feat|fix|chore|perf|refactor|docs|style|test)[/+&]|^(feat|fix|chore|perf|refactor|docs|style|test)\s*,'
+          if [[ "$title" =~ $mix ]]; then
+            echo "::error::PR title must use exactly ONE prefix. Do not mix types."
+            echo "::error::Got: $title"
+            exit 1
+          fi
+          echo "PR title OK: $title"

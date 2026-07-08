@@ -63,6 +63,29 @@ This repo has a strict "no fake providers" rule. Before opening a PR, please rea
 5. PRs receive an automated review (we use OpenAI Codex in CI) plus human review.
    Address feedback and keep the branch up to date with `main`.
 
+### PR title convention
+
+Every PR title MUST start with exactly one conventional-commit prefix. Pick the
+single prefix that matches the PR's primary purpose - do not mix types
+(e.g. no `feat+fix`, no `feat/chore`). A CI check rejects titles that do not match.
+
+| Prefix     | Meaning                                          | Example                                  |
+|------------|--------------------------------------------------|------------------------------------------|
+| `feat`     | New feature or capability                        | `feat: 增加用户微信登录功能`               |
+| `fix`      | Bug fix                                          | `fix: 修复登录页面密码框无法输入的 bug`    |
+| `chore`    | Tooling, deps, build, config (no business logic) | `chore: 升级 webpack 构建工具版本`         |
+| `perf`     | Performance improvement (no behavior change)     | `perf: 优化图片懒加载，提升首屏渲染速度`   |
+| `refactor` | Code restructuring (no feature, no bug fix)      | `refactor: 提取公共请求方法`               |
+| `docs`     | Documentation only                               | `docs: 更新 README.md 文件说明`            |
+| `style`    | Formatting/whitespace (no logic change)          | `style: 统一缩进为空格，删除多余空行`      |
+| `test`     | Adding or updating tests                         | `test: 为用户模块增加单元测试`             |
+
+Format: `type: short description`. An optional scope is allowed:
+`type(scope): description` (e.g. `feat(auth): ...`).
+
+The topic branch name should mirror the prefix (e.g. `feat/...`, `fix/...`,
+`docs/...`), as already noted in step 1 above.
+
 ## Reporting bugs and proposing features
 
 - Use the issue templates under `.github/ISSUE_TEMPLATE/`.
