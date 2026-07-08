@@ -20,7 +20,7 @@ from .routes.sources import router as sources_router
 from .routes.state import router as state_router
 from .routes.versions import router as versions_router
 from .routes.wiki import router as wiki_router
-from .services.agent_runtime import ClaudeAgentRuntime
+from .services.deepagents_runtime import DeepAgentsRuntime
 from .services.audio_ingestion_orchestrator import AudioIngestionOrchestrator
 from .services.audio_transcription_service import AudioTranscriptionService
 from .services.artifact_generation import ArtifactGenerationService
@@ -73,7 +73,7 @@ def build_services(settings: AppSettings) -> ServiceContainer:
         audio_transcription=audio_transcription,
         evidence_runtime=evidence_runtime,
     )
-    agent_runtime = ClaudeAgentRuntime(settings, evidence_runtime=evidence_runtime)
+    agent_runtime = DeepAgentsRuntime(settings, evidence_runtime=evidence_runtime)
     wiki_store = WikiStore(settings)
     wiki_maintainer = WikiMaintainer(
         settings,

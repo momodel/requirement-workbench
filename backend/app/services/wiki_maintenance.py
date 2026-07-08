@@ -7,14 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from claude_agent_sdk import (
-    AssistantMessage,
-    CLINotFoundError,
-    ClaudeAgentOptions,
-    ResultMessage,
-    ToolUseBlock,
-    query,
-)
+from deepagents import create_deep_agent
+from deepagents.backends.filesystem import FilesystemBackend
+from langchain_anthropic import ChatAnthropic
 
 from ..config import AppSettings, DEFAULT_SETTINGS
 from ..models import (
@@ -125,10 +120,9 @@ class WikiMaintainer:
 
         marker = f"probe-{os.urandom(8).hex()}"
         wiki_dir = self.store.project_wiki_dir(project_id)
-        target_path = wiki_dir / HEALTH_FILE_NAME
         prompt = (
-            f"使用 Write 工具创建文件 `{target_path}`，内容只包含一行：`{marker}`。"
-            f"必须使用这个绝对路径，不要拼接其他目录。完成后停止，不要执行其他操作。"
+            f"使用 write_file 工具创建文件 `.health`（相对路径，文件工具已收口在 wiki 根目录），内容只包含一行：`{marker}`。"
+            f"完成后停止，不要执行其他操作。"
         )
         try:
             await asyncio.wait_for(
@@ -137,9 +131,9 @@ class WikiMaintainer:
                     cwd=wiki_dir,
                     system_prompt=(
                         f"你是 LLM Wiki 健康探针。"
-                        f"项目 wiki 根目录：{wiki_dir}。"
-                        f"只允许使用 Write 工具，且只能写入 wiki 根目录下的 `.health` 文件。"
-                        f"不要写入 HOME 目录、不要拼接任何其他路径。"
+                        f"文件工具已收口在 wiki 根目录。"
+                        f"只允许使用 write_file 工具，且只能写入 `.health` 文件（相对路径）。"
+                        f"不要写入任何其他路径。"
                     ),
                     allowed_tools=["Write"],
                     max_turns=HEALTH_PROBE_MAX_TURNS,
@@ -209,11 +203,11 @@ class WikiMaintainer:
                 allowed_tools=["Read", "Write", "Edit", "Glob"],
                 max_turns=self.max_turns,
             )
-        except CLINotFoundError as exc:
+        except ProviderIssue as exc:
             return WikiMaintenanceResult(
                 project_id=project_id,
                 status="skipped",
-                error=f"Claude CLI not found: {exc}",
+                error=exc.message,
                 trigger_kind=trigger_kind,
             )
         except ProviderIssue as exc:
@@ -266,6 +260,17 @@ class WikiMaintainer:
             trigger_kind=trigger_kind,
         )
 
+    def _get_model(self) -> ChatAnthropic:
+        import os
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        base_url = os.environ.get("ANTHROPIC_BASE_URL") or None
+        model_name = self.settings.claude_model or os.environ.get("CLAUDE_MODEL", "")
+        if not api_key:
+            raise ProviderIssue(provider=WIKI_MAINTAINER_PROVIDER, message="未配置 ANTHROPIC_API_KEY，Wiki 维护子 agent 不可用。")
+        if not model_name:
+            raise ProviderIssue(provider=WIKI_MAINTAINER_PROVIDER, message="未配置 CLAUDE_MODEL，Wiki 维护子 agent 不可用。")
+        return ChatAnthropic(model=model_name, api_key=api_key, base_url=base_url, timeout=180, max_retries=1)
+
     async def _run_query(
         self,
         *,
@@ -275,32 +280,28 @@ class WikiMaintainer:
         allowed_tools: list[str],
         max_turns: int,
     ) -> None:
-        runtime_dir = cwd / ".runtime"
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        options = ClaudeAgentOptions(
+        # Deep Agents filesystem backend scoped to the wiki dir. virtual_mode=True
+        # keeps file operations inside root_dir (relative paths only).
+        backend = FilesystemBackend(root_dir=str(cwd), virtual_mode=True)
+        agent = create_deep_agent(
+            model=self._get_model(),
             system_prompt=system_prompt,
-            # `tools` registers the base toolset with the CLI; `allowed_tools` is
-            # only a permission filter. Passing tools=[] means "no tools at all"
-            # and the model can never emit tool_use blocks.
-            tools=list(allowed_tools),
-            allowed_tools=allowed_tools,
-            model=self.settings.claude_model,
-            permission_mode="bypassPermissions",
-            max_turns=max_turns,
-            cwd=str(cwd),
-            cli_path=self.settings.claude_cli_path,
-            include_partial_messages=False,
-            setting_sources=["project"],
-            plugins=[],
-            env={"CLAUDE_CONFIG_DIR": str(runtime_dir)},
+            backend=backend,
         )
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, ResultMessage) and message.is_error:
-                errors = ", ".join(message.errors or [])
-                raise ProviderIssue(
-                    provider=WIKI_MAINTAINER_PROVIDER,
-                    message=errors or message.result or "Wiki 维护子 agent 返回错误。",
-                )
+        try:
+            async for _mode, _chunk in agent.astream(
+                {"messages": prompt},
+                stream_mode=["updates"],
+                config={"recursion_limit": max(max_turns * 4, 40)},
+            ):
+                pass
+        except ProviderIssue:
+            raise
+        except Exception as exc:
+            raise ProviderIssue(
+                provider=WIKI_MAINTAINER_PROVIDER,
+                message=str(exc) or "Wiki 维护子 agent 运行失败。",
+            ) from exc
 
     def _system_prompt(self, wiki_dir: Path | None = None) -> str:
         skill_text = ""
@@ -309,14 +310,14 @@ class WikiMaintainer:
         except OSError:
             skill_text = ""
         cwd_line = (
-            f"项目 wiki 根目录（绝对路径）：{wiki_dir}。所有 Read/Write/Edit/Glob 调用都必须使用这个目录下的绝对路径，不要写到 HOME 或仓库其他位置。"
+            f"项目 wiki 根目录：{wiki_dir}。所有文件操作使用相对路径（如 pages/<slug>.md、.health），文件工具已收口在该目录下，不要使用绝对路径或 .. 跳出。"
             if wiki_dir
-            else "工具调用使用的所有路径必须落在当前工作目录（项目 wiki 根）下。"
+            else "所有文件操作使用相对路径，落在 wiki 根目录下。"
         )
         return (
             "你是项目 LLM Wiki 的维护子 agent。"
             f"{cwd_line}"
-            "你只能使用 Read / Write / Edit / Glob 工具。"
+            "你只能使用 read_file / write_file / edit_file / ls / glob 工具。"
             "不要写入 wiki 之外的任何文件；不要修改 log.md 的历史条目。"
             "不允许伪造 source_id：用户提示词会列出本项目允许的 source_id 列表，只能从中挑。"
             "维护规则参考下面的 skill。\n\n"
@@ -358,8 +359,8 @@ class WikiMaintainer:
         )
 
         cwd_block = (
-            f"\n# 工作目录（绝对路径）\n{wiki_dir}\n"
-            f"所有 Read/Write/Edit 调用都使用这个目录下的绝对路径；页面文件位于 `{wiki_dir}/pages/<slug>.md`。\n"
+            f"\n# 工作目录\nwiki 根目录：{wiki_dir}（文件工具已收口在此目录）。\n"
+            f"所有文件操作使用相对路径；页面文件位于 `pages/<slug>.md`。\n"
             if wiki_dir
             else ""
         )
@@ -368,7 +369,7 @@ class WikiMaintainer:
             + cwd_block
             + f"\n# 项目\n- id: {project.id}\n- name: {project.name}\n"
             f"- scenario: {project.scenario_type}\n- summary: {project.summary}\n"
-            f"\n# 当前 wiki 页面索引（仅元信息；页面正文用 Read 工具自取）\n"
+            f"\n# 当前 wiki 页面索引（仅元信息；页面正文用 read_file 自取）\n"
             + ("\n".join(page_index_lines) or "（暂无页面，先初始化）")
             + "\n"
             f"\n# 本项目允许引用的 source_id 白名单\n{allowed_source_block}\n"
@@ -380,10 +381,10 @@ class WikiMaintainer:
             + "\n# 硬规则\n"
             "1. 不许伪造 source_id，只能使用上面白名单里的。\n"
             "2. 每段断言必须能追到至少一个 source_id；front-matter 的 `source_ids` 字段务必保持完整。\n"
-            "3. 优先用 Edit 工具改写已有 markdown；只在确实需要新页面时才用 Write。\n"
+            "3. 优先用 edit_file 改写已有 markdown；只在确实需要新页面时才用 write_file。\n"
             "4. 不要修改 `log.md` 的历史条目；维护完成后由宿主追加。\n"
             "5. front-matter 是 JSON 格式，写入时严格保持合法 JSON。\n"
-            "6. 不要离开 wiki 工作目录，也不要 Write 任何 wiki 之外的路径。\n"
+            "6. 不要离开 wiki 工作目录，也不要 write_file 任何 wiki 之外的路径。\n"
             "7. 完成维护就结束；不要循环 Read。\n"
             "\n开始维护。"
         )

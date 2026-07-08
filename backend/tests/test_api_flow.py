@@ -565,7 +565,7 @@ def test_global_readiness_payload_uses_evidence_semantics_only(tmp_path: Path, m
 
     assert readiness_response.status_code == 200
     readiness = readiness_response.json()
-    assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
+    assert readiness["claude"]["provider"] == "DEEP_AGENTS"
     assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
     assert "notebooklm" not in readiness
 
@@ -577,25 +577,12 @@ def test_readiness_endpoints_surface_claude_model_not_configured_status(
     app = create_app(make_settings(tmp_path))
     install_fake_evidence_runtime(app, monkeypatch)
 
-    real_path_exists = agent_runtime_module.Path.exists
-
-    def fake_exists(path_obj):
-        if str(path_obj) == str(app.state.services.agent_runtime.settings.claude_cli_path):
-            return True
-        return real_path_exists(path_obj)
-
-    monkeypatch.setattr(agent_runtime_module.Path, "exists", fake_exists)
-
-    def fake_run(command, **kwargs):
-        assert command == [str(app.state.services.agent_runtime.settings.claude_cli_path), "auth", "status"]
-        return CompletedProcess(
-            args=command,
-            returncode=0,
-            stdout='{"loggedIn": true, "authMethod": "oauth_token", "apiProvider": "firstParty"}',
-            stderr="",
-        )
-
-    monkeypatch.setattr(agent_runtime_module.subprocess, "run", fake_run)
+    # DeepAgents runtime surfaces model-not-configured via ANTHROPIC_API_KEY +
+    # CLAUDE_MODEL config (no CLI / subprocess). Provide a key but leave the model
+    # unset so readiness reports the model-missing path.
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.delenv("CLAUDE_MODEL", raising=False)
+    monkeypatch.delenv("ANTHROPIC_BASE_URL", raising=False)
 
     with TestClient(app) as client:
         create_response = client.post(
@@ -807,7 +794,7 @@ def test_project_readiness_reports_knowledge_base_required_when_evidence_runtime
 
         assert readiness_response.status_code == 200
         readiness = readiness_response.json()
-        assert readiness["claude"]["provider"] == "CLAUDE_AGENT_SDK"
+        assert readiness["claude"]["provider"] == "DEEP_AGENTS"
         assert readiness["evidence"]["provider"] == "QDRANT_LLAMA_INDEX"
         assert readiness["evidence"]["status"] == "knowledge_base_missing"
         assert readiness["knowledge_base"] is None
