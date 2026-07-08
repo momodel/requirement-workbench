@@ -135,7 +135,7 @@ git config core.hooksPath .githooks
 
 hook 脚本（`scripts/pre-push-review.py`）使用 `backend/.venv/bin/python`，
 从 `backend/.env.local` 加载 LLM 凭据。如果 LLM 未配置，它会警告并放行 push。
-无需外部 API key。
+项目 LLM endpoint 必须已配置；无需 GitHub 侧或外部 API key。
 
 ## Preflight
 

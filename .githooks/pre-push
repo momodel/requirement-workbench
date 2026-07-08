@@ -15,8 +15,6 @@ ZERO="0000000000000000000000000000000000000000"
 
 # --- read ref updates from stdin ------------------------------------------- #
 
-skip_review=false
-
 while read -r local_ref local_sha remote_ref remote_sha; do
     # Skip branch deletions.
     if [[ "$local_sha" == "$ZERO" ]]; then
@@ -28,8 +26,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         # New branch: diff against merge-base with main.
         base_sha=$(git merge-base origin/main "$local_sha" 2>/dev/null || true)
         if [[ -z "$base_sha" ]]; then
-            echo "pre-push-review: cannot determine merge-base with main, skipping review"
-            skip_review=true
+            echo "pre-push-review: WARNING - cannot determine merge-base with origin/main."
+            echo "  Run 'git fetch origin main' first, or review manually."
+            echo "  Skipping AI review for this push."
             continue
         fi
         range="$base_sha..$local_sha"
@@ -46,24 +45,23 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if [[ ! -f "$PYTHON" ]]; then
         echo "pre-push-review: backend/.venv/bin/python not found -- skipping review"
         echo "  (run: cd backend && python -m venv .venv && .venv/bin/pip install -e .)"
-        skip_review=true
         continue
     fi
 
     echo ""
-    echo "══════════════════════════════════════════════════════════"
+    echo "=========================================================="
     echo "  Agentic Code Review  (range: $range)"
-    echo "══════════════════════════════════════════════════════════"
+    echo "=========================================================="
     echo ""
 
     echo "$diff_text" | "$PYTHON" "$REVIEW_SCRIPT"
 
     echo ""
-    echo "══════════════════════════════════════════════════════════"
+    echo "=========================================================="
     echo ""
 
     # Ask for confirmation (read from /dev/tty to avoid stdin conflict).
-    if [[ -t 0 ]] || [[ -e /dev/tty ]]; then
+    if [[ -e /dev/tty ]]; then
         read -r -p "Continue with push? [y/N] " answer < /dev/tty
         case "$answer" in
             y|Y|yes|YES)
@@ -75,7 +73,16 @@ while read -r local_ref local_sha remote_ref remote_sha; do
                 ;;
         esac
     else
-        echo "pre-push-review: no tty available, proceeding with push."
+        # Non-interactive context (CI, scripted push): fail-closed unless
+        # explicitly opted out.  This prevents automated pushes from
+        # bypassing review silently.
+        if [[ "${PRE_PUSH_REVIEW_SKIP:-}" == "1" ]]; then
+            echo "pre-push-review: non-interactive, PRE_PUSH_REVIEW_SKIP=1 set -- proceeding."
+        else
+            echo "pre-push-review: no tty available and PRE_PUSH_REVIEW_SKIP is not set."
+            echo "  Set PRE_PUSH_REVIEW_SKIP=1 to push without interactive review."
+            exit 1
+        fi
     fi
 
 done

@@ -153,7 +153,7 @@ git config core.hooksPath .githooks
 
 The hook (`scripts/pre-push-review.py`) uses `backend/.venv/bin/python` and loads LLM
 credentials from `backend/.env.local`. If the LLM is not configured, it warns and lets
-the push through. No external API keys are required.
+the push through. The project LLM endpoint must be configured; no GitHub-side or external API keys are needed.
 
 ## Preflight
 
