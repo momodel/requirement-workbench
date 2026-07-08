@@ -506,20 +506,10 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
 
         try:
             if artifact_type == "document":
-                # Structured output via LangChain with_structured_output (Pydantic schema).
-                # The gateway occasionally returns None on large prompts, so fall back to
-                # plain text invoke + JSON coerce (same parsing the legacy path used).
-                try:
-                    structured = model.with_structured_output(GeneratedArtifactOutput)
-                    data = await structured.ainvoke(prompt)
-                    if data is not None:
-                        payload = data.model_dump() if hasattr(data, "model_dump") else dict(data)
-                        return GeneratedArtifactOutput.model_validate(_normalize_generated_artifact_output_payload(payload))
-                except Exception:
-                    pass
-                raw_text = await self._invoke_text(model, prompt)
-                raw = _coerce_json_payload(raw_text)
-                return GeneratedArtifactOutput.model_validate(_normalize_generated_artifact_output_payload(raw))
+                # Structured artifact via Pydantic AI Agent (output_type pipeline) bridged
+                # to the LangChain chat model through a FunctionModel.
+                result_obj = await self._pydantic_ai_structured_artifact(prompt)
+                return GeneratedArtifactOutput.model_validate(_normalize_generated_artifact_output_payload(result_obj))
 
             # HTML artifacts: up to 2 attempts, parse text output.
             max_attempts = 2
@@ -545,3 +535,65 @@ class DeepAgentsRuntime(ClaudeAgentRuntime):
     async def _invoke_text(self, model: ChatAnthropic, prompt: str) -> str:
         resp = await model.ainvoke(prompt)
         return _extract_text(getattr(resp, "content", ""))
+
+
+    async def _pydantic_ai_structured_artifact(self, prompt: str) -> dict:
+        """Generate a structured artifact via a Pydantic AI Agent bridged to LangChain.
+
+        Uses Pydantic AI's Agent + output_type pipeline; the model call goes through
+        LangChain ChatAnthropic via a FunctionModel, avoiding the anthropic SDK version
+        conflict that blocks pydantic-ai's native AnthropicModel. Handles the gateway
+        returning None from with_structured_output by falling back to text + JSON.
+        """
+        import json as _json
+        from pydantic_ai import Agent
+        from pydantic_ai.models.function import FunctionModel
+        from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+        from langchain_core.messages import SystemMessage
+
+        lc_model = self._get_model()
+
+        async def bridge_function(messages, info):  # type: ignore[no-untyped-def]
+            lc_messages: list[Any] = []
+            for m in messages:
+                if getattr(m, "kind", None) == "request":
+                    for part in getattr(m, "parts", []):
+                        pkind = getattr(part, "part_kind", None)
+                        if pkind == "system-prompt":
+                            lc_messages.append(SystemMessage(content=part.content))
+                        elif pkind == "user-prompt":
+                            lc_messages.append(HumanMessage(content=part.content))
+            out_tools = getattr(info, "output_tools", []) or []
+            if out_tools:
+                tool = out_tools[0]
+                data = None
+                try:
+                    data = await lc_model.with_structured_output(GeneratedArtifactOutput).ainvoke(lc_messages)
+                except Exception:
+                    data = None
+                if data is None:
+                    raw = await lc_model.ainvoke(lc_messages)
+                    text = _extract_text(getattr(raw, "content", ""))
+                    try:
+                        payload = _coerce_json_payload(text)
+                    except Exception:
+                        payload = {"title": "未解析的交付物", "body": text[:500]}
+                else:
+                    payload = data.model_dump() if hasattr(data, "model_dump") else dict(data)
+                return ModelResponse(parts=[ToolCallPart(tool_name=tool.name, args=payload, tool_call_id="deepagents-bridge")])
+            raw = await lc_model.ainvoke(lc_messages)
+            return ModelResponse(parts=[TextPart(content=_extract_text(getattr(raw, "content", "")))])
+
+        model_name = self._resolve_model_config()[2] or "deepagents-bridge"
+        agent = Agent(
+            model=FunctionModel(function=bridge_function, model_name=model_name),
+            system_prompt="你是客户需求转译台的交付物生成智能体。只输出结构化内容。",
+            retries=1,
+        )
+        result = await agent.run(prompt, output_type=GeneratedArtifactOutput)
+        data = result.output
+        if isinstance(data, GeneratedArtifactOutput):
+            return data.model_dump()
+        if isinstance(data, dict):
+            return data
+        return {"content": str(data)}
