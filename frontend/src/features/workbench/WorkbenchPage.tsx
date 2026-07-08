@@ -14,6 +14,7 @@ import {
   Paperclip,
   RotateCcw,
   Send,
+  Settings,
   Sparkles,
   Trash2,
   Upload,
@@ -43,6 +44,7 @@ import {
   getArtifactTypeLabel,
 } from '../../lib/artifact-display';
 import { listArtifacts, listArtifactHistory, promoteArtifact } from '../../lib/api';
+import { SettingsDialog } from '../settings/SettingsDialog';
 import { Textarea } from '../../components/ui/textarea';
 import { cn } from '../../lib/utils';
 import type {
@@ -1535,6 +1537,7 @@ export function WorkbenchPage({
   const [composer, setComposer] = useState('');
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isRuntimeDialogOpen, setIsRuntimeDialogOpen] = useState(false);
+  const [isSettingsDialogOpen, setIsSettingsDialogOpen] = useState(false);
   const [sourceName, setSourceName] = useState('访谈纪要');
   const [sourceText, setSourceText] = useState('');
   const [selectedSource, setSelectedSource] = useState<SourceRecord | null>(null);
@@ -1847,6 +1850,15 @@ export function WorkbenchPage({
                 initializingKnowledgeBase={initializingKnowledgeBase}
                 onClick={() => setIsRuntimeDialogOpen(true)}
               />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Provider 设置"
+                onClick={() => setIsSettingsDialogOpen(true)}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -2455,6 +2467,7 @@ export function WorkbenchPage({
         </DialogContent>
       </Dialog>
 
+      <SettingsDialog open={isSettingsDialogOpen} onOpenChange={setIsSettingsDialogOpen} />
 
     </main>
   );

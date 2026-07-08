@@ -217,3 +217,9 @@ export type SseEventPayload = {
   message?: string;
   stream_group_id?: string;
 };
+
+export type ClaudeSettings = {
+  api_key: string;
+  base_url: string;
+  model: string;
+};
