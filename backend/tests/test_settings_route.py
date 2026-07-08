@@ -83,3 +83,29 @@ def test_legacy_env_names_still_resolve(monkeypatch):
     assert resp.base_url == "https://api.legacy.com/anthropic"
     assert resp.model == "legacy-model"
     assert resp.api_format == "anthropic"
+
+
+def test_current_snapshot_is_independently_testable(monkeypatch):
+    """_current_snapshot accepts an explicit settings object, no global needed."""
+    from app.config import AppSettings
+    from app.routes.settings import _current_snapshot
+
+    monkeypatch.setenv("LLM_API_KEY", "sk-snap-1234567890ab")
+    monkeypatch.setenv("LLM_BASE_URL", "https://snap.example.com/v1")
+    monkeypatch.delenv("LLM_API_FORMAT", raising=False)
+
+    custom = AppSettings(
+        root_dir=DEFAULT_SETTINGS.root_dir,
+        data_dir=DEFAULT_SETTINGS.data_dir,
+        sqlite_dir=DEFAULT_SETTINGS.sqlite_dir,
+        sqlite_path=DEFAULT_SETTINGS.sqlite_path,
+        projects_dir=DEFAULT_SETTINGS.projects_dir,
+        llm_model="snap-model",
+    )
+
+    resp = _current_snapshot(custom)
+
+    assert resp.model == "snap-model"
+    assert resp.base_url == "https://snap.example.com/v1"
+    assert resp.api_key_configured is True
+    assert resp.api_format == "openai"

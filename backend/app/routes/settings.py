@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ..config import DEFAULT_SETTINGS
+from ..config import AppSettings, DEFAULT_SETTINGS
 from ..services.llm_model import resolve_llm_config
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -60,8 +60,8 @@ def _mask_api_key(key: str) -> str:
     return f"{key[:6]}...{key[-4:]}"
 
 
-def _current_snapshot() -> LlmSettingsResponse:
-    api_key, base_url, model, fmt = resolve_llm_config(DEFAULT_SETTINGS)
+def _current_snapshot(settings: AppSettings = DEFAULT_SETTINGS) -> LlmSettingsResponse:
+    api_key, base_url, model, fmt = resolve_llm_config(settings)
     return LlmSettingsResponse(
         api_key_configured=bool(api_key),
         api_key_preview=_mask_api_key(api_key),
