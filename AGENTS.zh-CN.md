@@ -30,6 +30,12 @@
 
 这些 skill 只服务后端 CAS 运行时，不等于“功能已经接通”。
 
+**项目根目录 skill（适用于整个仓库）：**
+
+- `agentic-code-review`（`.claude/skills/agentic-code-review/`）- 分层风险的
+  代码审查工作流，用于 agent 生成的变更；爆炸半径分级、多视角 AI 审查、
+  失败模式清单。不属于后端运行时 skill。
+
 ## 当前项目基线
 
 - 当前仓库里已有一批前后端探索代码，但它们不是天然正确的正式基线。
@@ -114,6 +120,22 @@
   - 路径用错
   - 当前 worktree 环境没装
   - 项目依赖确实缺失
+
+
+### Pre-push AI 审查
+
+pre-push hook 会在每次 push 前用项目配置的 LLM 运行 `agentic-code-review`
+skill。审查是传感器，不是裁决：它打印发现并请求确认，由人决定是否合并。
+
+每个 clone 启用一次：
+
+```
+git config core.hooksPath .githooks
+```
+
+hook 脚本（`scripts/pre-push-review.py`）使用 `backend/.venv/bin/python`，
+从 `backend/.env.local` 加载 LLM 凭据。如果 LLM 未配置，它会警告并放行 push。
+无需外部 API key。
 
 ## Preflight
 
