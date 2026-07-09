@@ -110,6 +110,7 @@ class ProviderReadiness(BaseModel):
 class ProjectReadiness(BaseModel):
     project_id: str
     claude: ProviderReadiness
+    llm: ProviderReadiness
     evidence: ProviderReadiness
     wiki: ProviderReadiness | None = None
     knowledge_base: KnowledgeBaseRecord | None = None
@@ -119,6 +120,7 @@ class ProjectReadiness(BaseModel):
 
 class GlobalReadiness(BaseModel):
     claude: ProviderReadiness
+    llm: ProviderReadiness
     evidence: ProviderReadiness
     wiki: ProviderReadiness | None = None
     object_storage: ProviderReadiness | None = None

@@ -20,7 +20,7 @@ For backend runtime rules, read:
 - `backend/CLAUDE.md`
 - `backend/.claude/skills/**/SKILL.md`
 
-If your task touches one of these areas, also read the matching skill:
+If your task touches one of these backend areas, also read the matching skill:
 
 - `requirement-analysis-methodology` — requirements analysis flow, state synthesis,
   version snapshots, artifact triggering.
@@ -31,14 +31,12 @@ If your task touches one of these areas, also read the matching skill:
 - `artifact-generation-guidelines` — the boundaries for generating document drafts,
   page plans, and interaction drafts.
 
-These skills are reference material for the backend runtime. Their existence does not
+These backend skills are reference material for the backend runtime. Their existence does not
 mean a feature is wired up.
 
-**Project-root skill (applies to the whole repo):**
-
-- `agentic-code-review` (`.claude/skills/agentic-code-review/`) - risk-tiered code review
-  workflow for agent-authored changes; blast-radius triage, multi-perspective AI review,
-  and failure-mode checklist. Not a backend runtime skill.
+For project-level contributions, there is also:
+- `.claude/skills/agentic-code-review` — automated local pre-push code review using
+  the project's own LLM.
 
 ## Project baseline
 
@@ -51,10 +49,10 @@ mean a feature is wired up.
 
 ## Technical direction
 
-- Agent: `Claude Agent SDK`.
+- Agent: LangChain (Anthropic / OpenAI-protocol LLM).
 - Evidence layer: `Docling + Qdrant + LlamaIndex` plus the in-repo `EvidenceRuntime`.
 - Synthesis layer: the `LLM Wiki` (project-local markdown maintained by the
-  `WikiMaintainer` sub-agent via the Claude Agent SDK).
+  WikiMaintainer sub-agent via a LangChain LLM).
 
 Do not:
 
@@ -139,22 +137,6 @@ If it is unconfigured, say so. If it fails, report the failure.
 - When a command fails, first distinguish: wrong path, environment not installed in
   this worktree, or a genuinely missing project dependency.
 
-### Pre-push AI review
-
-A pre-push hook runs the `agentic-code-review` skill via the project's configured LLM
-before each push. The review is a sensor, not a verdict: it prints findings and asks for
-confirmation, but a human owns the merge.
-
-Enable it once per clone:
-
-```
-git config core.hooksPath .githooks
-```
-
-The hook (`scripts/pre-push-review.py`) uses `backend/.venv/bin/python` and loads LLM
-credentials from `backend/.env.local`. If the LLM is not configured, it warns and lets
-the push through. The project LLM endpoint must be configured; no GitHub-side or external API keys are needed.
-
 ## Preflight
 
 Before implementing or accepting work, run these checks:
@@ -167,12 +149,12 @@ Before implementing or accepting work, run these checks:
 
 You may not call the main path "wired up" unless all of these pass:
 
-- `Claude Agent SDK` is callable.
-- `LLM_MODEL` is configured (legacy `CLAUDE_MODEL` still accepted).
+- A compatible LLM is callable.
+- `LLM_MODEL` (legacy env name: `CLAUDE_MODEL`) is configured.
 - The in-repo `Docling + Qdrant + LlamaIndex` provider is callable.
 - The project knowledge base is authenticated.
 - The current project has initialized its own knowledge base.
-- The LLM Wiki maintenance path is callable: WikiMaintainer injected, Claude SDK ready,
+- The LLM Wiki maintenance path is callable: WikiMaintainer injected, LLM ready,
   and `POST /wiki/maintain?probe=true` can write and verify a marker in `wiki/.health`.
 
 ## Continuous checks

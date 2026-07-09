@@ -8,8 +8,7 @@ messages should be in English; documentation can be either.
 
 ## Development setup
 
-Prerequisites: Python `3.11+`, Node.js `18+`, a working `claude` CLI (or
-`LLM_CLI_PATH` configured), and network access for the Claude provider and
+Prerequisites: Python `3.11+`, Node.js `18+`, and network access for the LLM provider and
 the RAG evidence layer.
 
 ```bash
@@ -27,6 +26,12 @@ npm install
 Run both as described in [README.md](README.md). The backend must be on port `8000`
 before starting the frontend (Vite proxies `/api` to `127.0.0.1:8000`).
 
+To enable the pre-push AI review hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## Running tests
 
 A change should keep both suites green:
@@ -39,6 +44,22 @@ cd frontend && npm run build                            # type-check + build
 
 CI runs the same commands on every pull request (see `.github/workflows/ci.yml`).
 
+## Pull request process
+
+1. Fork the repository and create a feature branch from `main`
+   - Branch naming convention: `{type}/{short-description}`, e.g. `feat/provider-settings-dialog`
+   - Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
+2. Make your changes, ensuring all tests pass and the pre-push hook passes
+3. Open a pull request to `momodel/requirement-workbench:main`
+4. Wait for review and address any feedback
+5. A maintainer will merge your PR once it's approved
+
+PR titles must follow the same prefix convention as commit messages; a CI check will
+enforce this.
+
+If you are reporting a bug or proposing a new feature, please use the issue templates
+in `.github/ISSUE_TEMPLATE/`.
+
 ## Engineering contract
 
 This repo has a strict "no fake providers" rule. Before opening a PR, please read
@@ -48,50 +69,28 @@ This repo has a strict "no fake providers" rule. Before opening a PR, please rea
 - If something is unconfigured or fails, surface it explicitly; never disguise a
   stub as "connected".
 - The RAG layer is the **evidence** layer (chunk-level, line-traceable citations);
-  the LLM Wiki is the **synthesis** layer. Don't blur the two.
-- The backend host stays thin; business judgement belongs to the agent loop, not to
-  host-side `if/else`.
+  the LLM Wiki is the synthesis layer (cross-source glossary/rules/open questions).
+  Never conflate the two.
 
-## Pull request process
+## Commit message convention
 
-1. Fork and create a topic branch off `main`
-   (e.g. `feat/...`, `fix/...`, `docs/...`).
-2. Make your change with focused commits. Use clear, imperative commit messages.
-3. Ensure tests, type-check and build pass locally.
-4. Open a PR using the template; describe the change, the why, and how you verified
-   it. Link any related issue.
-5. CI runs static checks (tests, type-check, build, PR title). AI code review runs
-   locally via the pre-push hook (see AGENTS.md, Pre-push AI review). Human review
-   is always required. Address feedback and keep the branch up to date with `main`.
+We use the conventional commit style prefixes:
 
-### PR title convention
+- `feat:` new or enhanced functionality
+- `fix:` bug fixes
+- `docs:` documentation-only changes
+- `style:` formatting, whitespace, naming cleanups
+- `refactor:` code restructuring without behavior change
+- `perf:` performance improvements
+- `test:` adding/improving tests
+- `chore:` build/CI/dev tooling changes
 
-Every PR title MUST start with exactly one conventional-commit prefix. Pick the
-single prefix that matches the PR's primary purpose - do not mix types
-(e.g. no `feat+fix`, no `feat/chore`). A CI check rejects titles that do not match.
+The title should be <= 72 characters. PRs with multiple commits will be squashed
+unless the commits are independently meaningful.
 
-| Prefix     | Meaning                                          | Example                                  |
-|------------|--------------------------------------------------|------------------------------------------|
-| `feat`     | New feature or capability                        | `feat: 增加用户微信登录功能`               |
-| `fix`      | Bug fix                                          | `fix: 修复登录页面密码框无法输入的 bug`    |
-| `chore`    | Tooling, deps, build, config (no business logic) | `chore: 升级 webpack 构建工具版本`         |
-| `perf`     | Performance improvement (no behavior change)     | `perf: 优化图片懒加载，提升首屏渲染速度`   |
-| `refactor` | Code restructuring (no feature, no bug fix)      | `refactor: 提取公共请求方法`               |
-| `docs`     | Documentation only                               | `docs: 更新 README.md 文件说明`            |
-| `style`    | Formatting/whitespace (no logic change)          | `style: 统一缩进为空格，删除多余空行`      |
-| `test`     | Adding or updating tests                         | `test: 为用户模块增加单元测试`             |
+## Code of conduct and security
 
-Format: `type: short description`. An optional scope is allowed:
-`type(scope): description` (e.g. `feat(auth): ...`).
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
 
-The topic branch name should mirror the prefix (e.g. `feat/...`, `fix/...`,
-`docs/...`), as already noted in step 1 above.
-
-## Reporting bugs and proposing features
-
-- Use the issue templates under `.github/ISSUE_TEMPLATE/`.
-- For security issues, **do not** open a public issue — follow [SECURITY.md](SECURITY.md).
-
-## Code of Conduct
-
-By participating you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md).
+If you find a security vulnerability, please follow the disclosure instructions in
+[SECURITY.md](SECURITY.md).

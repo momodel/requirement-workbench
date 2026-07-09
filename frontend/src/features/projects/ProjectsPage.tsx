@@ -641,7 +641,7 @@ function ArchitectureSection() {
       </div>
 
       <p className="text-center text-[12px] leading-[1.7] text-stone">
-        基于 <span className="text-charcoal">Claude Agent SDK</span> · <span className="text-charcoal">Docling</span> · <span className="text-charcoal">Qdrant</span> · <span className="text-charcoal">LlamaIndex</span> 等开源能力构建；
+        基于 <span className="text-charcoal">LLM</span> · <span className="text-charcoal">Docling</span> · <span className="text-charcoal">Qdrant</span> · <span className="text-charcoal">LlamaIndex</span> 等开源能力构建；
         分析视角内化了 <span className="text-charcoal">BABOK</span> · <span className="text-charcoal">JTBD</span> · <span className="text-charcoal">Event Storming</span> 三套成熟方法论。
       </p>
     </section>
@@ -1174,8 +1174,8 @@ function ReadinessFooter({ readiness }: { readiness: GlobalReadiness | null }) {
     <footer className="border-t border-borderCream pt-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          {readiness?.claude ? (
-            <ReadyPill label="Claude Agent SDK" status={readiness.claude.status} />
+          {readiness?.llm ? (
+            <ReadyPill label="LLM" status={readiness.llm.status} />
           ) : null}
           {evidenceReadiness(readiness) ? (
             <ReadyPill label="项目知识库" status={evidenceReadiness(readiness)!.status} />

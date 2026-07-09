@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..config import AppSettings
 from ..models import (
     GlobalReadiness,
     ProjectReadiness,
     ProviderReadiness,
 )
+from ..services.llm_model import llm_readiness
 
 
 router = APIRouter(tags=["readiness"])
@@ -35,13 +37,13 @@ def _with_audio_detail(readiness: ProviderReadiness, *, sources) -> ProviderRead
 @router.get("/api/providers/readiness", response_model=GlobalReadiness)
 def get_global_readiness(request: Request) -> GlobalReadiness:
     services = request.app.state.services
+    settings = request.app.state.settings
     claude = services.agent_runtime.get_readiness()
-    evidence = services.evidence_runtime.get_global_readiness()
-    wiki = services.wiki_runtime.get_global_readiness()
     return GlobalReadiness(
         claude=claude,
-        evidence=evidence,
-        wiki=wiki,
+        llm=llm_readiness(settings),
+        evidence=services.evidence_runtime.get_global_readiness(),
+        wiki=services.wiki_runtime.get_global_readiness(),
         object_storage=services.object_storage.get_readiness(),
         audio_transcription=services.audio_transcription.get_readiness(),
     )
@@ -50,11 +52,13 @@ def get_global_readiness(request: Request) -> GlobalReadiness:
 @router.get("/api/projects/{project_id}/readiness", response_model=ProjectReadiness)
 def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness:
     services = request.app.state.services
+    settings = request.app.state.settings
     project = services.catalog.get_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
     claude = services.agent_runtime.get_readiness()
+    llm = llm_readiness(settings)
     evidence = services.evidence_runtime.get_project_readiness(project_id, claude)
     wiki = services.wiki_runtime.get_project_readiness(project_id, claude)
     knowledge_base = services.catalog.get_knowledge_base(
@@ -65,6 +69,7 @@ def get_project_readiness(project_id: str, request: Request) -> ProjectReadiness
     return ProjectReadiness(
         project_id=project_id,
         claude=claude,
+        llm=llm,
         evidence=evidence,
         wiki=wiki,
         knowledge_base=knowledge_base,

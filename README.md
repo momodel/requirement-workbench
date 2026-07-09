@@ -5,9 +5,9 @@
 Read this in [中文](README.zh-CN.md).
 
 Requirement Workbench is a full-stack, AI-agent-driven workspace for requirements
-analysis. Instead of being a generic chat wrapper, it pairs a Claude-Agent-SDK
-analyst with a project-local RAG evidence layer, so every confirmed requirement and
-deliverable is traceable back to the customer's own source material.
+analysis. Instead of being a generic chat wrapper, it pairs an LLM-driven analyst with
+a project-local RAG evidence layer, so every confirmed requirement and deliverable
+is traceable back to the customer's own source material.
 
 The product is organized as a three-pane workbench:
 
@@ -38,21 +38,20 @@ agent-led (not host-scripted) conversation.
 | ---------------- | ----------------------------------------------------------------- |
 | Frontend         | React 18 · TypeScript · Vite · Tailwind CSS · Radix UI            |
 | Backend          | FastAPI (Python 3.11+) · SSE streaming                            |
-| Agent            | Claude Agent SDK                                                  |
+| Agent            | LangChain — compatible with Anthropic/OpenAI protocol LLM         |
 | Evidence (RAG)   | Docling · Qdrant · LlamaIndex · FastEmbed (`bge-small-zh-v1.5`)   |
 | Synthesis        | LLM Wiki (project-local markdown, maintained by a sub-agent)      |
 | Storage          | SQLite (relational) · local filesystem · Qdrant (vectors)         |
 | Audio (optional) | Aliyun FileTrans ASR · Qiniu object storage                       |
 
-Design principle: providers (Claude Agent SDK, the RAG evidence layer) always run
+Design principle: providers (LLM, the RAG evidence layer) always run
 against **real** backends — there is no silent fallback to local fakes. If something
 is unconfigured or fails, it says so explicitly. See [AGENTS.md](AGENTS.md) for the
 full engineering contract.
 
 ## Quick start
 
-Prerequisites: Python `3.11+`, Node.js `18+`, network access, and a working `claude`
-CLI (or `LLM_CLI_PATH` configured).
+Prerequisites: Python `3.11+`, Node.js `18+`, network access.
 
 ```bash
 # 1. Backend
@@ -80,6 +79,9 @@ LLM_API_KEY=your-key
 LLM_BASE_URL=https://coding.dashscope.aliyuncs.com/apps/anthropic
 LLM_MODEL=glm-5
 ```
+
+The LLM integration automatically detects the provider type (Anthropic/OpenAI)
+from the base URL and model name, so you can use any compatible endpoint.
 
 > First run downloads the embedding model `BAAI/bge-small-zh-v1.5` (~100 MB) and
 > Docling parsing models on demand — the first ingest/question may take a few

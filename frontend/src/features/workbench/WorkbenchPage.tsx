@@ -2354,10 +2354,10 @@ export function WorkbenchPage({
           {readiness ? (
             <div className="grid gap-4 py-2">
               <RuntimeProviderCard
-                title="Claude Agent SDK"
-                summary={readiness.claude.summary}
-                detail={readiness.claude.detail}
-                status={readiness.claude.status}
+                title="LLM"
+                summary={readiness.llm.summary}
+                detail={readiness.llm.detail}
+                status={readiness.llm.status}
               />
 
               <div className="rounded-[20px] border border-line bg-parchment/70 p-4">
